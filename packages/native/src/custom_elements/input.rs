@@ -344,7 +344,7 @@ impl CustomElement for TextEditorElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &[
             "value",
             "placeholder",
@@ -355,18 +355,7 @@ impl CustomElement for TextEditorElement {
         ]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "value" => Some(self.value.clone().into()),
-            "placeholder" => Some(self.placeholder.clone().into()),
-            "readOnly" => Some(self.read_only.into()),
-            "minRows" => Some(self.min_rows.into()),
-            "maxRows" => Some(self.max_rows.into()),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[
             "change", "submit", "click", "keyDown", "keyUp", "focus", "blur",
         ]

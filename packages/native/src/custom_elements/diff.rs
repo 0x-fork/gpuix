@@ -405,7 +405,7 @@ impl CustomElement for DiffElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &[
             "patch",
             "wordDiff",
@@ -416,14 +416,7 @@ impl CustomElement for DiffElement {
         ]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "patch" => Some(serde_json::Value::String(self.patch.clone())),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[
             "toggleFile",
             "showMore",

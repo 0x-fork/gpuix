@@ -134,28 +134,11 @@ impl CustomElement for ImgElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &["src", "objectFit"]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "src" => Some(serde_json::Value::String(self.src.clone())),
-            "objectFit" => Some(serde_json::Value::String(
-                match self.object_fit {
-                    ImgObjectFit::Fill => "fill",
-                    ImgObjectFit::Contain => "contain",
-                    ImgObjectFit::Cover => "cover",
-                    ImgObjectFit::ScaleDown => "scaleDown",
-                    ImgObjectFit::None => "none",
-                }
-                .to_string(),
-            )),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[]
     }
 
@@ -243,15 +226,11 @@ impl CustomElement for SvgElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &["src"]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        (key == "src").then(|| serde_json::Value::String(self.src.clone()))
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[]
     }
 
