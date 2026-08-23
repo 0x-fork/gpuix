@@ -7,6 +7,7 @@ import {
   handleAutomationRequest,
   InProcessBackend,
   PROTOCOL_VERSION,
+  SseBackend,
 } from "../automation/index.js"
 import type { TestAutomationRenderer } from "../automation/client.js"
 
@@ -86,5 +87,51 @@ describe("automation stdio", () => {
     expect(encodeSse({ id: 1, method: "blur", params: {} })).toMatch(
       /^data: \{/
     )
+  })
+
+  it("closes pending requests and the transport exactly once", async () => {
+    let closes = 0
+    const backend = new SseBackend(
+      () => {},
+      () => {},
+      async () => {
+        closes += 1
+      }
+    )
+    const pending = backend.call("blur", {})
+    const rejection = expect(pending).rejects.toMatchObject({ code: "Closed" })
+
+    await backend.close()
+    await rejection
+    await backend.close()
+
+    expect(closes).toBe(1)
+  })
+
+  it("enforces the same closed-session contract in process", async () => {
+    const backend = new InProcessBackend(fakeRenderer())
+    await backend.close()
+
+    await expect(backend.call("blur", {})).rejects.toMatchObject({
+      code: "Closed",
+    })
+  })
+
+  it("rejects calls made after the session closes without writing", async () => {
+    let writes = 0
+    const backend = new SseBackend(
+      () => {
+        writes += 1
+      },
+      () => {}
+    )
+    await backend.close()
+
+    const rejected = backend.call("blur", {}).then(
+      () => undefined,
+      (error: unknown) => error
+    )
+    expect(writes).toBe(0)
+    await expect(rejected).resolves.toMatchObject({ code: "Closed" })
   })
 })
