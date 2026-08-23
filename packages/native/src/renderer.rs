@@ -1115,7 +1115,7 @@ impl GpuixRenderer {
     pub fn get_automation_tree(&self) -> Result<String> {
         self.request_invalidate()?;
         let tree = self.tree.lock().unwrap();
-        let json = tree.to_json(&crate::automation::all_bounds());
+        let json = tree.to_automation_json(&crate::automation::all_bounds());
         serde_json::to_string(&json)
             .map_err(|e| Error::from_reason(format!("JSON serialization failed: {}", e)))
     }
@@ -1628,6 +1628,17 @@ impl VirtualListEntry {
         focusable_rows: &HashSet<u64>,
         cx: &mut gpui::Context<GpuixView>,
     ) {
+        let focus_unchanged = self.child_ids == child_ids
+            && self.row_focus_handles.len() == child_ids.len()
+            && self
+                .child_ids
+                .iter()
+                .zip(&self.row_focus_handles)
+                .all(|(id, handle)| handle.is_some() == focusable_rows.contains(id));
+        if self.config == config && focus_unchanged && self.child_revisions == child_revisions {
+            return;
+        }
+
         let old_rows: HashMap<u64, (u64, Option<gpui::FocusHandle>)> = self
             .child_ids
             .iter()

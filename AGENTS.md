@@ -228,6 +228,10 @@ runs in the render phase. 10k rows become ~30k host nodes (row wrapper +
 inner + `<markdown>`/`<code>`/`<diff>`), then one `commitMutations`. GPUI does
 not build those rows yet. After that, scroll cost is visible Taffy only.
 
+Keep chrome state out of the component that maps the list. `memo(Transcript)`
+so a sidebar click or composer keystroke does not remap every row. A 5k-row
+chat paid 250ms per click before that.
+
 ## Profiling and optimizing
 
 Load the **profano** skill first. Fetch its README. Do not guess CLI flags.
@@ -615,34 +619,40 @@ can be inspected after a run.
 ### Integration Test
 
 ```bash
-# Run example with tsx (use tmux for long-running sessions so it does not block the shell)
-cd examples
-npx tsx counter.tsx
+cd examples && bun --hot chat.tsx
 ```
 
-### UI Screenshot Validation (macOS)
+Use tuistory for the long-running process. Do not use `tsx` or raw `tmux`.
 
-To validate rendering changes, capture a window screenshot via CLI and then ask a task to describe it.
+### Drive the live window
 
-```bash
-# Set a predictable window title in the example
-# renderer.setWindowTitle("GPUIX Counter")
+**Do not use `usecomputer`, `screencapture`, or desktop clicks.** GPUIX has a
+Playwright-like automation API. Full docs are in the README **Automation**
+section.
 
-# List onscreen windows and get the window id (kCGWindowNumber)
-osascript -e 'tell application "System Events" to get the name of every process'
+Mark targets with `testId`. Then either:
 
-# Capture the GPUI window by title (may prompt for Screen Recording permission)
-WINDOW_ID=$(osascript -l JavaScript -e 'ObjC.import("CoreGraphics"); var title="GPUIX Counter"; var info=ObjC.unwrap($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID)); for (var i=0;i<info.length;i++){ var w=info[i]; if (w.kCGWindowLayer!==0) continue; if ((w.kCGWindowName||"")===title) { console.log(w.kCGWindowNumber); return; }}')
-screencapture -x -l "$WINDOW_ID" /tmp/gpuix-window.png
+- `connectTest(renderer)` against `createTestRoot()` in vitest
+- `launch({ command, args })` against a child process. The app serves commands
+  on stdin only when stdin is a **pipe**
+
+```ts
+import { launch } from '@gpuix/react/automation'
+
+const app = await launch({ command: 'bun', args: ['chat.tsx'], cwd: 'examples' })
+await app.getByTestId('sidebar-collapse').waitFor({ timeoutMs: 30_000 })
+await app.screenshot({ path: 'tmp/chat.png' })
+
+const startedAt = await app.clock.pause()
+await app.getByTestId('sidebar-collapse').click()
+await app.captureFrames('tmp/sidebar', [startedAt, startedAt + 100, startedAt + 200])
+await app.clock.resume()
+await app.close()
 ```
 
-Then use the task tool to analyze the image:
-
-```text
-Use Task to analyze /tmp/gpuix-window.png and describe what UI elements and text are visible.
-```
-
-Note: `screencapture` and the JXA window listing may require Screen Recording permission in System Settings (Privacy & Security). If the command prints nothing, grant permission to the terminal/osascript process and retry.
+`click()` hits the last painted bounds. `clock.pause` / `set` / `fastForward`
+freeze native motion. `captureFrames` writes one PNG per timestamp. That is how
+you record a sidebar open/close, not a screen recorder.
 
 ## Related Projects
 

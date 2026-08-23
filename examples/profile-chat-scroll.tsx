@@ -1,6 +1,7 @@
 // Profile ChatApp wheel frames. Run with bun --cpu-prof.
 import React from 'react'
 import { createTestRoot } from '@gpuix/react'
+import { connectTest } from '@gpuix/react/automation'
 import { ChatApp } from './chat'
 
 const root = createTestRoot()
@@ -12,6 +13,34 @@ const count = Number(process.env.TURNS ?? 10_000)
 const safe = process.env.SAFE_MDX === '1'
 root.render(<ChatApp turnCount={count} includeSafeMdx={safe} />)
 console.log(`mount ${(performance.now() - mountStart).toFixed(1)}ms`)
+
+if (process.env.INTERACT === '1') {
+  const treeStart = performance.now()
+  root.renderer.getAutomationTree()
+  console.log(`getTree ${(performance.now() - treeStart).toFixed(1)}ms`)
+
+  const idle: number[] = []
+  for (let i = 0; i < 20; i++) {
+    const start = performance.now()
+    root.renderer.flush()
+    idle.push(performance.now() - start)
+  }
+  idle.sort((a, b) => a - b)
+  console.log(
+    `idle flush mean=${(idle.reduce((a, b) => a + b, 0) / idle.length).toFixed(2)}ms max=${idle[19]!.toFixed(2)}ms`,
+  )
+
+  const app = await connectTest(root.renderer)
+  const collapseStart = performance.now()
+  await app.getByTestId('sidebar-collapse').click()
+  console.log(`collapse ${(performance.now() - collapseStart).toFixed(1)}ms`)
+  const expandStart = performance.now()
+  await app.getByTestId('sidebar-expand').click()
+  console.log(`expand ${(performance.now() - expandStart).toFixed(1)}ms`)
+  process.exit(0)
+}
+
+if (process.env.MOUNT_ONLY === '1') process.exit(0)
 
 const samples: number[] = []
 for (let i = 0; i < 40; i++) {

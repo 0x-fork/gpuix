@@ -11,7 +11,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   motion,
   render,
@@ -717,7 +717,7 @@ function expandTurns(count: number): Turn[] {
   return out
 }
 
-function Transcript({
+const Transcript = memo(function Transcript({
   turns,
   includeSafeMdx = false,
   listRef,
@@ -756,7 +756,7 @@ function Transcript({
       ))}
     </virtual-list>
   )
-}
+})
 
 function Header({
   collapsed,

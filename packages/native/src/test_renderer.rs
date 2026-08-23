@@ -747,7 +747,7 @@ impl TestGpuixRenderer {
     pub fn get_automation_tree(&self) -> Result<String> {
         self.flush()?;
         let tree = self.tree.lock().unwrap();
-        let json = tree.to_json(&crate::automation::all_bounds());
+        let json = tree.to_automation_json(&crate::automation::all_bounds());
         serde_json::to_string(&json)
             .map_err(|e| Error::from_reason(format!("JSON serialization failed: {}", e)))
     }

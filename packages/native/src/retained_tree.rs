@@ -240,8 +240,24 @@ impl RetainedTree {
         &self,
         bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
     ) -> serde_json::Value {
+        self.to_json_detail(bounds, true)
+    }
+
+    /// Locator tree. Skip style maps so a 5k-row list is not 100ms of JSON.
+    pub fn to_automation_json(
+        &self,
+        bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+    ) -> serde_json::Value {
+        self.to_json_detail(bounds, false)
+    }
+
+    fn to_json_detail(
+        &self,
+        bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+        include_details: bool,
+    ) -> serde_json::Value {
         match self.root_id {
-            Some(root_id) => element_to_json(root_id, self, bounds),
+            Some(root_id) => element_to_json(root_id, self, bounds, include_details),
             None => serde_json::Value::Null,
         }
     }
@@ -251,6 +267,7 @@ fn element_to_json(
     id: u64,
     tree: &RetainedTree,
     bounds: &std::collections::HashMap<u64, crate::automation::ElementBounds>,
+    include_details: bool,
 ) -> serde_json::Value {
     let Some(element) = tree.elements.get(&id) else {
         return serde_json::Value::Null;
@@ -289,41 +306,43 @@ fn element_to_json(
         );
     }
 
-    if let Some(ref style) = element.style {
-        if let Ok(style_json) = serde_json::to_value(style) {
-            if let serde_json::Value::Object(ref map) = style_json {
-                let filtered: serde_json::Map<String, serde_json::Value> = map
-                    .iter()
-                    .filter(|(_, v)| !v.is_null())
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                if !filtered.is_empty() {
-                    obj.insert("style".to_string(), serde_json::Value::Object(filtered));
+    if include_details {
+        if let Some(ref style) = element.style {
+            if let Ok(style_json) = serde_json::to_value(style) {
+                if let serde_json::Value::Object(ref map) = style_json {
+                    let filtered: serde_json::Map<String, serde_json::Value> = map
+                        .iter()
+                        .filter(|(_, v)| !v.is_null())
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    if !filtered.is_empty() {
+                        obj.insert("style".to_string(), serde_json::Value::Object(filtered));
+                    }
                 }
             }
         }
-    }
 
-    if !element.events.is_empty() {
-        let mut events: Vec<String> = element.events.iter().cloned().collect();
-        events.sort();
-        obj.insert("events".to_string(), serde_json::json!(events));
-    }
+        if !element.events.is_empty() {
+            let mut events: Vec<String> = element.events.iter().cloned().collect();
+            events.sort();
+            obj.insert("events".to_string(), serde_json::json!(events));
+        }
 
-    if !element.custom_props.is_empty() {
-        let custom: serde_json::Map<String, serde_json::Value> = element
-            .custom_props
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        obj.insert("customProps".to_string(), serde_json::Value::Object(custom));
+        if !element.custom_props.is_empty() {
+            let custom: serde_json::Map<String, serde_json::Value> = element
+                .custom_props
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            obj.insert("customProps".to_string(), serde_json::Value::Object(custom));
+        }
     }
 
     if !element.children.is_empty() {
         let children: Vec<serde_json::Value> = element
             .children
             .iter()
-            .map(|&cid| element_to_json(cid, tree, bounds))
+            .map(|&cid| element_to_json(cid, tree, bounds, include_details))
             .filter(|v| !v.is_null())
             .collect();
         if !children.is_empty() {

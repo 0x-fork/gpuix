@@ -224,6 +224,19 @@ describeNative('chat example', () => {
     expect(fs.statSync(after).size).toBeGreaterThan(0)
   }, 20_000)
 
+  it('keeps transcript row ids when the sidebar collapses', async () => {
+    const { render, renderer } = createTestRoot()
+    render(<ChatApp turnCount={80} />)
+    const before = renderer.findByType('virtual-list')[0]?.children.slice() ?? []
+    expect(before.length).toBe(80)
+
+    const app = await connectTest(renderer)
+    await app.getByTestId('sidebar-collapse').click()
+
+    expect(renderer.findByType('virtual-list')[0]?.children).toEqual(before)
+    expect(await app.getByTestId('sidebar-expand').count()).toBe(1)
+  })
+
   it('captures deterministic sidebar motion frames', async () => {
     const top = path.join(SHOTS, 'chat-top.png')
     const transitioning = path.join(SHOTS, 'chat-sidebar-transition.png')
