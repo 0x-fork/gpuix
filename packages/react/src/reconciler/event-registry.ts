@@ -36,7 +36,3 @@ export function unregisterEventHandler(elementId: number, eventType: string): vo
 export function unregisterEventHandlers(elementId: number): void {
   eventHandlers.delete(elementId)
 }
-
-export function clearEventHandlers(): void {
-  eventHandlers.clear()
-}

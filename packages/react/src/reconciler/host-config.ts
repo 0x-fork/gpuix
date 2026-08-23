@@ -28,13 +28,6 @@ import {
 let elementIdCounter = 0
 let currentUpdatePriority = NoEventPriority
 
-// Renderer reference — set by createRoot before any reconciler work.
-let nativeRenderer: NativeRenderer | null = null
-
-export function setNativeRenderer(renderer: NativeRenderer): void {
-  nativeRenderer = renderer
-}
-
 export function resetIdCounter(): void {
   elementIdCounter = 0
 }
@@ -43,9 +36,26 @@ function nextId(): number {
   return ++elementIdCounter
 }
 
-function getRenderer(): NativeRenderer {
-  if (!nativeRenderer) throw new Error("GPUIX renderer not set. Call createRoot first.")
-  return nativeRenderer
+type HostNode = Instance | TextInstance
+
+interface HostNodeState {
+  renderer: NativeRenderer
+  initialChildren: HostNode[]
+  mounted: boolean
+}
+
+const hostNodeStates = new WeakMap<HostNode, HostNodeState>()
+
+function stateFor(node: HostNode): HostNodeState {
+  const state = hostNodeStates.get(node)
+  if (!state) {
+    throw new Error(`GPUIX host node ${node.id} does not belong to a root`)
+  }
+  return state
+}
+
+function rendererFor(node: HostNode): NativeRenderer {
+  return stateFor(node).renderer
 }
 
 // ── Event wiring helpers ─────────────────────────────────────────────
@@ -78,19 +88,22 @@ const EVENT_PROPS = [
 
 const EVENT_PROP_NAMES = new Set<string>(EVENT_PROPS.map(([name]) => name))
 
-function syncEventListeners(id: number, props: Props): void {
-  const r = getRenderer()
+function syncEventListeners(renderer: NativeRenderer, id: number, props: Props): void {
   for (const [propName, eventType] of EVENT_PROPS) {
     const handler = props[propName]
     if (handler) {
       registerEventHandler(id, eventType, handler)
-      r.setEventListener(id, eventType, true)
+      renderer.setEventListener(id, eventType, true)
     }
   }
 }
 
-function diffEventListeners(id: number, oldProps: Props, newProps: Props): void {
-  const r = getRenderer()
+function diffEventListeners(
+  renderer: NativeRenderer,
+  id: number,
+  oldProps: Props,
+  newProps: Props
+): void {
   for (const [propName, eventType] of EVENT_PROPS) {
     const oldHandler = oldProps[propName]
     const newHandler = newProps[propName]
@@ -98,12 +111,12 @@ function diffEventListeners(id: number, oldProps: Props, newProps: Props): void 
     if (oldHandler && !newHandler) {
       // Removed — clean up both JS closure and Rust listener
       unregisterEventHandler(id, eventType)
-      r.setEventListener(id, eventType, false)
+      renderer.setEventListener(id, eventType, false)
     } else if (newHandler && newHandler !== oldHandler) {
       // Added or changed
       registerEventHandler(id, eventType, newHandler)
       if (!oldHandler) {
-        r.setEventListener(id, eventType, true)
+        renderer.setEventListener(id, eventType, true)
       }
     }
   }
@@ -111,10 +124,10 @@ function diffEventListeners(id: number, oldProps: Props, newProps: Props): void 
 
 // ── Style helper ─────────────────────────────────────────────────────
 
-function sendStyle(id: number, props: Props): void {
+function sendStyle(renderer: NativeRenderer, id: number, props: Props): void {
   const style = props.style
   if (style == null || Object.keys(style).length === 0) return
-  getRenderer().setStyle(id, style)
+  renderer.setStyle(id, style)
 }
 
 // ── Custom prop forwarding ───────────────────────────────────────────
@@ -143,25 +156,29 @@ function serializeCustomProp(
 }
 
 /** Send all custom props to Rust for non-built-in element types. */
-function syncCustomProps(id: number, type: string, props: Props): void {
+function syncCustomProps(
+  renderer: NativeRenderer,
+  id: number,
+  type: string,
+  props: Props
+): void {
   const builtIn = BUILT_IN_TYPES.has(type)
-  const r = getRenderer()
   for (const [key, value] of Object.entries(props)) {
     if (isReservedProp(key)) continue
     if (builtIn && !UNIVERSAL_PROPS.has(key)) continue
-    r.setCustomProp(id, key, serializeCustomProp(type, key, value))
+    renderer.setCustomProp(id, key, serializeCustomProp(type, key, value))
   }
 }
 
 /** Diff and send changed custom props to Rust. */
 function diffCustomProps(
+  renderer: NativeRenderer,
   id: number,
   type: string,
   oldProps: Props,
   newProps: Props
 ): void {
   const builtIn = BUILT_IN_TYPES.has(type)
-  const r = getRenderer()
   const oldEntries = Object.entries(oldProps)
   const newKeys = Object.keys(newProps)
   // Updated or added props
@@ -170,7 +187,7 @@ function diffCustomProps(
     if (builtIn && !UNIVERSAL_PROPS.has(key)) continue
     const oldValue = oldEntries.find(([oldKey]) => oldKey === key)?.[1]
     if (oldValue !== value) {
-      r.setCustomProp(id, key, serializeCustomProp(type, key, value))
+      renderer.setCustomProp(id, key, serializeCustomProp(type, key, value))
     }
   }
   // Removed props
@@ -178,9 +195,43 @@ function diffCustomProps(
     if (isReservedProp(key)) continue
     if (builtIn && !UNIVERSAL_PROPS.has(key)) continue
     if (!newKeys.includes(key)) {
-      r.setCustomProp(id, key, JSON.stringify(null))
+      renderer.setCustomProp(id, key, JSON.stringify(null))
     }
   }
+}
+
+/**
+ * Materialize a render-phase host node only after React places its subtree in
+ * the commit phase. Abandoned concurrent renders stay as collectable JS
+ * objects and never enter the native mutation queue.
+ */
+function materialize(node: HostNode): HostNodeState {
+  const state = stateFor(node)
+  if (state.mounted) return state
+
+  const renderer = state.renderer
+  for (const child of state.initialChildren) {
+    if (stateFor(child).renderer !== renderer) {
+      throw new Error("Cannot attach GPUIX host nodes from different roots")
+    }
+  }
+  if ("type" in node) {
+    renderer.createElement(node.id, node.type)
+    sendStyle(renderer, node.id, node.props)
+    syncEventListeners(renderer, node.id, node.props)
+    syncCustomProps(renderer, node.id, node.type, node.props)
+  } else {
+    renderer.createElement(node.id, "text")
+    renderer.setText(node.id, node.text)
+  }
+  state.mounted = true
+
+  for (const child of state.initialChildren) {
+    materialize(child)
+    renderer.appendChild(node.id, child.id)
+  }
+  state.initialChildren.length = 0
+  return state
 }
 
 // ── Host config ──────────────────────────────────────────────────────
@@ -190,34 +241,37 @@ export const hostConfig = {
   supportsPersistence: false,
   supportsHydration: false,
 
-  // NOTE: createInstance is called during React's RENDER phase, not the commit
-  // phase. In concurrent mode, React can abandon a render and retry — mutations
-  // from abandoned renders stay in the batch queue and get flushed with the next
-  // successful commit, potentially creating orphaned elements in Rust's retained
-  // tree. This is a pre-existing issue (pre-batching, calls went directly to
-  // native with the same orphan risk). Proper fix: defer element creation to
-  // commit phase callbacks.
+  // React creates host nodes while rendering and may abandon that work in
+  // concurrent mode. Keep the description in JS; materialize it only from a
+  // commit-phase placement callback.
   createInstance(
     type: ElementType,
     props: Props,
-    _rootContainerInstance: Container,
+    rootContainerInstance: Container,
     _hostContext: HostContext
   ): Instance {
-    const id = nextId()
-    const r = getRenderer()
-    r.createElement(id, type)
-    sendStyle(id, props)
-    syncEventListeners(id, props)
-    syncCustomProps(id, type, props)
-    return { id, type, props }
+    const instance: Instance = { id: nextId(), type, props }
+    hostNodeStates.set(instance, {
+      renderer: rootContainerInstance.renderer,
+      initialChildren: [],
+      mounted: false,
+    })
+    return instance
   },
 
   appendChild(parent: Instance, child: Instance | TextInstance): void {
-    getRenderer().appendChild(parent.id, child.id)
+    const parentState = stateFor(parent)
+    const childState = stateFor(child)
+    if (childState.renderer !== parentState.renderer) {
+      throw new Error("Cannot attach GPUIX host nodes from different roots")
+    }
+    materialize(parent)
+    materialize(child)
+    parentState.renderer.appendChild(parent.id, child.id)
   },
 
   removeChild(parent: Instance, child: Instance | TextInstance): void {
-    getRenderer().removeChild(parent.id, child.id)
+    rendererFor(parent).removeChild(parent.id, child.id)
   },
 
   insertBefore(
@@ -225,7 +279,17 @@ export const hostConfig = {
     child: Instance | TextInstance,
     beforeChild: Instance | TextInstance
   ): void {
-    getRenderer().insertBefore(parent.id, child.id, beforeChild.id)
+    const parentState = stateFor(parent)
+    const childState = stateFor(child)
+    if (
+      childState.renderer !== parentState.renderer ||
+      rendererFor(beforeChild) !== parentState.renderer
+    ) {
+      throw new Error("Cannot attach GPUIX host nodes from different roots")
+    }
+    materialize(parent)
+    materialize(child)
+    parentState.renderer.insertBefore(parent.id, child.id, beforeChild.id)
   },
 
   insertInContainerBefore(
@@ -234,8 +298,11 @@ export const hostConfig = {
     _beforeChild: Instance
   ): void {},
 
-  removeChildFromContainer(_parent: Container, child: Instance): void {
-    const destroyed = getRenderer().destroyElement(child.id)
+  removeChildFromContainer(parent: Container, child: Instance): void {
+    if (rendererFor(child) !== parent.renderer) {
+      throw new Error("Cannot detach a GPUIX host node from a different root")
+    }
+    const destroyed = parent.renderer.destroyElement(child.id)
     for (const id of destroyed) {
       unregisterEventHandlers(id)
     }
@@ -248,8 +315,8 @@ export const hostConfig = {
   // Batch flush point: commitMutations() sends all queued mutations to Rust
   // in a single applyBatch() FFI call. This is the end of React's synchronous
   // commit phase — all mutations from this render are flushed together.
-  resetAfterCommit(_containerInfo: Container): void {
-    getRenderer().commitMutations()
+  resetAfterCommit(containerInfo: Container): void {
+    containerInfo.renderer.commitMutations()
   },
 
   getRootHostContext(_rootContainerInstance: Container): HostContext {
@@ -271,14 +338,16 @@ export const hostConfig = {
 
   createTextInstance(
     text: string,
-    _rootContainerInstance: Container,
+    rootContainerInstance: Container,
     _hostContext: HostContext
   ): TextInstance {
-    const id = nextId()
-    const r = getRenderer()
-    r.createElement(id, "text")
-    r.setText(id, text)
-    return { id, text, parentId: null }
+    const instance: TextInstance = { id: nextId(), text, parentId: null }
+    hostNodeStates.set(instance, {
+      renderer: rootContainerInstance.renderer,
+      initialChildren: [],
+      mounted: false,
+    })
+    return instance
   },
 
   scheduleTimeout: setTimeout,
@@ -313,13 +382,14 @@ export const hostConfig = {
     newProps: Props,
     _internalInstanceHandle: unknown
   ): void {
+    const renderer = rendererFor(instance)
     // Always resend style — per-element JSON is small, and this avoids
     // bugs from same-reference mutations or style removal.
-    getRenderer().setStyle(instance.id, newProps.style ?? {})
+    renderer.setStyle(instance.id, newProps.style ?? {})
     // Event diff
-    diffEventListeners(instance.id, oldProps, newProps)
+    diffEventListeners(renderer, instance.id, oldProps, newProps)
     // Custom prop diff (for non-div/text elements)
-    diffCustomProps(instance.id, instance.type, oldProps, newProps)
+    diffCustomProps(renderer, instance.id, instance.type, oldProps, newProps)
     instance.props = newProps
   },
 
@@ -328,24 +398,33 @@ export const hostConfig = {
     _oldText: string,
     newText: string
   ): void {
-    getRenderer().setText(textInstance.id, newText)
+    rendererFor(textInstance).setText(textInstance.id, newText)
     textInstance.text = newText
   },
 
   appendChildToContainer(container: Container, child: Instance): void {
+    const childState = stateFor(child)
+    if (childState.renderer !== container.renderer) {
+      throw new Error("Cannot attach a GPUIX host node to a different root")
+    }
+    materialize(child)
     container.renderer.setRoot(child.id)
   },
 
   appendInitialChild(parent: Instance, child: Instance | TextInstance): void {
-    getRenderer().appendChild(parent.id, child.id)
+    const parentState = stateFor(parent)
+    if (rendererFor(child) !== parentState.renderer) {
+      throw new Error("Cannot attach GPUIX host nodes from different roots")
+    }
+    parentState.initialChildren.push(child)
   },
 
   hideInstance(instance: Instance): void {
-    getRenderer().setStyle(instance.id, { visibility: "hidden" })
+    rendererFor(instance).setStyle(instance.id, { visibility: "hidden" })
   },
 
   unhideInstance(instance: Instance, _props: Props): void {
-    getRenderer().setStyle(instance.id, instance.props.style ?? {})
+    rendererFor(instance).setStyle(instance.id, instance.props.style ?? {})
   },
 
   hideTextInstance(_textInstance: TextInstance): void {},
@@ -396,7 +475,7 @@ export const hostConfig = {
   },
 
   detachDeletedInstance(instance: Instance): void {
-    const destroyed = getRenderer().destroyElement(instance.id)
+    const destroyed = rendererFor(instance).destroyElement(instance.id)
     for (const id of destroyed) {
       unregisterEventHandlers(id)
     }

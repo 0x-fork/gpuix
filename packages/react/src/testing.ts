@@ -9,18 +9,11 @@
 /// flush the tree, dispatch through GPUI, drain events, and feed them into
 /// the React event registry via handleGpuixEvent.
 
-import React from "react"
 import type { ReactNode } from "react"
 import type { EventPayload } from "@gpuix/native"
 import type { DebugFrameOverlayMode, NativeRenderer } from "./types/host.js"
-import type { Root } from "./reconciler/renderer.js"
-import { reconciler } from "./reconciler/reconciler.js"
-import { setNativeRenderer, resetIdCounter } from "./reconciler/host-config.js"
-import { clearEventHandlers, handleGpuixEvent } from "./reconciler/event-registry.js"
-import { wrapWithBatching } from "./reconciler/batch-renderer.js"
-import { GpuixContext } from "./hooks/use-gpuix.js"
-import type { OpaqueRoot } from "react-reconciler"
-import { ConcurrentRoot } from "react-reconciler/constants.js"
+import { createRoot, flushSync, type Root } from "./reconciler/renderer.js"
+import { handleGpuixEvent } from "./reconciler/event-registry.js"
 
 interface NativeTestRendererApi extends NativeRenderer {
   applyBatch(json: string): number[]
@@ -80,11 +73,6 @@ try {
 /** Whether the native TestGpuixRenderer is available (for conditional test registration). */
 export const hasNativeTestRenderer = NativeTestRenderer != null
 
-// Access reconciler.flushSync (name varies by version)
-const _r = reconciler as typeof reconciler & {
-  flushSyncFromReconciler?: typeof reconciler.flushSync
-}
-const flushSync = _r.flushSyncFromReconciler ?? _r.flushSync
 
 // ── Test element tree ────────────────────────────────────────────────
 
@@ -506,61 +494,19 @@ export interface TestRoot {
  * and convenience methods.
  */
 export function createTestRoot(): TestRoot {
-  // Reset ID counter so tests are deterministic
-  resetIdCounter()
-
   const renderer = new TestRenderer()
-  // Wrap with batching — mutations are buffered and sent in one applyBatch()
-  // call per commit, same as production. Tests exercise the batching path.
-  const batchedRenderer = wrapWithBatching(renderer)
-  setNativeRenderer(batchedRenderer)
+  const root = createRoot(renderer)
 
-  const gpuixContainer = { renderer: batchedRenderer }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const container: OpaqueRoot = (reconciler.createContainer as any)(
-    gpuixContainer,
-    ConcurrentRoot,
-    null,
-    false,
-    null,
-    "",
-    console.error,
-    console.error,
-    console.error,
-    null
-  )
-
-  const render = (node: ReactNode) => {
-    // Wrap in flushSync so updates are applied synchronously for tests
-    flushSync(() => {
-      clearEventHandlers()
-      reconciler.updateContainer(
-        React.createElement(
-          GpuixContext.Provider,
-          { value: { renderer: batchedRenderer } },
-          node
-        ),
-        container,
-        null,
-        () => {}
-      )
-    })
-    // Trigger GPUI rendering pipeline.
+  const render = (node: ReactNode): void => {
+    flushSync(() => root.render(node))
+    // Trigger GPUI rendering pipeline after the synchronous React commit.
     renderer.flush()
   }
 
-  const unmount = () => {
-    flushSync(() => {
-      reconciler.updateContainer(null, container, null, () => {})
-    })
-    clearEventHandlers()
-  }
-
   return {
-    root: { render, unmount },
+    root,
     renderer,
     render,
-    unmount,
+    unmount: root.unmount,
   }
 }

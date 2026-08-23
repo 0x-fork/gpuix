@@ -6,8 +6,7 @@ import { GpuixRenderer } from "@gpuix/native"
 import type { EventPayload, WindowOptions } from "@gpuix/native"
 import { reconciler } from "./reconciler.js"
 import type { Container, DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
-import { clearEventHandlers, handleGpuixEvent } from "./event-registry.js"
-import { resetIdCounter, setNativeRenderer } from "./host-config.js"
+import { handleGpuixEvent } from "./event-registry.js"
 import { wrapWithBatching } from "./batch-renderer.js"
 import { GpuixContext } from "../hooks/use-gpuix.js"
 import {
@@ -133,8 +132,6 @@ export function createRoot(renderer: NativeRenderer): Root {
   // This reduces N FFI boundary crossings to 1 per React commit.
   const batchedRenderer = wrapWithBatching(renderer)
 
-  // Wire up the batched renderer for host-config to use
-  setNativeRenderer(batchedRenderer)
 
   const gpuixContainer: Container = {
     renderer: batchedRenderer,
@@ -148,7 +145,6 @@ export function createRoot(renderer: NativeRenderer): Root {
       })
       container = null
     }
-    clearEventHandlers()
   }
 
   // Create container once — reuse on subsequent render() calls
@@ -168,16 +164,17 @@ export function createRoot(renderer: NativeRenderer): Root {
 
   return {
     render: (node): void => {
-      setNativeRenderer(batchedRenderer)
-      clearEventHandlers()
-
+      const activeContainer = container
+      if (!activeContainer) {
+        throw new Error("Cannot render an unmounted GPUIX root")
+      }
       reconciler.updateContainer(
         React.createElement(
           GpuixContext.Provider,
           { value: { renderer: batchedRenderer } },
           node
         ),
-        container,
+        activeContainer,
         null,
         () => {}
       )
@@ -220,6 +217,9 @@ export interface RenderOptions extends WindowOptions {
 }
 
 export function resetRender(): void {
+  const slot = Reflect.get(globalThis, RENDER_HOST_KEY) as RenderSlot | undefined
+  slot?.loop?.stop()
+  slot?.root?.unmount()
   Reflect.deleteProperty(globalThis, RENDER_HOST_KEY)
 }
 
@@ -248,7 +248,6 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   if (slot.root) {
     console.log("[gpuix] remount: unmount previous tree")
     slot.root.unmount()
-    resetIdCounter()
   }
   const root = createRoot(host)
   slot.root = root
