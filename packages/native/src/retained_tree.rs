@@ -7,13 +7,15 @@
 /// All IDs are u64 — JS generates them with an incrementing counter,
 /// passes them as numbers across napi (no string allocation).
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::style::StyleDesc;
 
 pub struct RetainedElement {
     pub id: u64,
     pub element_type: String,
-    pub style: Option<StyleDesc>,
+    pub style: Option<Arc<StyleDesc>>,
+    style_intern_id: Option<u32>,
     pub content: Option<String>,
     pub events: HashSet<String>,
     pub children: Vec<u64>,
@@ -36,6 +38,7 @@ impl RetainedElement {
             id,
             element_type,
             style: None,
+            style_intern_id: None,
             content: None,
             events: HashSet::new(),
             children: Vec::new(),
@@ -50,6 +53,7 @@ impl RetainedElement {
 
 pub struct RetainedTree {
     pub elements: HashMap<u64, RetainedElement>,
+    interned_styles: HashMap<u32, Arc<StyleDesc>>,
     /// The root element ID set by appendChildToContainer.
     pub root_id: Option<u64>,
     next_revision: u64,
@@ -59,6 +63,7 @@ impl RetainedTree {
     pub fn new() -> Self {
         Self {
             elements: HashMap::new(),
+            interned_styles: HashMap::new(),
             root_id: None,
             next_revision: 1,
         }
@@ -106,6 +111,55 @@ impl RetainedTree {
                 self.destroy_element_recursive(child_id, destroyed);
             }
         }
+    }
+
+    pub fn intern_style(&mut self, style_id: u32, style: StyleDesc) -> Result<(), String> {
+        if let Some(existing) = self.interned_styles.get(&style_id) {
+            if existing.as_ref() != &style {
+                return Err(format!(
+                    "Interned style id {style_id} already has a different style"
+                ));
+            }
+            return Ok(());
+        }
+        self.interned_styles.insert(style_id, Arc::new(style));
+        Ok(())
+    }
+
+    pub fn has_interned_style(&self, style_id: u32) -> bool {
+        self.interned_styles.contains_key(&style_id)
+    }
+
+    pub fn interned_style(&self, style_id: u32) -> Option<&StyleDesc> {
+        self.interned_styles.get(&style_id).map(|style| style.as_ref())
+    }
+
+    pub fn set_style_id(&mut self, id: u64, style_id: u32) -> Result<(), String> {
+        let Some(style) = self.interned_styles.get(&style_id).cloned() else {
+            return Err(format!("Unknown interned style id {style_id}"));
+        };
+        let previous = self
+            .elements
+            .get(&id)
+            .and_then(|element| element.style_intern_id);
+        if previous == Some(style_id) {
+            return Ok(());
+        }
+        let Some(element) = self.elements.get_mut(&id) else {
+            return Ok(());
+        };
+        let visual_changed = element.style.as_deref() != Some(style.as_ref());
+        element.style = Some(style);
+        element.style_intern_id = Some(style_id);
+        if visual_changed {
+            self.mark_changed(id);
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn interned_style_count(&self) -> usize {
+        self.interned_styles.len()
     }
 
     pub fn append_child(&mut self, parent_id: u64, child_id: u64) {
@@ -170,10 +224,11 @@ impl RetainedTree {
     pub fn set_style(&mut self, id: u64, style: StyleDesc) {
         let mut changed = false;
         if let Some(element) = self.elements.get_mut(&id) {
-            if element.style.as_ref() != Some(&style) {
-                element.style = Some(style);
+            if element.style.as_deref() != Some(&style) {
+                element.style = Some(Arc::new(style));
                 changed = true;
             }
+            element.style_intern_id = None;
         }
         if changed {
             self.mark_changed(id);
@@ -351,4 +406,97 @@ fn element_to_json(
     }
 
     serde_json::Value::Object(obj)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    fn sample_style() -> StyleDesc {
+        StyleDesc {
+            display: Some("flex".into()),
+            height: Some(crate::style::DimensionValue::Pixels(40.0)),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn style_desc_size_is_tracked() {
+        assert_eq!(
+            size_of::<StyleDesc>(),
+            1272,
+            "StyleDesc grew. Prefer a sparse style over new Option fields."
+        );
+    }
+
+    #[test]
+    fn shared_style_ids_share_one_intern_entry() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".into());
+        tree.create_element(2, "div".into());
+        tree.intern_style(1, sample_style()).unwrap();
+        tree.set_style_id(1, 1).unwrap();
+        tree.set_style_id(2, 1).unwrap();
+        assert_eq!(tree.interned_style_count(), 1);
+        assert!(Arc::ptr_eq(
+            tree.elements.get(&1).unwrap().style.as_ref().unwrap(),
+            tree.elements.get(&2).unwrap().style.as_ref().unwrap(),
+        ));
+    }
+
+    #[test]
+    fn destroying_last_user_keeps_interned_style() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".into());
+        tree.create_element(2, "div".into());
+        tree.intern_style(1, sample_style()).unwrap();
+        tree.set_style_id(1, 1).unwrap();
+        tree.set_style_id(2, 1).unwrap();
+        tree.destroy_element(1);
+        tree.destroy_element(2);
+        assert_eq!(tree.interned_style_count(), 1);
+        tree.create_element(3, "div".into());
+        tree.set_style_id(3, 1).unwrap();
+        assert!(Arc::ptr_eq(
+            tree.elements.get(&3).unwrap().style.as_ref().unwrap(),
+            tree.interned_styles.get(&1).unwrap(),
+        ));
+    }
+
+    #[test]
+    fn intern_style_rejects_conflicting_reuse() {
+        let mut tree = RetainedTree::new();
+        tree.intern_style(1, sample_style()).unwrap();
+        let mut other = sample_style();
+        other.display = Some("block".into());
+        assert!(tree.intern_style(1, other).is_err());
+    }
+
+    #[test]
+    fn hide_then_restore_keeps_interned_style() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".into());
+        tree.intern_style(1, sample_style()).unwrap();
+        tree.set_style_id(1, 1).unwrap();
+        tree.set_style(
+            1,
+            StyleDesc {
+                visibility: Some("hidden".into()),
+                ..Default::default()
+            },
+        );
+        tree.set_style_id(1, 1).unwrap();
+        assert_eq!(
+            tree.elements.get(&1).unwrap().style.as_deref().unwrap().display.as_deref(),
+            Some("flex")
+        );
+    }
+
+    #[test]
+    fn set_style_id_rejects_unknown_intern_id() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".into());
+        assert!(tree.set_style_id(1, 99).is_err());
+    }
 }
