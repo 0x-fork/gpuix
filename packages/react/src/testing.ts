@@ -19,7 +19,6 @@ import type {
 } from "./types/host.js"
 import { createRoot, flushSync, type Root } from "./reconciler/reconciler.js"
 import { handleGpuixEvent } from "./reconciler/event-registry.js"
-import { resetIdCounter } from "./reconciler/host-config.js"
 
 interface NativeTestRendererApi extends NativeRenderer {
   applyBatch(json: string): number[]
@@ -232,7 +231,7 @@ export class TestRenderer implements NativeRenderer {
       if (events.length === 0) break
       for (const event of events) {
         flushSync(() => {
-          handleGpuixEvent(event)
+          handleGpuixEvent(event, this)
         })
       }
     }
@@ -558,7 +557,6 @@ export interface TestRoot {
  * and convenience methods.
  */
 export function createTestRoot(): TestRoot {
-  resetIdCounter()
   const renderer = new TestRenderer()
   const root = createRoot(renderer)
 

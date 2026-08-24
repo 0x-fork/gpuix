@@ -6,6 +6,7 @@ import { ConcurrentRoot } from "react-reconciler/constants.js"
 import { GpuixContext } from "../hooks/use-gpuix.js"
 import type { Container, NativeRenderer } from "../types/host.js"
 import { wrapWithBatching } from "./batch-renderer.js"
+import { attachRoot, detachRoot } from "./event-registry.js"
 import { hostConfig } from "./host-config.js"
 
 // Cast to any because @types/react-reconciler is out of date with react-reconciler 0.31.0
@@ -35,7 +36,11 @@ export function createRoot(renderer: NativeRenderer): Root {
   const batchedRenderer = wrapWithBatching(renderer)
   const gpuixContainer: Container = {
     renderer: batchedRenderer,
+    nextElementId: 0,
+    eventHandlers: new Map(),
   }
+  attachRoot(renderer, gpuixContainer)
+  attachRoot(batchedRenderer, gpuixContainer)
 
   const cleanup = (): void => {
     if (container) {
@@ -45,6 +50,8 @@ export function createRoot(renderer: NativeRenderer): Root {
       })
       container = null
     }
+    detachRoot(renderer)
+    detachRoot(batchedRenderer)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

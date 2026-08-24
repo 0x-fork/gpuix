@@ -31,7 +31,7 @@
 /// this queue.
 
 import type { NativeRenderer } from "../types/host.js"
-import { unregisterEventHandlers } from "./event-registry.js"
+import { containerForRenderer, unregisterEventHandlers } from "./event-registry.js"
 
 export type MutationTuple = (number | string | boolean | object | null)[]
 
@@ -107,9 +107,11 @@ export function wrapWithBatching(inner: NativeRenderer): NativeRenderer {
           // on failure so state doesn't desync between JS and Rust.
           const destroyedIds = batchable.applyBatch(json)
 
-          // Clean up JS-side event handlers immediately after successful batch.
-          for (const id of destroyedIds) {
-            unregisterEventHandlers(id)
+          const container = containerForRenderer(inner)
+          if (container) {
+            for (const id of destroyedIds) {
+              unregisterEventHandlers(container.eventHandlers, id)
+            }
           }
 
           // applyBatch already invalidates, so only clear after batch + cleanup.

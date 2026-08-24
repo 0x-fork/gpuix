@@ -1,5 +1,6 @@
 import { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
+import { handleGpuixEvent } from "../reconciler/event-registry.js"
 import { createTestRoot, hasNativeTestRenderer } from "../testing.js"
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
@@ -50,18 +51,40 @@ describeNative("mutation lifecycle", () => {
     }
   })
 
-  it("resets element ids for every test root", () => {
-    const first = createTestRoot()
-    first.render(<div />)
-    const firstRootId = first.renderer.getRoot()?.id
-    first.unmount()
+  it("keeps element ids and click handlers isolated across live roots", () => {
+    const a = createTestRoot()
+    const b = createTestRoot()
+    const onA = vi.fn()
+    const onB = vi.fn()
 
-    const second = createTestRoot()
     try {
-      second.render(<div />)
-      expect(second.renderer.getRoot()?.id).toBe(firstRootId)
+      a.render(
+        <div style={{ width: 100, height: 100 }} onClick={onA}>
+          a
+        </div>
+      )
+      b.render(
+        <div style={{ width: 100, height: 100 }} onClick={onB}>
+          b
+        </div>
+      )
+
+      expect(a.renderer.findByType("text")[0]?.id).toBe(1)
+      expect(b.renderer.findByType("text")[0]?.id).toBe(1)
+      expect(a.renderer.getRoot()?.id).toBe(2)
+      expect(b.renderer.getRoot()?.id).toBe(2)
+
+      const click = { elementId: 2, eventType: "click" }
+      handleGpuixEvent(click, a.renderer)
+      expect(onA).toHaveBeenCalledTimes(1)
+      expect(onB).not.toHaveBeenCalled()
+
+      handleGpuixEvent(click, b.renderer)
+      expect(onA).toHaveBeenCalledTimes(1)
+      expect(onB).toHaveBeenCalledTimes(1)
     } finally {
-      second.unmount()
+      a.unmount()
+      b.unmount()
     }
   })
 })

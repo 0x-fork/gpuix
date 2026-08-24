@@ -25,21 +25,12 @@ import {
   unregisterEventHandlers,
 } from "./event-registry.js"
 
-let elementIdCounter = 0
 let currentUpdatePriority = NoEventPriority
-
-export function resetIdCounter(): void {
-  elementIdCounter = 0
-}
-
-function nextId(): number {
-  return ++elementIdCounter
-}
 
 type HostNode = Instance | TextInstance
 
 interface HostNodeState {
-  renderer: NativeRenderer
+  container: Container
   initialChildren: HostNode[]
   mounted: boolean
 }
@@ -54,8 +45,16 @@ function stateFor(node: HostNode): HostNodeState {
   return state
 }
 
+function containerFor(node: HostNode): Container {
+  return stateFor(node).container
+}
+
 function rendererFor(node: HostNode): NativeRenderer {
-  return stateFor(node).renderer
+  return containerFor(node).renderer
+}
+
+function nextId(container: Container): number {
+  return ++container.nextElementId
 }
 
 // ── Event wiring helpers ─────────────────────────────────────────────
@@ -89,18 +88,18 @@ const EVENT_PROPS = [
 
 const EVENT_PROP_NAMES = new Set<string>(EVENT_PROPS.map(([name]) => name))
 
-function syncEventListeners(renderer: NativeRenderer, id: number, props: Props): void {
+function syncEventListeners(container: Container, id: number, props: Props): void {
   for (const [propName, eventType] of EVENT_PROPS) {
     const handler = props[propName]
     if (handler) {
-      registerEventHandler(id, eventType, handler)
-      renderer.setEventListener(id, eventType, true)
+      registerEventHandler(container.eventHandlers, id, eventType, handler)
+      container.renderer.setEventListener(id, eventType, true)
     }
   }
 }
 
 function diffEventListeners(
-  renderer: NativeRenderer,
+  container: Container,
   id: number,
   oldProps: Props,
   newProps: Props
@@ -110,14 +109,12 @@ function diffEventListeners(
     const newHandler = newProps[propName]
 
     if (oldHandler && !newHandler) {
-      // Removed — clean up both JS closure and Rust listener
-      unregisterEventHandler(id, eventType)
-      renderer.setEventListener(id, eventType, false)
+      unregisterEventHandler(container.eventHandlers, id, eventType)
+      container.renderer.setEventListener(id, eventType, false)
     } else if (newHandler && newHandler !== oldHandler) {
-      // Added or changed
-      registerEventHandler(id, eventType, newHandler)
+      registerEventHandler(container.eventHandlers, id, eventType, newHandler)
       if (!oldHandler) {
-        renderer.setEventListener(id, eventType, true)
+        container.renderer.setEventListener(id, eventType, true)
       }
     }
   }
@@ -210,11 +207,11 @@ function materialize(node: HostNode): HostNodeState {
   const state = stateFor(node)
   if (state.mounted) return state
 
-  const renderer = state.renderer
+  const renderer = state.container.renderer
   if ("type" in node) {
     renderer.createElement(node.id, node.type)
     sendStyle(renderer, node.id, node.props)
-    syncEventListeners(renderer, node.id, node.props)
+    syncEventListeners(state.container, node.id, node.props)
     syncCustomProps(renderer, node.id, node.type, node.props)
   } else {
     renderer.createElement(node.id, "text")
@@ -246,9 +243,9 @@ export const hostConfig = {
     rootContainerInstance: Container,
     _hostContext: HostContext
   ): Instance {
-    const instance: Instance = { id: nextId(), type, props }
+    const instance: Instance = { id: nextId(rootContainerInstance), type, props }
     hostNodeStates.set(instance, {
-      renderer: rootContainerInstance.renderer,
+      container: rootContainerInstance,
       initialChildren: [],
       mounted: false,
     })
@@ -258,7 +255,7 @@ export const hostConfig = {
   appendChild(parent: Instance, child: Instance | TextInstance): void {
     const parentState = materialize(parent)
     materialize(child)
-    parentState.renderer.appendChild(parent.id, child.id)
+    parentState.container.renderer.appendChild(parent.id, child.id)
   },
 
   removeChild(parent: Instance, child: Instance | TextInstance): void {
@@ -272,7 +269,7 @@ export const hostConfig = {
   ): void {
     const parentState = materialize(parent)
     materialize(child)
-    parentState.renderer.insertBefore(parent.id, child.id, beforeChild.id)
+    parentState.container.renderer.insertBefore(parent.id, child.id, beforeChild.id)
   },
 
   insertInContainerBefore(
@@ -284,7 +281,7 @@ export const hostConfig = {
   removeChildFromContainer(parent: Container, child: Instance): void {
     const destroyed = parent.renderer.destroyElement(child.id)
     for (const id of destroyed) {
-      unregisterEventHandlers(id)
+      unregisterEventHandlers(parent.eventHandlers, id)
     }
   },
 
@@ -321,9 +318,13 @@ export const hostConfig = {
     rootContainerInstance: Container,
     _hostContext: HostContext
   ): TextInstance {
-    const instance: TextInstance = { id: nextId(), text, parentId: null }
+    const instance: TextInstance = {
+      id: nextId(rootContainerInstance),
+      text,
+      parentId: null,
+    }
     hostNodeStates.set(instance, {
-      renderer: rootContainerInstance.renderer,
+      container: rootContainerInstance,
       initialChildren: [],
       mounted: false,
     })
@@ -362,14 +363,13 @@ export const hostConfig = {
     newProps: Props,
     _internalInstanceHandle: unknown
   ): void {
-    const renderer = rendererFor(instance)
+    const container = containerFor(instance)
     // Always resend style — per-element JSON is small, and this avoids
     // bugs from same-reference mutations or style removal.
-    renderer.setStyle(instance.id, newProps.style ?? {})
-    // Event diff
-    diffEventListeners(renderer, instance.id, oldProps, newProps)
+    container.renderer.setStyle(instance.id, newProps.style ?? {})
+    diffEventListeners(container, instance.id, oldProps, newProps)
     // Custom prop diff (for non-div/text elements)
-    diffCustomProps(renderer, instance.id, instance.type, oldProps, newProps)
+    diffCustomProps(container.renderer, instance.id, instance.type, oldProps, newProps)
     instance.props = newProps
   },
 
@@ -447,9 +447,10 @@ export const hostConfig = {
   },
 
   detachDeletedInstance(instance: Instance): void {
-    const destroyed = rendererFor(instance).destroyElement(instance.id)
+    const container = containerFor(instance)
+    const destroyed = container.renderer.destroyElement(instance.id)
     for (const id of destroyed) {
-      unregisterEventHandlers(id)
+      unregisterEventHandlers(container.eventHandlers, id)
     }
   },
 

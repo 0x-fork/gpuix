@@ -1,19 +1,31 @@
 import type { EventPayload } from "@gpuix/native"
+import type { Container, EventHandlerMap, NativeRenderer } from "../types/host.js"
 
-// Event handler registry — keyed by numeric element ID.
-const eventHandlers = new Map<number, Map<string, (event: EventPayload) => void>>()
+const containersByRenderer = new WeakMap<NativeRenderer, Container>()
 
-export function handleGpuixEvent(payload: EventPayload): void {
-  const elementHandlers = eventHandlers.get(payload.elementId)
-  if (elementHandlers) {
-    const handler = elementHandlers.get(payload.eventType)
-    if (handler) {
-      handler(payload)
-    }
-  }
+export function attachRoot(renderer: NativeRenderer, container: Container): void {
+  containersByRenderer.set(renderer, container)
+}
+
+export function detachRoot(renderer: NativeRenderer): void {
+  containersByRenderer.delete(renderer)
+}
+
+export function containerForRenderer(renderer: NativeRenderer): Container | undefined {
+  return containersByRenderer.get(renderer)
+}
+
+export function handleGpuixEvent(payload: EventPayload, renderer: NativeRenderer): void {
+  const container = containersByRenderer.get(renderer)
+  if (!container) return
+  const elementHandlers = container.eventHandlers.get(payload.elementId)
+  if (!elementHandlers) return
+  const handler = elementHandlers.get(payload.eventType)
+  if (handler) handler(payload)
 }
 
 export function registerEventHandler(
+  eventHandlers: EventHandlerMap,
   elementId: number,
   eventType: string,
   handler: (event: EventPayload) => void
@@ -26,13 +38,20 @@ export function registerEventHandler(
   elementHandlers.set(eventType, handler)
 }
 
-export function unregisterEventHandler(elementId: number, eventType: string): void {
+export function unregisterEventHandler(
+  eventHandlers: EventHandlerMap,
+  elementId: number,
+  eventType: string
+): void {
   const m = eventHandlers.get(elementId)
   if (!m) return
   m.delete(eventType)
   if (m.size === 0) eventHandlers.delete(elementId)
 }
 
-export function unregisterEventHandlers(elementId: number): void {
+export function unregisterEventHandlers(
+  eventHandlers: EventHandlerMap,
+  elementId: number
+): void {
   eventHandlers.delete(elementId)
 }
