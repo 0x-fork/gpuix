@@ -2237,75 +2237,32 @@ pub(crate) fn build_element(
 
         // Polymorphic dispatch for all custom elements.
         custom_type => {
-            let child_ids: Vec<u64> = element
+            let custom_children: Vec<gpui::AnyElement> = element
                 .children
                 .iter()
                 .copied()
                 .filter(|child_id| ctx.tree.elements.contains_key(child_id))
-                .collect();
-            let custom_children: Vec<gpui::AnyElement> = child_ids
-                .into_iter()
                 .map(|child_id| build_element(child_id, ctx, window, cx))
                 .collect();
-
-            let selection = ctx.selection.clone();
             let inherited = ctx.inherited;
-            let custom_registry = &mut *ctx.custom_registry;
-            if let Some(instance) = custom_registry.get_or_create(id, custom_type) {
-                // Sync known props from RetainedElement to the CustomElement instance.
-                // Missing keys are explicitly reset with null to avoid stale state.
-                let supported_props: Vec<String> = instance
-                    .supported_props()
-                    .iter()
-                    .map(|key| (*key).to_string())
-                    .collect();
-
-                for key in &supported_props {
-                    let value = element
-                        .custom_props
-                        .get(key)
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null);
-                    instance.set_prop(key, value);
-                }
-
-                // Also pass through unknown props for forward compatibility.
-                for (key, value) in &element.custom_props {
-                    if !supported_props.iter().any(|known| known == key) {
-                        instance.set_prop(key, value.clone());
-                    }
-                }
-
-                // Only pass events the custom element declares support for.
-                let supported_events: Vec<String> = instance
-                    .supported_events()
-                    .iter()
-                    .map(|event| (*event).to_string())
-                    .collect();
-                let filtered_events: HashSet<String> = element
-                    .events
-                    .iter()
-                    .filter(|event| supported_events.iter().any(|supported| supported == *event))
-                    .cloned()
-                    .collect();
-
-                let render_ctx = CustomRenderContext {
-                    id,
-                    events: &filtered_events,
-                    event_callback: ctx.event_callback,
-                    focus_handle: ctx.focus_handles.get(&id),
-                    style,
-                    children: custom_children,
-                    selection,
-                    selectable: inherited.selectable,
-                    selection_wash: inherited.selection_wash,
-                };
-
-                instance.render(render_ctx, window, cx)
-            } else {
-                log::warn!("Unknown element type: {}", custom_type);
-                gpui::Empty.into_any_element()
-            }
+            let render_ctx = CustomRenderContext {
+                id,
+                events: &element.events,
+                event_callback: ctx.event_callback,
+                focus_handle: ctx.focus_handles.get(&id),
+                style,
+                children: custom_children,
+                selection: ctx.selection.clone(),
+                selectable: inherited.selectable,
+                selection_wash: inherited.selection_wash,
+            };
+            ctx.custom_registry.render(
+                custom_type,
+                &element.custom_props,
+                render_ctx,
+                window,
+                cx,
+            )
         }
     };
 

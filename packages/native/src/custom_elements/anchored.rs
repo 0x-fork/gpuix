@@ -384,7 +384,7 @@ impl CustomElement for AnchoredElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &[
             "position",
             "side",
@@ -400,61 +400,7 @@ impl CustomElement for AnchoredElement {
         ]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "position" => self
-                .position
-                .map(|(x, y)| serde_json::json!({ "x": x, "y": y })),
-            "side" => Some(serde_json::Value::String(
-                match self.side {
-                    Side::Top => "top",
-                    Side::Right => "right",
-                    Side::Bottom => "bottom",
-                    Side::Left => "left",
-                }
-                .to_string(),
-            )),
-            "align" => Some(serde_json::Value::String(
-                match self.align {
-                    Alignment::Start => "start",
-                    Alignment::Center => "center",
-                    Alignment::End => "end",
-                }
-                .to_string(),
-            )),
-            "anchor" => self.anchor.map(|anchor| {
-                serde_json::Value::String(
-                    match anchor {
-                        AnchorPoint::TopLeft => "topLeft",
-                        AnchorPoint::TopCenter => "topCenter",
-                        AnchorPoint::TopRight => "topRight",
-                        AnchorPoint::RightCenter => "rightCenter",
-                        AnchorPoint::BottomRight => "bottomRight",
-                        AnchorPoint::BottomCenter => "bottomCenter",
-                        AnchorPoint::BottomLeft => "bottomLeft",
-                        AnchorPoint::LeftCenter => "leftCenter",
-                    }
-                    .to_string(),
-                )
-            }),
-            "gap" => Some(serde_json::Value::from(self.gap)),
-            "offset" => Some(serde_json::json!({ "x": self.offset.0, "y": self.offset.1 })),
-            "fit" => Some(serde_json::Value::String(
-                match self.fit {
-                    FitMode::Switch => "switch",
-                    FitMode::Snap => "snap",
-                }
-                .to_string(),
-            )),
-            "snapMargin" => Some(serde_json::Value::from(self.snap_margin)),
-            "deferred" => Some(serde_json::Value::Bool(self.deferred)),
-            "priority" => Some(serde_json::Value::from(self.priority as u64)),
-            "occlude" => Some(serde_json::Value::Bool(self.occlude)),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[]
     }
 
