@@ -45,3 +45,11 @@ export function expectScreenshotsDiffer(beforePath: string, afterPath: string) {
   const similarity = bufferSimilarity(before, after)
   expect(similarity).toBeLessThan(0.99)
 }
+
+export function expectScreenshotsEqual(leftPath: string, rightPath: string) {
+  expect(fs.existsSync(leftPath)).toBe(true)
+  expect(fs.existsSync(rightPath)).toBe(true)
+  const left = fs.readFileSync(leftPath)
+  const right = fs.readFileSync(rightPath)
+  expect(left.equals(right)).toBe(true)
+}
