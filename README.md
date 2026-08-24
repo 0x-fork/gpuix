@@ -1600,4 +1600,4 @@ See [AGENTS.md](./AGENTS.md) for detailed architecture, communication flow, and 
 
 ## License
 
-Apache-2.0
+[Apache-2.0](./LICENSE)
