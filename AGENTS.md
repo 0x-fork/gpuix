@@ -477,7 +477,8 @@ pub struct StyleDesc {
     pub padding: Option<f64>,
     pub margin: Option<f64>,
     
-    // Colors (parsed from "#rrggbb" or "rgb(r,g,b)")
+    // Colors (parsed centrally in src/color.rs with csscolorparser 0.8.3;
+    // parser-version changes require running both absolute and relative matrices)
     pub background_color: Option<String>,
     pub color: Option<String>,
     

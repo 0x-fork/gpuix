@@ -32,7 +32,7 @@ use std::time::Duration;
 use crate::custom_elements::{CustomElementRegistry, CustomRenderContext};
 use crate::element_tree::EventPayload;
 use crate::retained_tree::RetainedTree;
-use crate::style::{parse_color_hex, StyleDesc};
+use crate::style::StyleDesc;
 use crate::text::{selectable_text, selection_frame_reset, selection_key, SharedSelection};
 use crate::theme::Theme;
 
@@ -1535,12 +1535,12 @@ impl Inherited {
             Some("text") | Some("auto") => self.selectable = true,
             _ => {}
         }
-        if let Some(hex) = style
+        if let Some(color) = style
             .selection_color
             .as_deref()
-            .and_then(crate::style::parse_color_hex)
+            .and_then(crate::color::parse_color_rgba)
         {
-            self.selection_wash = gpui::rgba(hex).into();
+            self.selection_wash = color.into();
         }
         self
     }
@@ -2623,10 +2623,24 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(shrink) = style.flex_shrink {
         el.style().flex_shrink = Some(shrink as f32);
     }
+    if let Some(basis) = style.flex_basis {
+        el = el.flex_basis(gpui::px(basis as f32));
+    }
     match style.align_items.as_deref() {
         Some("center") => el = el.items_center(),
         Some("start") | Some("flex-start") => el = el.items_start(),
         Some("end") | Some("flex-end") => el = el.items_end(),
+        _ => {}
+    }
+    match style.align_content.as_deref() {
+        Some("center") => el = el.content_center(),
+        Some("start") | Some("flex-start") => el = el.content_start(),
+        Some("end") | Some("flex-end") => el = el.content_end(),
+        Some("between") | Some("space-between") => el = el.content_between(),
+        Some("around") | Some("space-around") => el = el.content_around(),
+        Some("evenly") | Some("space-evenly") => el = el.content_evenly(),
+        Some("stretch") => el = el.content_stretch(),
+        Some("normal") => el = el.content_normal(),
         _ => {}
     }
     match style.justify_content.as_deref() {
@@ -2752,13 +2766,13 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
         .as_ref()
         .or(style.background.as_ref())
     {
-        if let Some(hex) = parse_color_hex(bg) {
-            el = el.bg(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(bg) {
+            el = el.bg(color);
         }
     }
     if let Some(ref color) = style.color {
-        if let Some(hex) = parse_color_hex(color) {
-            el = el.text_color(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(color) {
+            el = el.text_color(color);
         }
     }
     if let Some(size) = style.font_size {
@@ -2802,14 +2816,51 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(radius) = style.border_radius {
         el = el.rounded(gpui::px(radius as f32));
     }
+    // Apply corner longhands after the shorthand so the explicit corner wins.
+    if let Some(radius) = style.border_top_left_radius {
+        el = el.rounded_tl(gpui::px(radius as f32));
+    }
+    if let Some(radius) = style.border_top_right_radius {
+        el = el.rounded_tr(gpui::px(radius as f32));
+    }
+    if let Some(radius) = style.border_bottom_left_radius {
+        el = el.rounded_bl(gpui::px(radius as f32));
+    }
+    if let Some(radius) = style.border_bottom_right_radius {
+        el = el.rounded_br(gpui::px(radius as f32));
+    }
     // `borderWidth: 0` must clear a border, not be ignored: an element that
     // draws its own border needs a way for the caller to remove it.
     if let Some(width) = style.border_width {
         el = el.border(gpui::px(width.max(0.0) as f32));
     }
+    if let Some(width) = style.border_top_width {
+        el = el.border_t(gpui::px(width.max(0.0) as f32));
+    }
+    if let Some(width) = style.border_right_width {
+        el = el.border_r(gpui::px(width.max(0.0) as f32));
+    }
+    if let Some(width) = style.border_bottom_width {
+        el = el.border_b(gpui::px(width.max(0.0) as f32));
+    }
+    if let Some(width) = style.border_left_width {
+        el = el.border_l(gpui::px(width.max(0.0) as f32));
+    }
     if let Some(ref color) = style.border_color {
-        if let Some(hex) = parse_color_hex(color) {
-            el = el.border_color(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(color) {
+            el = el.border_color(color);
+        }
+    }
+    if let Some(ref shadow) = style.box_shadow {
+        if let Some(color) = crate::color::parse_color_rgba(&shadow.color) {
+            let shadow = gpui::BoxShadow::new(
+                gpui::px(shadow.offset_x as f32),
+                gpui::px(shadow.offset_y as f32),
+                color.into(),
+            )
+            .blur_radius(gpui::px(shadow.blur_radius.max(0.0) as f32))
+            .spread_radius(gpui::px(shadow.spread_radius as f32));
+            el = el.shadow(vec![shadow]);
         }
     }
     if let Some(opacity) = style.opacity {

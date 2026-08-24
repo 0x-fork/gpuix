@@ -227,8 +227,7 @@ impl CustomElement for SvgElement {
         let tint = ctx
             .style
             .and_then(|style| style.color.as_deref())
-            .and_then(crate::style::parse_color_hex)
-            .map(gpui::rgba)
+            .and_then(crate::color::parse_color_rgba)
             .unwrap_or_else(|| gpui::rgb(0xe2e2e2).into());
         let mut icon = gpui::svg().data(bytes).flex_none().text_color(tint);
         if let Some(style) = ctx.style {

@@ -298,10 +298,10 @@ impl CustomElement for AnchoredElement {
         let has_fill = ctx.style.is_some_and(|style| {
             style
                 .background_color
-                .as_ref()
-                .or(style.background.as_ref())
-                .and_then(|color| crate::style::parse_color_hex(color))
-                .is_some_and(|hex| hex & 0xFF > 0)
+                .as_deref()
+                .or(style.background.as_deref())
+                .and_then(crate::color::parse_color_rgba)
+                .is_some_and(|color| color.a > 0.0)
         });
         if !has_fill {
             content = content.bg(gpui::rgb(0x1A1A1A));
