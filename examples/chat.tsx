@@ -892,6 +892,7 @@ function ChipSelect({
   caret = true,
   accent,
   menuWidth,
+  testId,
   children,
 }: {
   value: string
@@ -901,12 +902,14 @@ function ChipSelect({
   caret?: boolean
   accent?: boolean
   menuWidth?: number
+  testId?: string
   children: React.ReactNode
 }) {
   return (
     <Select value={value} onValueChange={onChange} style={{ flexShrink: 0 }}>
       <div style={{ position: 'relative', display: 'flex' }}>
         <SelectTrigger
+          testId={testId}
           style={(state) => ({
             display: 'flex',
             flexDirection: 'row',
@@ -956,7 +959,13 @@ function ModelPicker({ value, onChange }: { value: string; onChange: (next: stri
   }, [])
 
   return (
-    <ChipSelect value={value} onChange={onChange} icon={selected.icon} label={selected.label}>
+    <ChipSelect
+      value={value}
+      onChange={onChange}
+      icon={selected.icon}
+      label={selected.label}
+      testId="model-picker"
+    >
       {groups.map((group, index) => (
         <div key={group.name} style={{ display: 'flex', flexDirection: 'column' }}>
           {index > 0 && (
