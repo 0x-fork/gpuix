@@ -564,10 +564,41 @@ xcodebuild -downloadComponent MetalToolchain
 4. Match `rust-toolchain.toml` to `zed/rust-toolchain.toml`.
 5. Run `cargo check --all-targets`, `bun run build`, and the test suites.
 
+### Fixing GPUI for GPUIX
+
+The `remorses/zed` fork is part of GPUIX's implementation boundary. Fix GPUI in
+the fork when a reusable GPUI API or platform correction keeps GPUIX simpler
+and avoids browser, embedded-platform, or event-routing workarounds. Do not keep
+a hack in `packages/native` only because the required API is missing upstream.
+
+Fork-only fixes must be normal commits on the `gpui-macos-embedded` branch and
+must be pushed to `remorses/zed` before the GPUIX submodule points at them. Never
+pin GPUIX to a detached commit that is not reachable from that remote branch.
+Use a separate Zed worktree for the change; do not develop or commit inside the
+`zed/` build checkout.
+
+```bash
+# from gpuixlocal/zed
+git fetch origin gpui-macos-embedded
+git worktree add /Users/morse/Documents/GitHub/zed-gpuix-<change> \
+  -b gpuix-<change> origin/gpui-macos-embedded
+
+# from the Zed worktree, after review
+git push origin HEAD:gpui-macos-embedded
+
+# then update this repository to that reachable commit
+git fetch origin gpui-macos-embedded
+git switch --detach origin/gpui-macos-embedded
+```
+
+Commit the resulting `zed` submodule pointer in GPUIX with the code that uses
+the new API. The `.gitmodules` branch remains `gpui-macos-embedded`.
+
 ### PRs to Zed
 
 A "PR to Zed" means **upstream** [`zed-industries/zed`](https://github.com/zed-industries/zed)
-`main`. Never open that PR from this checkout. Never point it at `remorses/zed`.
+`main`. This is different from a GPUIX fork fix above. Never open an upstream
+PR from this checkout. Never point that PR at `remorses/zed`.
 
 Do **not** branch, commit review markers, or reset `zed/` inside this checkout.
 That submodule is what GPUIX builds against. A dirty or switched `zed/` breaks
