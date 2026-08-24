@@ -356,12 +356,22 @@ async fn run_ui_commands(
                 Ok(())
             }
             UiCommand::GetAutomationBounds { response } => {
-                response.send(crate::automation::all_bounds()).ok();
-                Ok(())
+                window.update(cx, move |_view, window, cx| {
+                    cx.notify();
+                    window.refresh();
+                    window.on_next_frame(move |_window, _cx| {
+                        response.send(crate::automation::all_bounds()).ok();
+                    });
+                })
             }
             UiCommand::GetElementBounds { id, response } => {
-                response.send(crate::automation::get_bounds(id)).ok();
-                Ok(())
+                window.update(cx, move |_view, window, cx| {
+                    cx.notify();
+                    window.refresh();
+                    window.on_next_frame(move |_window, _cx| {
+                        response.send(crate::automation::get_bounds(id)).ok();
+                    });
+                })
             }
             UiCommand::FocusElement(id) => window.update(cx, move |view, window, cx| {
                 view.reveal_virtual_list_ancestor(id);
