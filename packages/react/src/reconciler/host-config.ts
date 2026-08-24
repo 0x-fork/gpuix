@@ -17,7 +17,6 @@ import type {
   NativeRenderer,
   Props,
   PublicInstance,
-  StyleDesc,
   TextInstance,
 } from "../types/host.js"
 import {
@@ -28,21 +27,11 @@ import {
 
 let elementIdCounter = 0
 let currentUpdatePriority = NoEventPriority
-let styleIntern = new WeakMap<object, number>()
-let nextStyleInternId = 1
 
 // Renderer reference — set by createRoot before any reconciler work.
 let nativeRenderer: NativeRenderer | null = null
 
-function resetStyleIntern(): void {
-  styleIntern = new WeakMap()
-  nextStyleInternId = 1
-}
-
 export function setNativeRenderer(renderer: NativeRenderer): void {
-  if (nativeRenderer !== renderer) {
-    resetStyleIntern()
-  }
   nativeRenderer = renderer
 }
 
@@ -122,50 +111,10 @@ function diffEventListeners(id: number, oldProps: Props, newProps: Props): void 
 
 // ── Style helper ─────────────────────────────────────────────────────
 
-function stylesEqual(left?: StyleDesc, right?: StyleDesc): boolean {
-  if (left === right) return true
-  if (left == null || right == null) return false
-  const leftEntries = Object.entries(left)
-  const rightEntries = Object.entries(right)
-  if (leftEntries.length !== rightEntries.length) return false
-  const rightValues = new Map(rightEntries)
-  for (const [key, leftValue] of leftEntries) {
-    if (!rightValues.has(key)) return false
-    if (key === "hover") {
-      if (!stylesEqual(left.hover, right.hover)) return false
-      continue
-    }
-    if (key === "active") {
-      if (!stylesEqual(left.active, right.active)) return false
-      continue
-    }
-    if (leftValue !== rightValues.get(key)) return false
-  }
-  return true
-}
-
-function internStyle(style: StyleDesc): number {
-  const existing = styleIntern.get(style)
-  if (existing != null) return existing
-  const styleId = nextStyleInternId++
-  styleIntern.set(style, styleId)
-  getRenderer().internStyle(styleId, style)
-  return styleId
-}
-
-function applyStyle(id: number, style: StyleDesc | undefined): void {
-  const r = getRenderer()
-  if (style == null || Object.keys(style).length === 0) {
-    r.setStyle(id, {})
-    return
-  }
-  r.setStyleId(id, internStyle(style))
-}
-
 function sendStyle(id: number, props: Props): void {
   const style = props.style
   if (style == null || Object.keys(style).length === 0) return
-  applyStyle(id, style)
+  getRenderer().setStyle(id, style)
 }
 
 // ── Custom prop forwarding ───────────────────────────────────────────
@@ -260,7 +209,7 @@ export const hostConfig = {
     sendStyle(id, props)
     syncEventListeners(id, props)
     syncCustomProps(id, type, props)
-    return { id, type }
+    return { id, type, props }
   },
 
   appendChild(parent: Instance, child: Instance | TextInstance): void {
@@ -364,11 +313,14 @@ export const hostConfig = {
     newProps: Props,
     _internalInstanceHandle: unknown
   ): void {
-    if (!stylesEqual(oldProps.style, newProps.style)) {
-      applyStyle(instance.id, newProps.style)
-    }
+    // Always resend style — per-element JSON is small, and this avoids
+    // bugs from same-reference mutations or style removal.
+    getRenderer().setStyle(instance.id, newProps.style ?? {})
+    // Event diff
     diffEventListeners(instance.id, oldProps, newProps)
+    // Custom prop diff (for non-div/text elements)
     diffCustomProps(instance.id, instance.type, oldProps, newProps)
+    instance.props = newProps
   },
 
   commitTextUpdate(
@@ -392,8 +344,8 @@ export const hostConfig = {
     getRenderer().setStyle(instance.id, { visibility: "hidden" })
   },
 
-  unhideInstance(instance: Instance, props: Props): void {
-    applyStyle(instance.id, props.style)
+  unhideInstance(instance: Instance, _props: Props): void {
+    getRenderer().setStyle(instance.id, instance.props.style ?? {})
   },
 
   hideTextInstance(_textInstance: TextInstance): void {},
