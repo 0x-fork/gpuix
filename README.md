@@ -1228,6 +1228,52 @@ CSS-like styling via the `style` prop:
 
 **Visual:** `backgroundColor`, `color`, `opacity`, `cursor`, `pointerEvents`, `borderRadius`, `borderTopLeftRadius`, `borderTopRightRadius`, `borderBottomLeftRadius`, `borderBottomRightRadius`, `borderWidth`, `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth`, `borderColor`, `boxShadow`
 
+### Colors
+
+Every color-bearing style field accepts the same string grammar. GPUIX native
+uses `csscolorparser` 0.8.3 and accepts:
+
+- named colors and `transparent`;
+- 3/4/6/8-digit hex, with or without `#`;
+- `rgb()` / `rgba()`, `hsl()` / `hsla()`, `hwb()` / `hwba()`, and
+  `hsv()` / `hsva()`;
+- `lab()`, `lch()`, `oklab()`, and `oklch()`;
+- `none` components and the parser's limited relative-color `from` / `calc()`
+  forms.
+
+Standard comma and modern space/slash alpha forms work. Values are converted
+to hard-clipped sRGB before GPUI paints them. Invalid strings are ignored for
+that property; they do not reject the full style object.
+
+`hsv()`, `hsva()`, and `hwba()` are parser extensions rather than CSS Color 4
+standard functions. `color()`, platform/dynamic colors, and numeric color
+integers are not accepted.
+
+Theme values can use the same modern grammar:
+
+```tsx
+const theme = {
+  surface: 'oklch(18% 0.02 260)',
+  accent: 'oklch(67.3% 0.182 276.935)',
+  text: 'oklch(96% 0 0)',
+}
+
+<div style={{ backgroundColor: theme.surface, borderColor: theme.accent }}>
+  <text style={{ color: theme.text }}>Hello GPUIX!</text>
+</div>
+```
+
+Limited relative-color forms can derive a new color from a base value:
+
+```tsx
+<div
+  style={{
+    backgroundColor: '#bad455',
+    borderColor: 'oklch(from #bad455 calc(l - 0.15) calc(c * 0.7) h)',
+  }}
+/>
+```
+
 `boxShadow` accepts one structured shadow. Its fields are `offsetX`, `offsetY`,
 `blurRadius`, `spreadRadius`, and `color`:
 
