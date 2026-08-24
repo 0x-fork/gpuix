@@ -93,7 +93,7 @@ gpuix/
 │   │   │   ├── style.rs        # StyleDesc, color parsing
 │   │   │   ├── theme.rs        # Comet palette, oklch helpers, JS overrides
 │   │   │   ├── text/           # Selection: state, paint registry, TextRuns
-│   │   │   ├── syntax/         # Tree-sitter highlighting + bounded cache
+│   │   │   ├── syntax/         # Syntect highlighting + bounded cache
 │   │   │   ├── markdown/       # pulldown-cmark parser + gpui renderer
 │   │   │   ├── diff/           # Unified-patch parser + row flattening
 │   │   │   └── custom_elements/# input, img, svg, anchored, code, diff, markdown
@@ -637,7 +637,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] Native `<input>` and `<textarea>`
 - [x] `<img>` (local raster/SVG) and `<svg>` (tintable monochrome icons)
 - [x] `<virtual-list>`
-- [x] `<code>`, `<diff>`, `<markdown>` with Tree-sitter
+- [x] `<code>`, `<diff>`, `<markdown>` with Syntect
 - [x] Cross-element text selection
 - [x] Headless Select, Combobox, Tooltip
 - [x] `setWindowTitle`
@@ -649,7 +649,7 @@ belong in README. This list is only the remaining engineering work.
 
 #### High Priority
 
-- [ ] **Background highlighting** - move Tree-sitter off the frame thread once
+- [ ] **Background highlighting** - move Syntect off the frame thread once
       there is a way to request a repaint from a background task
 
 #### Medium Priority
