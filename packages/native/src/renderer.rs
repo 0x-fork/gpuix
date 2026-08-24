@@ -31,6 +31,8 @@ use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
 use std::time::Duration;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use wasm_bindgen::JsCast as _;
 
 use crate::custom_elements::{CustomElementRegistry, CustomRenderContext};
 use crate::element_tree::EventPayload;
@@ -75,10 +77,11 @@ fn parse_font_weight(value: &crate::style::FontWeightValue) -> gpui::FontWeight 
     }
 }
 
-/// Abstracted event callback — both production and test renderers use this.
-/// Production: wraps ThreadsafeFunction (async, queued on Node.js event loop).
-/// Tests: wraps Arc<Mutex<Vec<EventPayload>>> (synchronous collection).
+/// Abstracted event callback shared by desktop, browser, and test renderers.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) type EventCallback = Arc<dyn Fn(EventPayload) + Send + Sync>;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub(crate) type EventCallback = Rc<dyn Fn(EventPayload)>;
 
 /// Validate and convert a JS number (f64) to a u64 element ID.
 /// JS numbers are f64 — lossless for integers up to 2^53.
@@ -1617,6 +1620,7 @@ fn collect_text(id: u64, tree: &RetainedTree, texts: &mut Vec<String>) {
 fn start_web_app(
     tree: Arc<Mutex<RetainedTree>>,
     selection: SharedSelection,
+    event_callback: EventCallback,
 ) -> Result<(), wasm_bindgen::JsValue> {
     if WEB_APP.with(|stored| stored.borrow().is_some()) {
         return Err(wasm_bindgen::JsValue::from_str(
@@ -1628,7 +1632,14 @@ fn start_web_app(
         init_key_bindings(cx);
         crate::custom_elements::input::init(cx);
         let window = cx.open_window(Default::default(), |_window, cx| {
-            cx.new(|_| GpuixView::new(tree, None, "GPUIX Web".to_string(), selection))
+            cx.new(|_| {
+                GpuixView::new(
+                    tree,
+                    Some(event_callback),
+                    "GPUIX Web".to_string(),
+                    selection,
+                )
+            })
         });
         match window {
             Ok(window) => WEB_WINDOW.with(|stored| *stored.borrow_mut() = Some(window)),
@@ -1686,25 +1697,59 @@ fn notify_web() {
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn web_event_callback(callback: js_sys::Function) -> EventCallback {
+    Rc::new(move |payload| {
+        let Ok(json) = serde_json::to_string(&payload) else {
+            log::error!("Failed to serialize GPUIX browser event");
+            return;
+        };
+        let Ok(payload) = js_sys::JSON::parse(&json) else {
+            log::error!("Failed to create GPUIX browser event object");
+            return;
+        };
+        let callback = callback.clone();
+        let task = wasm_bindgen::closure::Closure::once_into_js(move || {
+            if let Err(error) = callback.call2(
+                &wasm_bindgen::JsValue::UNDEFINED,
+                &wasm_bindgen::JsValue::NULL,
+                &payload,
+            ) {
+                log::error!("GPUIX browser event callback failed: {error:?}");
+            }
+        });
+        let task: js_sys::Function = task.unchecked_into();
+        if let Some(window) = web_sys::window() {
+            window.queue_microtask(&task);
+        }
+    })
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[wasm_bindgen::prelude::wasm_bindgen(js_name = GpuixRenderer)]
 pub struct WebGpuixRenderer {
     tree: Arc<Mutex<RetainedTree>>,
     selection: SharedSelection,
+    event_callback: EventCallback,
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[wasm_bindgen::prelude::wasm_bindgen(js_class = GpuixRenderer)]
 impl WebGpuixRenderer {
     #[wasm_bindgen::prelude::wasm_bindgen(constructor)]
-    pub fn new(_event_callback: wasm_bindgen::JsValue) -> Self {
+    pub fn new(event_callback: js_sys::Function) -> Self {
         Self {
             tree: Arc::new(Mutex::new(RetainedTree::new())),
             selection: SharedSelection::default(),
+            event_callback: web_event_callback(event_callback),
         }
     }
 
     pub fn init(&self, _options: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {
-        start_web_app(self.tree.clone(), self.selection.clone())
+        start_web_app(
+            self.tree.clone(),
+            self.selection.clone(),
+            self.event_callback.clone(),
+        )
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = createElement)]
