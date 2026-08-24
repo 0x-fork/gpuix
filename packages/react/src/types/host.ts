@@ -477,11 +477,16 @@ export type EventHandlerMap = Map<
   Map<string, (event: EventPayload) => void>
 >
 
-// One React root. Ids and event handlers stay on this object so two live
-// roots can both use id 1 without overwriting each other.
+export interface ElementIdAllocator {
+  nextElementId: number
+}
+
+// One React root. Event handlers stay on this object so two live roots
+// can both use id 1. Ids come from an allocator that lives with the
+// NativeRenderer, so a remount on the same renderer cannot reuse them.
 export interface Container {
   renderer: NativeRenderer
-  nextElementId: number
+  ids: ElementIdAllocator
   eventHandlers: EventHandlerMap
 }
 

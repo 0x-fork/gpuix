@@ -54,7 +54,7 @@ function rendererFor(node: HostNode): NativeRenderer {
 }
 
 function nextId(container: Container): number {
-  return ++container.nextElementId
+  return ++container.ids.nextElementId
 }
 
 // ── Event wiring helpers ─────────────────────────────────────────────
