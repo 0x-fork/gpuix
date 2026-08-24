@@ -439,9 +439,19 @@ export interface NativeRenderer {
   getDebugFrameOverlay?(): string
   cycleDebugFrameOverlay?(): string
   resetDebugFrameOverlayStats?(): void
+  getDebugFrameOverlayStats?(): DebugFrameOverlayStats
 }
 
 export type DebugFrameOverlayMode = "hidden" | "minimal" | "full"
+
+export interface DebugFrameOverlayStats {
+  currentMs?: number
+  p90Ms?: number
+  p99Ms?: number
+  maxMs?: number
+  frames: number
+  samples: number
+}
 
 // Container holds the renderer reference.
 // Mutations go directly via napi calls.

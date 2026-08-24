@@ -243,9 +243,23 @@ renderer.setDebugFrameOverlay('full')
 renderer.cycleDebugFrameOverlay()
 renderer.resetDebugFrameOverlayStats()
 renderer.getDebugFrameOverlay() // 'hidden' | 'minimal' | 'full'
+renderer.getDebugFrameOverlayStats()
+// { currentMs, p90Ms, p99Ms, maxMs, frames, samples }
 ```
 
+`p90Ms` is the overlay **10%** line. `p99Ms` is the **1%** line. Those are the slow tail.
+
 The overlay shows **draw time**, not FPS. `8.3 MS` is about 120 Hz.
+
+The chat example has a regression test for this: `examples/chat.perf.test.tsx`. It times mount, wheel draw, and sidebar clicks. It asserts p95, not every frame.
+
+On macOS, `THROTTLE=utility` restarts the process under `taskpolicy -c utility`. That pins work to E-cores. It is an **M1/M2 Air CPU** proxy, not Chrome 6x. GPU and RAM stay fast. `THROTTLE=background` is slower.
+
+```bash
+cd examples
+THROTTLE=utility bun run test chat.perf.test.tsx
+THROTTLE=utility bun --hot chat.tsx
+```
 
 ## Hot reload
 

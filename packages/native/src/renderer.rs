@@ -124,10 +124,21 @@ pub(crate) fn debug_frame_overlay_mode_name(mode: gpui::DebugFrameOverlayMode) -
     }
 }
 
+pub(crate) fn debug_frame_overlay_stats_js(
+    stats: gpui::DebugFrameOverlayStats,
+) -> DebugFrameOverlayStats {
+    DebugFrameOverlayStats {
+        current_ms: stats.current_ms.map(|ms| ms as f64),
+        p90_ms: stats.p90_ms.map(|ms| ms as f64),
+        p99_ms: stats.p99_ms.map(|ms| ms as f64),
+        max_ms: stats.max_ms.map(|ms| ms as f64),
+        frames: stats.frames as f64,
+        samples: stats.samples as f64,
+    }
+}
+
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
-fn recv_debug_frame_overlay_mode(
-    receiver: std::sync::mpsc::Receiver<String>,
-) -> Result<String> {
+fn recv_debug_frame_overlay_mode(receiver: std::sync::mpsc::Receiver<String>) -> Result<String> {
     match receiver.recv_timeout(Duration::from_secs(2)) {
         Ok(mode) => Ok(mode),
         Err(RecvTimeoutError::Timeout) => Err(Error::from_reason(
@@ -179,6 +190,9 @@ enum UiCommand {
     GetDebugFrameOverlay {
         response: SyncSender<String>,
     },
+    GetDebugFrameOverlayStats {
+        response: SyncSender<DebugFrameOverlayStats>,
+    },
     ResetDebugFrameOverlayStats,
     ScrollTo {
         id: u64,
@@ -222,29 +236,42 @@ async fn run_ui_commands(
                 cx.notify();
                 window.refresh();
             }),
-            UiCommand::SetDebugFrameOverlay(mode) => window.update(cx, move |_view, window, _cx| {
-                window.set_debug_frame_overlay_mode(mode);
-            }),
+            UiCommand::SetDebugFrameOverlay(mode) => {
+                window.update(cx, move |_view, window, _cx| {
+                    window.set_debug_frame_overlay_mode(mode);
+                })
+            }
             UiCommand::CycleDebugFrameOverlay { response } => {
                 window.update(cx, move |_view, window, _cx| {
                     window.cycle_debug_frame_overlay_mode();
                     response
-                        .send(debug_frame_overlay_mode_name(window.debug_frame_overlay_mode()).into())
+                        .send(
+                            debug_frame_overlay_mode_name(window.debug_frame_overlay_mode()).into(),
+                        )
                         .ok();
                 })
             }
             UiCommand::GetDebugFrameOverlay { response } => {
                 window.update(cx, move |_view, window, _cx| {
                     response
-                        .send(debug_frame_overlay_mode_name(window.debug_frame_overlay_mode()).into())
+                        .send(
+                            debug_frame_overlay_mode_name(window.debug_frame_overlay_mode()).into(),
+                        )
                         .ok();
                 })
             }
-            UiCommand::ResetDebugFrameOverlayStats => {
-                window.update(cx, |_view, window, _cx| {
-                    window.reset_debug_frame_overlay_stats();
+            UiCommand::GetDebugFrameOverlayStats { response } => {
+                window.update(cx, move |_view, window, _cx| {
+                    response
+                        .send(debug_frame_overlay_stats_js(
+                            window.debug_frame_overlay_stats(),
+                        ))
+                        .ok();
                 })
-            },
+            }
+            UiCommand::ResetDebugFrameOverlayStats => window.update(cx, |_view, window, _cx| {
+                window.reset_debug_frame_overlay_stats();
+            }),
             UiCommand::ScrollTo { id, x, y } => {
                 if !VIRTUAL_LIST_STATES.with(|cell| {
                     let states = cell.borrow();
@@ -886,6 +913,38 @@ impl GpuixRenderer {
 
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
         return self.send_ui_command(UiCommand::ResetDebugFrameOverlayStats);
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
+    }
+
+    /// Same numbers as the on-screen overlay: current, p90, p99, max, frames.
+    #[napi]
+    pub fn get_debug_frame_overlay_stats(&self) -> Result<DebugFrameOverlayStats> {
+        #[cfg(target_os = "macos")]
+        return update_window(|_view, window, _cx| {
+            debug_frame_overlay_stats_js(window.debug_frame_overlay_stats())
+        });
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::GetDebugFrameOverlayStats { response })?;
+            match receiver.recv_timeout(Duration::from_secs(2)) {
+                Ok(stats) => Ok(stats),
+                Err(RecvTimeoutError::Timeout) => Err(Error::from_reason(
+                    "Timed out after 2 seconds waiting for debug frame overlay stats",
+                )),
+                Err(RecvTimeoutError::Disconnected) => Err(Error::from_reason(
+                    "The GPUI UI thread stopped during the debug frame overlay stats query",
+                )),
+            }
+        }
 
         #[cfg(not(any(
             target_os = "macos",
@@ -3146,6 +3205,18 @@ fn batch_str(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> Result<Str
 pub struct WindowSize {
     pub width: f64,
     pub height: f64,
+}
+
+/// Recorded draw times from the debug frame overlay.
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct DebugFrameOverlayStats {
+    pub current_ms: Option<f64>,
+    pub p90_ms: Option<f64>,
+    pub p99_ms: Option<f64>,
+    pub max_ms: Option<f64>,
+    pub frames: f64,
+    pub samples: f64,
 }
 
 #[derive(Debug, Clone)]

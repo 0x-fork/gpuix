@@ -6,6 +6,7 @@
  * composer chips, and the workspace footer. Data is hardcoded.
  *
  * Run with:  cd examples && bun --hot chat.tsx
+ * Slow CPU:  THROTTLE=utility bun --hot chat.tsx
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -13,9 +14,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  applyMacCpuThrottleFromEnv,
   motion,
   render,
   Select,
+  VirtualList,
   SelectContent,
   SelectItem,
   SelectLabel,
@@ -1776,8 +1779,9 @@ const isEntryPoint =
     : process.argv[1]?.endsWith('chat.tsx')
 
 if (isEntryPoint) {
-  render(<ChatApp turnCount={5_000} includeSafeMdx />, {
-    title: 'Waku · 5,000 messages',
+  applyMacCpuThrottleFromEnv()
+  render(<ChatApp turnCount={1_000} includeSafeMdx />, {
+    title: 'Waku · 1,000 messages',
     width: 1180,
     height: 820,
     titlebarTransparent: true,

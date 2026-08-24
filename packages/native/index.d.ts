@@ -64,6 +64,8 @@ export declare class GpuixRenderer {
   getDebugFrameOverlay(): string
   /** Clears the last 1000 draw samples. Frame count stays. */
   resetDebugFrameOverlayStats(): void
+  /** Same numbers as the on-screen overlay: current, p90, p99, max, frames. */
+  getDebugFrameOverlayStats(): DebugFrameOverlayStats
   setWindowTitle(title: string): void
   focusElement(elementId: number): void
   blur(): void
@@ -253,6 +255,8 @@ export declare class TestGpuixRenderer {
   getDebugFrameOverlay(): string
   /** Clears the last 1000 draw samples. Frame count stays. */
   resetDebugFrameOverlayStats(): void
+  /** Same numbers as the on-screen overlay: current, p90, p99, max, frames. */
+  getDebugFrameOverlayStats(): DebugFrameOverlayStats
   /**
    * Get the current scroll offset of a scrollable element.
    * Returns [x, y] or null if the element has no scroll handle.
@@ -288,6 +292,16 @@ export declare class TestGpuixRenderer {
   clockResume(): number
   /** Get the root element ID, or null if no root is set. */
   getRootId(): number | null
+}
+
+/** Recorded draw times from the debug frame overlay. */
+export interface DebugFrameOverlayStats {
+  currentMs?: number
+  p90Ms?: number
+  p99Ms?: number
+  maxMs?: number
+  frames: number
+  samples: number
 }
 
 export interface EventModifiers {
@@ -383,6 +397,10 @@ export interface EventPayload {
   oldLine?: number
   /** Line number on the post-change side. Populated for: `<diff>` lineClick. */
   newLine?: number
+  /** First visible logical index. Populated for: `<virtual-list>` visibleRange. */
+  startIndex?: number
+  /** Exclusive end of the visible logical range. Populated for: visibleRange. */
+  endIndex?: number
   modifiers?: EventModifiers
 }
 

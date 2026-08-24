@@ -21,7 +21,8 @@ use gpui::AppContext as _;
 
 use crate::element_tree::EventPayload;
 use crate::renderer::{
-    apply_batch_to_tree, debug_frame_overlay_mode_name, parse_debug_frame_overlay_mode,
+    apply_batch_to_tree, debug_frame_overlay_mode_name, debug_frame_overlay_stats_js,
+    parse_debug_frame_overlay_mode, DebugFrameOverlayStats,
     to_element_id, EventCallback, GpuixView,
 };
 use crate::retained_tree::RetainedTree;
@@ -613,6 +614,17 @@ impl TestGpuixRenderer {
             })
             .map_err(|e| Error::from_reason(e.to_string()))?;
             Ok(())
+        })
+    }
+
+    /// Same numbers as the on-screen overlay: current, p90, p99, max, frames.
+    #[napi]
+    pub fn get_debug_frame_overlay_stats(&self) -> Result<DebugFrameOverlayStats> {
+        with_test_state(|cx, window, _view| {
+            cx.update_window(window, |_, window, _app| {
+                debug_frame_overlay_stats_js(window.debug_frame_overlay_stats())
+            })
+            .map_err(|e| Error::from_reason(e.to_string()))
         })
     }
 

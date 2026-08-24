@@ -1,8 +1,10 @@
 // Profile ChatApp wheel frames. Run with bun --cpu-prof.
 import React from 'react'
-import { createTestRoot } from '@gpuix/react'
+import { applyMacCpuThrottleFromEnv, createTestRoot } from '@gpuix/react'
 import { connectTest } from '@gpuix/react/automation'
 import { ChatApp } from './chat'
+
+applyMacCpuThrottleFromEnv()
 
 const root = createTestRoot()
 const native = (root.renderer as { native: { simulateScrollWheel: (...args: number[]) => void } })

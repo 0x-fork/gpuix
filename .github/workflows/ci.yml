@@ -142,8 +142,16 @@ jobs:
           path: packages/native/
 
       - name: Run tests
-        run: bun test
+        run: bun run test
         working-directory: packages/react
+
+      - name: Build @gpuix/react
+        run: bun run build
+        working-directory: packages/react
+
+      - name: Run chat performance regression
+        run: bun run test chat.perf.test.tsx
+        working-directory: examples
 
   test-windows:
     name: test-windows-load
