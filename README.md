@@ -1236,6 +1236,10 @@ placeholder instead of crashing.
 and in the browser. Desktop apps can also use a local `src` path. The icon is
 drawn as one shape and tinted with `style.color`.
 
+For application icons, prefer **raw SVG source**. It works with both GPUIX
+targets and lets a bundler embed each icon in the JavaScript bundle. Use `src`
+only for a desktop app that intentionally ships loose asset files.
+
 `src` is a filesystem path **or** a `data:image/svg+xml,…` URL. Vitest and some
 Bun `import … with { type: 'file' }` bindings emit the data URL. GPUIX decodes
 both.
@@ -1243,6 +1247,12 @@ both.
 `style.color` is required. Without it the icon does not paint. Prefer
 `fill="#000"` or `stroke="#000"` in the file. `currentColor` in the SVG is not
 the same as `style.color`.
+
+#### Bun
+
+Use Bun's [`text` loader](https://bun.sh/docs/bundler/loaders#text). The import
+is a string containing the complete SVG, and `bun build` embeds it in the
+bundle.
 
 ```tsx
 import searchSvg from './assets/icons/search.svg' with { type: 'text' }
@@ -1255,6 +1265,30 @@ import searchSvg from './assets/icons/search.svg' with { type: 'text' }
 
 The chat example builds every sidebar and composer icon from raw SVG source this
 way.
+
+#### Node.js
+
+For supported Node.js releases, read the icon once relative to the module. A
+`URL` keeps the path correct across operating systems and avoids `__dirname`.
+
+```tsx
+import { readFileSync } from 'node:fs'
+
+const searchSvg = readFileSync(
+  new URL('./assets/icons/search.svg', import.meta.url),
+  'utf8',
+)
+
+<svg
+  source={searchSvg}
+  style={{ width: 16, height: 16, color: '#b4b4b4' }}
+/>
+```
+
+Node.js also has [text modules](https://nodejs.org/api/esm.html#text-modules),
+but they currently require `--experimental-import-text`. Prefer
+[`readFileSync`](https://nodejs.org/api/fs.html#fsreadfilesyncpath-options) until
+text imports no longer need a runtime flag.
 
 ## Supported Events
 
