@@ -14,6 +14,7 @@ import type { EventPayload } from "@gpuix/native"
 import type { DebugFrameOverlayMode, NativeRenderer } from "./types/host.js"
 import { createRoot, flushSync, type Root } from "./reconciler/renderer.js"
 import { handleGpuixEvent } from "./reconciler/event-registry.js"
+import { resetIdCounter } from "./reconciler/host-config.js"
 
 interface NativeTestRendererApi extends NativeRenderer {
   applyBatch(json: string): number[]
@@ -494,6 +495,7 @@ export interface TestRoot {
  * and convenience methods.
  */
 export function createTestRoot(): TestRoot {
+  resetIdCounter()
   const renderer = new TestRenderer()
   const root = createRoot(renderer)
 

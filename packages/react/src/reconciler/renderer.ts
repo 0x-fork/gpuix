@@ -7,6 +7,7 @@ import type { EventPayload, WindowOptions } from "@gpuix/native"
 import { reconciler } from "./reconciler.js"
 import type { Container, DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
 import { handleGpuixEvent } from "./event-registry.js"
+import { resetIdCounter } from "./host-config.js"
 import { wrapWithBatching } from "./batch-renderer.js"
 import { GpuixContext } from "../hooks/use-gpuix.js"
 import {
@@ -248,6 +249,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   if (slot.root) {
     console.log("[gpuix] remount: unmount previous tree")
     slot.root.unmount()
+    resetIdCounter()
   }
   const root = createRoot(host)
   slot.root = root

@@ -1,54 +1,20 @@
 import { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
-import type { NativeRenderer } from "../types/host.js"
-import { handleGpuixEvent } from "../reconciler/event-registry.js"
+import { createTestRoot, hasNativeTestRenderer } from "../testing.js"
 
-vi.mock("@gpuix/native", () => ({ GpuixRenderer: class {} }))
+const describeNative = hasNativeTestRenderer ? describe : describe.skip
 
-import { createRoot, flushSync } from "../reconciler/renderer.js"
-
-type Mutation = [string, ...unknown[]]
-
-class RecordingRenderer implements NativeRenderer {
-  batches: Mutation[][] = []
-
-  createElement(): void {}
-  destroyElement(): number[] {
-    return []
-  }
-  appendChild(): void {}
-  removeChild(): void {}
-  insertBefore(): void {}
-  setStyle(): void {}
-  setText(): void {}
-  setEventListener(): void {}
-  setRoot(): void {}
-  commitMutations(): void {}
-  setCustomProp(): void {}
-
-  applyBatch(json: string): number[] {
-    this.batches.push(JSON.parse(json) as Mutation[])
-    return []
-  }
-
-  mutations(): Mutation[] {
-    return this.batches.flat()
-  }
-}
-
-
-describe("mutation lifecycle", () => {
-  it("does not flush host nodes from an abandoned Suspense render", () => {
-    const renderer = new RecordingRenderer()
-    const root = createRoot(renderer)
+describeNative("mutation lifecycle", () => {
+  it("does not paint host nodes from an abandoned Suspense render", () => {
+    const { render, renderer, unmount } = createTestRoot()
     const pending = new Promise<never>(() => {})
 
     function Suspend(): never {
       throw pending
     }
 
-    flushSync(() => {
-      root.render(
+    try {
+      render(
         <Suspense fallback={<text>fallback</text>}>
           <div>
             <text>abandoned</text>
@@ -56,32 +22,46 @@ describe("mutation lifecycle", () => {
           <Suspend />
         </Suspense>
       )
-    })
 
-    const paintedText = renderer
-      .mutations()
-      .filter(([operation]) => operation === "setText")
-      .map(([, , text]) => text)
-
-    expect(paintedText).toEqual(["fallback"])
+      expect(renderer.getPaintedText()).toEqual(["fallback"])
+    } finally {
+      unmount()
+    }
   })
 
   it("keeps unchanged event handlers registered across renders", () => {
-    const renderer = new RecordingRenderer()
-    const root = createRoot(renderer)
+    const { render, renderer, unmount } = createTestRoot()
     const onClick = vi.fn()
+    const clickable = (
+      <div style={{ width: 100, height: 100 }} onClick={onClick}>
+        click
+      </div>
+    )
 
-    flushSync(() => root.render(<div onClick={onClick} />))
-    const create = renderer
-      .mutations()
-      .find(([operation, , elementType]) => operation === "createElement" && elementType === "div")
-    expect(create).toBeDefined()
-    const elementId = create![1] as number
+    try {
+      render(clickable)
+      renderer.nativeSimulateClick(10, 10)
+      render(clickable)
+      renderer.nativeSimulateClick(10, 10)
 
-    handleGpuixEvent({ elementId, eventType: "click" })
-    flushSync(() => root.render(<div onClick={onClick} />))
-    handleGpuixEvent({ elementId, eventType: "click" })
+      expect(onClick).toHaveBeenCalledTimes(2)
+    } finally {
+      unmount()
+    }
+  })
 
-    expect(onClick).toHaveBeenCalledTimes(2)
+  it("resets element ids for every test root", () => {
+    const first = createTestRoot()
+    first.render(<div />)
+    const firstRootId = first.renderer.getRoot()?.id
+    first.unmount()
+
+    const second = createTestRoot()
+    try {
+      second.render(<div />)
+      expect(second.renderer.getRoot()?.id).toBe(firstRootId)
+    } finally {
+      second.unmount()
+    }
   })
 })
