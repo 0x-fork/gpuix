@@ -518,6 +518,7 @@ fn register_copy_listener(window: &mut Window, selection: &SharedSelection) {
         let text = selection.lock().selected_text();
         if let Some(text) = text {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
+            cx.stop_propagation();
         }
     });
 }

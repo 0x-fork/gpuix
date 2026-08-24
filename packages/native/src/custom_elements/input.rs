@@ -87,11 +87,18 @@ fn single_line_text(text: &str) -> String {
 
 pub fn init(cx: &mut App) {
     let word_navigation_uses_alt = word_navigation_uses_alt();
-    let mut bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, word_navigation_uses_alt);
+    let bind_paste_shortcut = !cfg!(all(target_arch = "wasm32", target_os = "unknown"));
+    let mut bindings = text_editor_bindings(
+        INPUT_KEY_CONTEXT,
+        false,
+        word_navigation_uses_alt,
+        bind_paste_shortcut,
+    );
     bindings.extend(text_editor_bindings(
         TEXTAREA_KEY_CONTEXT,
         true,
         word_navigation_uses_alt,
+        bind_paste_shortcut,
     ));
     cx.bind_keys(bindings);
 }
@@ -100,6 +107,7 @@ fn text_editor_bindings(
     context: &'static str,
     multiline: bool,
     word_navigation_uses_alt: bool,
+    bind_paste_shortcut: bool,
 ) -> Vec<KeyBinding> {
     let context = Some(context);
     let mut bindings = vec![
@@ -161,10 +169,12 @@ fn text_editor_bindings(
             KeyBinding::new(&format!("{prefix}-a"), SelectAll, context),
             KeyBinding::new(&format!("{prefix}-c"), Copy, context),
             KeyBinding::new(&format!("{prefix}-x"), Cut, context),
-            KeyBinding::new(&format!("{prefix}-v"), Paste, context),
             KeyBinding::new(&format!("{prefix}-z"), Undo, context),
             KeyBinding::new(&format!("shift-{prefix}-z"), Redo, context),
         ]);
+        if bind_paste_shortcut {
+            bindings.push(KeyBinding::new(&format!("{prefix}-v"), Paste, context));
+        }
     }
     bindings
 }
@@ -1582,7 +1592,7 @@ mod tests {
 
     #[test]
     fn macos_word_navigation_uses_alt() {
-        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true);
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true);
 
         assert!(has_binding(&bindings, "alt-left", &WordLeft));
         assert!(has_binding(&bindings, "alt-right", &WordRight));
@@ -1592,12 +1602,20 @@ mod tests {
 
     #[test]
     fn non_macos_word_navigation_uses_control() {
-        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, false);
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, false, true);
 
         assert!(has_binding(&bindings, "ctrl-left", &WordLeft));
         assert!(has_binding(&bindings, "ctrl-right", &WordRight));
         assert!(!has_binding(&bindings, "alt-left", &WordLeft));
         assert!(!has_binding(&bindings, "alt-right", &WordRight));
+    }
+
+    #[test]
+    fn browser_paste_stays_with_the_dom_event() {
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, false);
+
+        assert!(!has_binding(&bindings, "cmd-v", &Paste));
+        assert!(!has_binding(&bindings, "ctrl-v", &Paste));
     }
 
     #[test]
