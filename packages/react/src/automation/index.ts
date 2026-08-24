@@ -2,6 +2,7 @@
 
 export {
   App,
+  browserRendererAsTest,
   connectStdio,
   connectTest,
   handleAutomationRequest,

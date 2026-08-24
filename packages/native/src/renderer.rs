@@ -1617,6 +1617,35 @@ fn collect_text(id: u64, tree: &RetainedTree, texts: &mut Vec<String>) {
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn web_input_count() -> u32 {
+    web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.query_selector_all("input").ok())
+        .map_or(0, |inputs| inputs.length())
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn mark_web_inputs(first_new_input: u32) {
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return;
+    };
+    let Ok(inputs) = document.query_selector_all("input") else {
+        return;
+    };
+    for index in first_new_input..inputs.length() {
+        let Some(input) = inputs.item(index) else {
+            continue;
+        };
+        let Ok(input) = input.dyn_into::<web_sys::Element>() else {
+            continue;
+        };
+        if let Err(error) = input.set_attribute("data-gpuix-input", "") {
+            log::error!("Failed to identify the GPUIX browser input: {error:?}");
+        }
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn start_web_app(
     tree: Arc<Mutex<RetainedTree>>,
     selection: SharedSelection,
@@ -1627,6 +1656,7 @@ fn start_web_app(
             "GPUIX web is already running",
         ));
     }
+    let first_new_input = web_input_count();
     gpui_platform::web_init();
     let app = gpui_platform::single_threaded_web().run_embedded(move |cx| {
         init_key_bindings(cx);
@@ -1645,6 +1675,7 @@ fn start_web_app(
             Ok(window) => WEB_WINDOW.with(|stored| *stored.borrow_mut() = Some(window)),
             Err(error) => log::error!("Failed to open the GPUIX web window: {error:#}"),
         }
+        mark_web_inputs(first_new_input);
         cx.activate(true);
     });
     WEB_APP.with(|stored| *stored.borrow_mut() = Some(app));
@@ -1658,6 +1689,15 @@ fn web_element_id(id: f64) -> Result<u64, wasm_bindgen::JsValue> {
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn web_number_array(values: impl IntoIterator<Item = f64>) -> wasm_bindgen::JsValue {
+    let result = js_sys::Array::new();
+    for value in values {
+        result.push(&value.into());
+    }
+    result.into()
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn web_string_array(values: impl IntoIterator<Item = String>) -> wasm_bindgen::JsValue {
     let result = js_sys::Array::new();
     for value in values {
         result.push(&value.into());
@@ -2043,6 +2083,149 @@ impl WebGpuixRenderer {
             return Ok(wasm_bindgen::JsValue::NULL);
         };
         Ok(web_number_array([x, y]))
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAutomationTree)]
+    pub fn get_automation_tree(&self) -> Result<String, wasm_bindgen::JsValue> {
+        notify_web();
+        let bounds = crate::automation::all_bounds();
+        let tree = self.tree.lock().unwrap();
+        serde_json::to_string(&tree.to_automation_json(&bounds)).map_err(|error| {
+            wasm_bindgen::JsValue::from_str(&format!("JSON serialization failed: {error}"))
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getElementBounds)]
+    pub fn get_element_bounds(
+        &self,
+        element_id: f64,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let Some(bounds) = crate::automation::get_bounds(web_element_id(element_id)?) else {
+            return Ok(wasm_bindgen::JsValue::NULL);
+        };
+        Ok(web_number_array([
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
+        ]))
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getAllText)]
+    pub fn get_all_text(&self) -> wasm_bindgen::JsValue {
+        let tree = self.tree.lock().unwrap();
+        let mut texts = Vec::new();
+        if let Some(root_id) = tree.root_id {
+            collect_text(root_id, &tree, &mut texts);
+        }
+        web_string_array(texts)
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getPaintedText)]
+    pub fn get_painted_text(&self) -> wasm_bindgen::JsValue {
+        web_string_array(crate::text::painted_text())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = simulateClick)]
+    pub fn simulate_click(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(move |_view, window, cx| {
+            crate::automation::dispatch_click(window, cx, x, y, button.unwrap_or(0));
+            cx.notify();
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = simulateMouseDown)]
+    pub fn simulate_mouse_down(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(move |_view, window, cx| {
+            crate::automation::dispatch_mouse_down(window, cx, x, y, button.unwrap_or(0));
+            cx.notify();
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = simulateMouseUp)]
+    pub fn simulate_mouse_up(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(move |_view, window, cx| {
+            crate::automation::dispatch_mouse_up(window, cx, x, y, button.unwrap_or(0));
+            cx.notify();
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = simulateMouseMove)]
+    pub fn simulate_mouse_move(
+        &self,
+        x: f64,
+        y: f64,
+        pressed_button: Option<u32>,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(move |_view, window, cx| {
+            crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
+            cx.notify();
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = simulateScrollWheel)]
+    pub fn simulate_scroll_wheel(
+        &self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(move |_view, window, cx| {
+            crate::automation::dispatch_scroll_wheel(window, cx, x, y, delta_x, delta_y);
+            cx.notify();
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = clockPause)]
+    pub fn clock_pause(&self) -> Result<f64, wasm_bindgen::JsValue> {
+        update_web_window(|view, _window, cx| {
+            let now_ms = view.clock.pause();
+            cx.notify();
+            now_ms
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = clockSet)]
+    pub fn clock_set(&self, now_ms: f64) -> Result<f64, wasm_bindgen::JsValue> {
+        update_web_window(move |view, _window, cx| {
+            let now_ms = view.clock.set_ms(now_ms);
+            cx.notify();
+            now_ms
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = clockFastForward)]
+    pub fn clock_fast_forward(&self, delta_ms: f64) -> Result<f64, wasm_bindgen::JsValue> {
+        update_web_window(move |view, _window, cx| {
+            let now_ms = view.clock.fast_forward_ms(delta_ms);
+            cx.notify();
+            now_ms
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = clockResume)]
+    pub fn clock_resume(&self) -> Result<f64, wasm_bindgen::JsValue> {
+        update_web_window(|view, _window, cx| {
+            let now_ms = view.clock.resume();
+            cx.notify();
+            now_ms
+        })
     }
 }
 

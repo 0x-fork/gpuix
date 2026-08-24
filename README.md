@@ -1419,7 +1419,7 @@ Nesting is one level deep. A `hover` object cannot contain another `hover` or
 ## Automation
 
 Mark elements with **`testId`**, then drive them like Playwright. The same
-client works in vitest and against a child process.
+client works in vitest, inside browser pages, and against a child process.
 
 ```tsx
 <div testId="sidebar-collapse" onClick={onCollapse}>‹</div>
@@ -1452,13 +1452,42 @@ That is the chat example. The real test lives in
 [`examples/chat.test.tsx`](./examples/chat.test.tsx).
 
 ```
-createTestRoot()                 launch({ command, args })
-       │                                    │
-       ▼                                    ▼
- connectTest(renderer)              child stdin / stdout
-       │                                    │
-       └────────── App / Locator ───────────┘
-                    click, fill, screenshot
+createTestRoot()          browser render()          launch({ command, args })
+       │                         │                              │
+       ▼                         ▼                              ▼
+connectTest(renderer)      globalThis.gpuix                child stdin / stdout
+       │                         │                              │
+       └─────────────────────────┴──► App / Locator ◄───────────┘
+                                  click, fill, query, clock
+```
+
+### Browser apps
+
+Every browser render installs the automation `App` as **`globalThis.gpuix`**.
+It is always available after `render()` returns. No setup flag or separate
+transport is required.
+
+```ts
+await page.evaluate(async () => {
+  await globalThis.gpuix
+    .getByTestId('sidebar-collapse')
+    .click()
+
+  await globalThis.gpuix
+    .getByTestId('composer')
+    .fill('hello from Playwriter')
+
+  await globalThis.gpuix.clock.pause()
+  await globalThis.gpuix.clock.fastForward(200)
+})
+```
+
+The browser global supports locators, input, tree and text queries, bounds,
+selection, scrolling, focus, and clock control. Browser pages cannot write an
+arbitrary local screenshot path. Use the controlling browser tool for that:
+
+```ts
+await page.screenshot({ path: 'review/chat.png', scale: 'css' })
 ```
 
 ### Locators

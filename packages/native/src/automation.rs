@@ -251,6 +251,27 @@ pub fn dispatch_mouse_move(
     );
 }
 
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub fn dispatch_scroll_wheel(
+    window: &mut Window,
+    cx: &mut App,
+    x: f64,
+    y: f64,
+    delta_x: f64,
+    delta_y: f64,
+) {
+    window.dispatch_event(
+        gpui::ScrollWheelEvent {
+            position: point(px(x as f32), px(y as f32)),
+            delta: gpui::ScrollDelta::Pixels(point(px(delta_x as f32), px(delta_y as f32))),
+            modifiers: Modifiers::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        }
+        .to_platform_input(),
+        cx,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

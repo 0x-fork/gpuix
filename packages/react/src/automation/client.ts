@@ -3,9 +3,6 @@
 /// In-process tests talk to TestRenderer through the same typed method catalog
 /// as a live app on SSE stdin/stdout. Locators query the retained tree.
 
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
-import { mkdir } from "node:fs/promises"
-import path from "node:path"
 import {
   AutomationError,
   createSseDecoder,
@@ -23,6 +20,10 @@ import {
   type ResultOf,
   type TreeNode,
 } from "./protocol.js"
+
+function importNodeModule<T>(specifier: string): Promise<T> {
+  return import(specifier)
+}
 
 export interface AutomationBackend {
   call<M extends MethodName>(method: M, params: ParamsOf<M>): Promise<ResultOf<M>>
@@ -117,9 +118,16 @@ export class InProcessBackend extends ValidatedAutomationBackend {
   private readonly handlers: HandlerMap = {
     initialize: () => ({
       protocolVersion: PROTOCOL_VERSION,
-      pid: process.pid,
-      capabilities: ["input", "screenshot", "clock", "tree"],
-      window: { width: 800, height: 600 },
+      pid: typeof process === "undefined" ? 0 : process.pid,
+      capabilities: typeof window !== "undefined"
+        ? ["input", "clock", "tree"]
+        : ["input", "screenshot", "clock", "tree"],
+      window: (() => {
+        return {
+          width: typeof window === "undefined" ? 800 : window.innerWidth,
+          height: typeof window === "undefined" ? 600 : window.innerHeight,
+        }
+      })(),
     }),
     cancel: () => ({ ok: true as const }),
     click: (params) => {
@@ -399,7 +407,12 @@ export class Locator {
 
   async fill(text: string): Promise<void> {
     const node = await this.element()
-    const selectAll = process.platform === "darwin" ? "cmd-a" : "ctrl-a"
+    const browserPlatform = typeof navigator === "undefined" ? "" : navigator.platform
+    const selectAll =
+      browserPlatform.includes("Mac") ||
+      (typeof process !== "undefined" && process.platform === "darwin")
+        ? "cmd-a"
+        : "ctrl-a"
     const replacement = text.length === 0 ? "backspace" : toKeystrokes(text)
     await this.app.call("keystrokes", {
       elementId: node.id,
@@ -483,6 +496,16 @@ export class App {
     dir: string,
     timesMs: readonly number[]
   ): Promise<string[]> {
+    if (typeof process === "undefined") {
+      throw new AutomationError(
+        "Unsupported",
+        "Browser frame capture must use the controlling browser automation client"
+      )
+    }
+    const { mkdir } = await importNodeModule<typeof import("node:fs/promises")>(
+      "node:fs/promises"
+    )
+    const path = await importNodeModule<typeof import("node:path")>("node:path")
     await mkdir(dir, { recursive: true })
     await this.clock.pause()
     const paths: string[] = []
@@ -505,6 +528,15 @@ export interface LiveAutomationRenderer {
   simulateMouseDown(x: number, y: number, button?: number): void
   simulateMouseUp(x: number, y: number, button?: number): void
   simulateMouseMove(x: number, y: number, pressedButton?: number): void
+  simulateScrollWheel?(
+    x: number,
+    y: number,
+    deltaX: number,
+    deltaY: number
+  ): void
+  simulateKeystrokes?(keystrokes: string): void
+  simulateKeyDown?(keystroke: string, isHeld?: boolean): void
+  simulateKeyUp?(keystroke: string): void
   tick?(): void
   focusElement(elementId: number): void
   blur(): void
@@ -514,7 +546,7 @@ export interface LiveAutomationRenderer {
   getPaintedText(): string[]
   getSelectedText(): string | null
   clearSelection(): void
-  captureScreenshot(path: string): void
+  captureScreenshot?(path: string): void
   getAutomationTree(): string
   getElementBounds(elementId: number): number[] | null
   clockPause(): number
@@ -546,20 +578,43 @@ export function liveRendererAsTest(
       renderer.simulateMouseMove(x, y, pressedButton)
       afterInput()
     },
-    nativeSimulateScrollWheel() {
-      throw new AutomationError("Unsupported", "scrollWheel is not live yet")
+    nativeSimulateScrollWheel(x, y, deltaX, deltaY) {
+      if (!renderer.simulateScrollWheel) {
+        throw new AutomationError("Unsupported", "scrollWheel is not live yet")
+      }
+      renderer.simulateScrollWheel(x, y, deltaX, deltaY)
+      afterInput()
     },
-    simulateKeystrokes() {
-      throw new AutomationError("Unsupported", "keystrokes are not live yet")
+    simulateKeystrokes(keys) {
+      if (!renderer.simulateKeystrokes) {
+        throw new AutomationError("Unsupported", "keystrokes are not live yet")
+      }
+      renderer.simulateKeystrokes(keys)
+      afterInput()
     },
-    nativeSimulateKeystrokes() {
-      throw new AutomationError("Unsupported", "keystrokes are not live yet")
+    nativeSimulateKeystrokes(elementId, keys) {
+      if (!renderer.simulateKeystrokes) {
+        throw new AutomationError("Unsupported", "keystrokes are not live yet")
+      }
+      renderer.focusElement(elementId)
+      renderer.simulateKeystrokes(keys)
+      afterInput()
     },
-    nativeSimulateKeyDown() {
-      throw new AutomationError("Unsupported", "keyDown is not live yet")
+    nativeSimulateKeyDown(elementId, key, isHeld) {
+      if (!renderer.simulateKeyDown) {
+        throw new AutomationError("Unsupported", "keyDown is not live yet")
+      }
+      if (elementId > 0) renderer.focusElement(elementId)
+      renderer.simulateKeyDown(key, isHeld)
+      afterInput()
     },
-    nativeSimulateKeyUp() {
-      throw new AutomationError("Unsupported", "keyUp is not live yet")
+    nativeSimulateKeyUp(elementId, key) {
+      if (!renderer.simulateKeyUp) {
+        throw new AutomationError("Unsupported", "keyUp is not live yet")
+      }
+      if (elementId > 0) renderer.focusElement(elementId)
+      renderer.simulateKeyUp(key)
+      afterInput()
     },
     scrollTo: (id, x, y) => renderer.scrollTo(id, x, y),
     getScrollOffset: (id) => {
@@ -570,7 +625,15 @@ export function liveRendererAsTest(
     getPaintedText: () => renderer.getPaintedText(),
     getSelectedText: () => renderer.getSelectedText(),
     clearSelection: () => renderer.clearSelection(),
-    captureScreenshot: (file) => renderer.captureScreenshot(file),
+    captureScreenshot(file) {
+      if (!renderer.captureScreenshot) {
+        throw new AutomationError(
+          "Unsupported",
+          "Browser screenshots must use the controlling browser automation client"
+        )
+      }
+      renderer.captureScreenshot(file)
+    },
     getAutomationTree: () => renderer.getAutomationTree(),
     getElementBounds: (id) => renderer.getElementBounds(id),
     clockPause: () => renderer.clockPause(),
@@ -579,6 +642,88 @@ export function liveRendererAsTest(
     clockResume: () => renderer.clockResume(),
     focusElement: (id) => renderer.focusElement(id),
     blur: () => renderer.blur(),
+  }
+}
+
+export function browserKeystrokeInit(
+  keystroke: string,
+  isHeld = false
+): KeyboardEventInit {
+  const parts = keystroke.split("-")
+  const modifiers = new Set<string>()
+  while (parts.length > 1) {
+    const modifier = parts[0].toLowerCase()
+    if (!["alt", "cmd", "ctrl", "meta", "shift"].includes(modifier)) break
+    modifiers.add(modifier)
+    parts.shift()
+  }
+
+  const keyName = parts.join("-")
+  const key =
+    {
+      backspace: "Backspace",
+      delete: "Delete",
+      down: "ArrowDown",
+      enter: "Enter",
+      escape: "Escape",
+      left: "ArrowLeft",
+      right: "ArrowRight",
+      space: " ",
+      tab: "Tab",
+      up: "ArrowUp",
+    }[keyName.toLowerCase()] ?? keyName
+  return {
+    key,
+    altKey: modifiers.has("alt"),
+    bubbles: true,
+    ctrlKey: modifiers.has("ctrl"),
+    metaKey: modifiers.has("cmd") || modifiers.has("meta"),
+    repeat: isHeld,
+    shiftKey: modifiers.has("shift"),
+  }
+}
+
+function dispatchBrowserKeystroke({
+  keystroke,
+  type,
+  isHeld = false,
+}: {
+  keystroke: string
+  type: "keydown" | "keyup"
+  isHeld?: boolean
+}): void {
+  const input = document.querySelector("input[data-gpuix-input]")
+  if (!input) {
+    throw new AutomationError("Unsupported", "GPUI browser input is unavailable")
+  }
+  input.dispatchEvent(new KeyboardEvent(type, browserKeystrokeInit(keystroke, isHeld)))
+}
+
+export function browserRendererAsTest(
+  renderer: LiveAutomationRenderer
+): TestAutomationRenderer {
+  const live = liveRendererAsTest(renderer)
+  const keystrokes = (keys: string): void => {
+    for (const key of keys.split(/\s+/).filter(Boolean)) {
+      dispatchBrowserKeystroke({ keystroke: key, type: "keydown" })
+      dispatchBrowserKeystroke({ keystroke: key, type: "keyup" })
+    }
+  }
+  return {
+    ...live,
+    simulateKeystrokes: keystrokes,
+    nativeSimulateKeystrokes(elementId, keys) {
+      renderer.focusElement(elementId)
+      keystrokes(keys)
+    },
+    nativeSimulateKeyDown(elementId, key, isHeld) {
+      if (elementId > 0) renderer.focusElement(elementId)
+      dispatchBrowserKeystroke({ keystroke: key, type: "keydown", isHeld })
+    },
+    nativeSimulateKeyUp(elementId, key) {
+      if (elementId > 0) renderer.focusElement(elementId)
+      dispatchBrowserKeystroke({ keystroke: key, type: "keyup" })
+    },
   }
 }
 
@@ -614,7 +759,10 @@ export async function launch(options: {
   cwd?: string
   env?: NodeJS.ProcessEnv
 }): Promise<App> {
-  const child: ChildProcessWithoutNullStreams = spawn(
+  const { spawn } = await importNodeModule<typeof import("node:child_process")>(
+    "node:child_process"
+  )
+  const child = spawn(
     options.command,
     options.args ?? [],
     {
