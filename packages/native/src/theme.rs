@@ -95,7 +95,7 @@ fn graph_tone(mut color: Hsla) -> Hsla {
 
 // ── Syntax palette ───────────────────────────────────────────────────
 
-/// Paint-only colours for one Tree-sitter capture kind each.
+/// Paint-only colours for one Syntect [`HighlightKind`] each.
 #[derive(Debug, Clone)]
 pub struct SyntaxPalette {
     pub comment: Hsla,

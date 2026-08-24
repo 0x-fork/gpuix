@@ -23,6 +23,8 @@ futures = "0.3"
 # Wasm cannot use the desktop gpui_platform features.
 gpui = { path = "../../zed/crates/gpui", default-features = false }
 thiserror = "2"
+syntect = { version = "5.3", default-features = false, features = ["regex-fancy"] }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 pulldown-cmark = { version = "0.12", default-features = false }
 unicode-segmentation = "1"
 web-time = "1"
@@ -30,22 +32,6 @@ web-time = "1"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 gpui = { path = "../../zed/crates/gpui", default-features = false, features = ["font-kit", "profiler"] }
 gpui_platform = { path = "../../zed/crates/gpui_platform", default-features = false, features = ["font-kit", "wayland", "x11"] }
-# Tree-sitter's C grammars stay native-only. Wasm paints document elements as plain text.
-tree-sitter = "0.26.11"
-tree-sitter-highlight = "0.26.11"
-tree-sitter-rust = "0.24.2"
-tree-sitter-javascript = "0.25.0"
-tree-sitter-typescript = "0.23.2"
-tree-sitter-python = "0.25.0"
-tree-sitter-go = "0.25.0"
-tree-sitter-json = "0.24.8"
-tree-sitter-bash = "0.25.1"
-tree-sitter-toml-ng = "0.7.0"
-tree-sitter-md = "0.5.3"
-tree-sitter-html = "0.23.2"
-tree-sitter-css = "0.25.0"
-tree-sitter-yaml = "0.7.2"
-tree-sitter-c = "0.24.2"
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 napi = { version = "3", features = ["napi8", "serde-json"] }
