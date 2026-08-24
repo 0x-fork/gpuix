@@ -23,21 +23,15 @@
 /// Multiple setState calls batched by React into one render = one batch.
 /// Multiple separate commits in the same event loop tick = multiple batches.
 ///
-/// ## Render-phase caveat (concurrent mode)
+/// ## Render-phase isolation
 ///
-/// React's createInstance / createTextInstance / appendInitialChild are called
-/// during the RENDER phase, not the commit phase. In concurrent mode, React
-/// can abandon a render and retry. Mutations from abandoned renders stay in
-/// the queue and get flushed with the next successful commit. This can create
-/// orphaned elements in the Rust retained tree.
-///
-/// This is a pre-existing issue (before batching, these calls went directly
-/// to native and could also leave orphaned elements). Batching doesn't make
-/// it worse. The proper fix is moving element creation to commit-phase
-/// callbacks, but that requires a larger reconciler refactor.
+/// React's createInstance / createTextInstance / appendInitialChild callbacks
+/// only build lightweight JS host nodes. A placement callback materializes the
+/// accepted subtree during commit, so abandoned concurrent renders never enter
+/// this queue.
 
 import type { NativeRenderer } from "../types/host.js"
-import { unregisterEventHandlers } from "./event-registry.js"
+import { containerForRenderer, unregisterEventHandlers } from "./event-registry.js"
 
 export type MutationTuple = (number | string | boolean | object | null)[]
 
@@ -113,9 +107,11 @@ export function wrapWithBatching(inner: NativeRenderer): NativeRenderer {
           // on failure so state doesn't desync between JS and Rust.
           const destroyedIds = batchable.applyBatch(json)
 
-          // Clean up JS-side event handlers immediately after successful batch.
-          for (const id of destroyedIds) {
-            unregisterEventHandlers(id)
+          const container = containerForRenderer(inner)
+          if (container) {
+            for (const id of destroyedIds) {
+              unregisterEventHandlers(container.eventHandlers, id)
+            }
           }
 
           // applyBatch already invalidates, so only clear after batch + cleanup.
