@@ -141,9 +141,17 @@ jobs:
           name: bindings-aarch64-apple-darwin
           path: packages/native/
 
-      - name: Run tests
-        run: bun test
+      - name: Run React tests
+        run: bun run test
         working-directory: packages/react
+
+      - name: Build React package
+        run: bun run build
+        working-directory: packages/react
+
+      - name: Run example tests
+        run: bun run test
+        working-directory: examples
 
   test-windows:
     name: test-windows-load
