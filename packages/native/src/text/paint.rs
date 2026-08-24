@@ -61,9 +61,9 @@ thread_local! {
 }
 
 /// A zero-size canvas that clears the per-frame registries and installs the
-/// frame's copy and mouse-down listeners. Paint it FIRST in the root, before
-/// any text, so each frame holds exactly that frame's visible text elements
-/// in paint order.
+/// frame's mouse-down listener and the desktop copy listener. Paint it FIRST in
+/// the root, before any text, so each frame holds exactly that frame's visible
+/// text elements in paint order.
 pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
     canvas(
         |_, _, _| (),
@@ -71,6 +71,7 @@ pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
             REGISTRY.with(|r| r.borrow_mut().clear());
             START_REGIONS.with(|r| r.borrow_mut().clear());
             PAINTED.with(|p| p.borrow_mut().clear());
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
             register_copy_listener(window, &selection);
             register_down_listener(window, &selection);
         },
@@ -441,6 +442,7 @@ fn register_down_listener(window: &mut Window, selection: &SharedSelection) {
         });
         let mut sel = selection.lock();
         if let Some((key, text, ix)) = hit {
+            window.blur();
             match e.click_count {
                 2 => {
                     let range = selection::word_range(&text, ix);
@@ -496,11 +498,7 @@ fn register_listeners(window: &mut Window, key: &Arc<str>, selection: &SharedSel
     }
 }
 
-/// Register the frame's single Cmd+C / Ctrl+C listener.
-///
-/// GPUIX has no keymap or action system, so this reads the raw keystroke.
-/// It lives on the frame reset rather than on each text element: registering it
-/// per element made one Cmd+C write the clipboard once per visible text node.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn register_copy_listener(window: &mut Window, selection: &SharedSelection) {
     use gpui::{ClipboardItem, DispatchPhase, KeyDownEvent};
 
@@ -509,12 +507,11 @@ fn register_copy_listener(window: &mut Window, selection: &SharedSelection) {
         if phase != DispatchPhase::Bubble {
             return;
         }
-        let m = &e.keystroke.modifiers;
-        if e.keystroke.key != "c" || !(m.platform || m.control) {
+        let modifiers = &e.keystroke.modifiers;
+        if e.keystroke.key != "c" || !(modifiers.platform || modifiers.control) {
             return;
         }
-        // Read out of the lock before touching platform code: the clipboard
-        // backend is out of our control and must never run under our mutex.
+        // Release the selection lock before entering the platform clipboard.
         let text = selection.lock().selected_text();
         if let Some(text) = text {
             cx.write_to_clipboard(ClipboardItem::new_string(text));

@@ -1619,6 +1619,14 @@ mod tests {
     }
 
     #[test]
+    fn desktop_paste_uses_the_platform_clipboard_action() {
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true);
+
+        assert!(has_binding(&bindings, "cmd-v", &Paste));
+        assert!(has_binding(&bindings, "ctrl-v", &Paste));
+    }
+
+    #[test]
     fn browser_platform_detection_recognizes_macos() {
         assert!(browser_platform_is_macos("MacIntel", ""));
         assert!(browser_platform_is_macos(
