@@ -18,7 +18,7 @@ import {
   TestRenderer,
 } from '@gpuix/react'
 import { connectTest } from '@gpuix/react/automation'
-import { ChatApp, SafeMdxTranscript } from './chat'
+import { ChatApp, SafeMdxContent, SafeMdxTranscript } from './chat'
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
 const SHOTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'screenshots')
@@ -103,6 +103,34 @@ describeNative('chat example', () => {
         "MDX components also map to ordinary GPUIX React components.",
       ]
     `)
+  })
+
+  it('keeps a long Safe-MDX list item inside a narrow column', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div
+        style={{
+          width: 280,
+          padding: 12,
+          backgroundColor: '#111',
+        }}
+      >
+        <SafeMdxContent source="- a second item with a long sentence that must wrap without leaving the transcript column" />
+      </div>
+    )
+
+    const col = renderer.findByType('div').find((node) => node.style.width === 280)
+    const item = renderer.findByText(
+      'a second item with a long sentence that must wrap without leaving the transcript column'
+    )
+    expect(col).toBeDefined()
+    expect(item).toBeDefined()
+    const colBox = renderer.getElementBounds(col!.id)
+    const itemBox = renderer.getElementBounds(item!.id)
+    expect(colBox).not.toBeNull()
+    expect(itemBox).not.toBeNull()
+    expect(itemBox![0] + itemBox![2]).toBeLessThanOrEqual(colBox![0] + colBox![2] + 1)
+    expect(itemBox![3]).toBeGreaterThan(20)
   })
 
   it('renders the sidebar, transcript and composer', () => {
