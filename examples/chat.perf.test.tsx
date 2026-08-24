@@ -1,28 +1,17 @@
 /**
  * Chat performance regression. Times mount, scroll draw, and chrome setState.
- * Not a visual test. Skip without the native GPU test renderer.
- *
- * Budgets are catastrophic-regression caps, not a 50% slowdown detector.
- * They leave room for machine noise. Tighten after CI has a baseline.
+ * Skip without the native GPU test renderer.
  *
  * Time dispatchScrollWheel(), not a later flush(). The wheel already draws.
- * A second flush() would measure a forced extra frame.
- *
- * NODE_ENV=production loads react.production.js and trims about 10% off
- * mount and sidebar click. Wheel draw does not change. Vitest default is
- * NODE_ENV=test (development React). Do not force production on all tests.
+ * Overlay stats include the setup flush after reset, so they are logged only.
  *
  * THROTTLE=utility|background|maintenance re-execs under taskpolicy -c.
- * utility ≈ M1/M2 Air CPU. background ≈ 2019–2020 Intel Mac CPU.
  * A throttled run logs numbers and skips the default budgets.
- * macOS only. Do not set this in CI.
  */
 
-import { createRequire } from 'node:module'
 import React from 'react'
 import { describe, expect, it } from 'vitest'
 import {
-  applyMacCpuThrottleFromEnv,
   createTestRoot,
   hasNativeTestRenderer,
   readMacCpuThrottle,
@@ -31,12 +20,8 @@ import {
 import { connectTest } from '@gpuix/react/automation'
 import { ChatApp } from './chat'
 
-applyMacCpuThrottleFromEnv()
-
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
-const require = createRequire(import.meta.url)
-const throttle = readMacCpuThrottle() ?? 'off'
-
+const throttle = readMacCpuThrottle()
 const TURNS = 1_000
 const WARMUP = 10
 const WHEEL_SAMPLES = 40
@@ -52,15 +37,6 @@ const BUDGET = {
   sidebarMs: 40,
 }
 
-function loadedReactBuild(): string {
-  const cache = require.cache
-  if (!cache) return `unknown NODE_ENV=${process.env.NODE_ENV}`
-  const keys = Object.keys(cache)
-  if (keys.some((key) => key.includes('react.production'))) return 'production'
-  if (keys.some((key) => key.includes('react.development'))) return 'development'
-  return `unknown NODE_ENV=${process.env.NODE_ENV}`
-}
-
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0
   const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)
@@ -69,29 +45,20 @@ function percentile(sorted: number[], p: number): number {
 
 function summarize(samples: number[]) {
   const sorted = [...samples].sort((a, b) => a - b)
-  const mean = samples.reduce((a, b) => a + b, 0) / samples.length
   return {
     n: samples.length,
-    mean,
     p50: percentile(sorted, 50),
     p95: percentile(sorted, 95),
     max: sorted.at(-1) ?? 0,
   }
 }
 
-function impliedFps(ms: number): string {
-  if (ms <= 0) return 'inf'
-  return (1000 / ms).toFixed(0)
-}
-
 function report(label: string, samples: number[]) {
   const stats = summarize(samples)
+  const clamp = throttle ?? 'off'
   console.log(
-    `[chat.perf] ${label} react=${loadedReactBuild()} NODE_ENV=${process.env.NODE_ENV} ` +
-      `throttle=${throttle} ` +
-      `n=${stats.n} mean=${stats.mean.toFixed(2)}ms p50=${stats.p50.toFixed(2)}ms ` +
-      `p95=${stats.p95.toFixed(2)}ms (~${impliedFps(stats.p95)}fps) ` +
-      `max=${stats.max.toFixed(2)}ms (~${impliedFps(stats.max)}fps)`,
+    `[chat.perf] ${label} throttle=${clamp} n=${stats.n} ` +
+      `p50=${stats.p50.toFixed(2)}ms p95=${stats.p95.toFixed(2)}ms max=${stats.max.toFixed(2)}ms`,
   )
   return stats
 }
@@ -103,16 +70,13 @@ function expectBudget(args: {
   maxMax: number
 }) {
   const stats = report(args.label, args.samples)
-  if (throttle !== 'off') return stats
-  expect(
-    stats.p95,
-    `${args.label} p95 ${stats.p95.toFixed(2)}ms exceeds ${args.p95Max}ms`,
-  ).toBeLessThan(args.p95Max)
-  expect(
-    stats.max,
-    `${args.label} max ${stats.max.toFixed(2)}ms exceeds ${args.maxMax}ms`,
-  ).toBeLessThan(args.maxMax)
-  return stats
+  if (throttle) return
+  expect(stats.p95, `${args.label} p95 ${stats.p95.toFixed(2)}ms exceeds ${args.p95Max}ms`).toBeLessThan(
+    args.p95Max,
+  )
+  expect(stats.max, `${args.label} max ${stats.max.toFixed(2)}ms exceeds ${args.maxMax}ms`).toBeLessThan(
+    args.maxMax,
+  )
 }
 
 function sampleFlushes(args: {
@@ -147,11 +111,8 @@ describeNative('chat performance', () => {
     const start = performance.now()
     render(<ChatApp turnCount={TURNS} includeSafeMdx />)
     const mountMs = performance.now() - start
-    console.log(
-      `[chat.perf] mount react=${loadedReactBuild()} NODE_ENV=${process.env.NODE_ENV} ` +
-        `throttle=${throttle} ${mountMs.toFixed(1)}ms turns=${TURNS}`,
-    )
-    if (throttle === 'off') {
+    console.log(`[chat.perf] mount throttle=${throttle ?? 'off'} ${mountMs.toFixed(1)}ms`)
+    if (!throttle) {
       expect(mountMs, `mount ${mountMs.toFixed(1)}ms exceeds ${BUDGET.mountMs}ms`).toBeLessThan(
         BUDGET.mountMs,
       )
@@ -191,15 +152,9 @@ describeNative('chat performance', () => {
 
     const overlay = renderer.getDebugFrameOverlayStats()
     console.log(
-      `[chat.perf] overlay current=${overlay.currentMs?.toFixed(2)}ms ` +
-        `p90=${overlay.p90Ms?.toFixed(2)}ms p99=${overlay.p99Ms?.toFixed(2)}ms ` +
-        `max=${overlay.maxMs?.toFixed(2)}ms samples=${overlay.samples}`,
+      `[chat.perf] overlay p90=${overlay.p90Ms?.toFixed(2)}ms max=${overlay.maxMs?.toFixed(2)}ms samples=${overlay.samples}`,
     )
     expect(overlay.samples).toBeGreaterThan(0)
-    if (throttle === 'off') {
-      expect(overlay.p90Ms ?? 0).toBeLessThan(BUDGET.wheelP95Ms)
-      expect(overlay.maxMs ?? 0).toBeLessThan(BUDGET.wheelMaxMs)
-    }
   })
 
   it('keeps a sidebar click under budget', async () => {
@@ -219,7 +174,7 @@ describeNative('chat performance', () => {
     }
     await app.clock.resume()
     const stats = report('sidebar click', samples)
-    if (throttle === 'off') {
+    if (!throttle) {
       expect(
         stats.max,
         `sidebar click ${stats.max.toFixed(1)}ms exceeds ${BUDGET.sidebarMs}ms`,

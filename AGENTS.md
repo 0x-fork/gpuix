@@ -610,7 +610,6 @@ cd examples && bun run test
 
 # Chat draw / chrome regression (same suite, file filter)
 cd examples && bun run test chat.perf.test.tsx
-NODE_ENV=production bun run test chat.perf.test.tsx
 
 # macOS CPU clamp. E-cores, not Chrome 6x. Do not set in CI.
 THROTTLE=utility bun run test chat.perf.test.tsx
@@ -620,9 +619,6 @@ THROTTLE=utility bun --hot chat.tsx
 
 `examples/chat.perf.test.tsx` is the automated profile. It uses `createTestRoot()`,
 not the live window. Assert **p95 draw / flush ms**, not a per-frame FPS floor.
-`NODE_ENV=production` makes mount and sidebar about 10% faster. Wheel draw does
-not change. Do not set production on the whole vitest suite. Development React
-keeps warnings.
 
 `THROTTLE` re-execs under `taskpolicy -c`. `utility` is an M1/M2 Air CPU proxy.
 `background` is harsher, closer to a 2019 Intel Mac. GPU and RAM stay on this

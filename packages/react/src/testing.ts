@@ -90,7 +90,6 @@ export const MAC_CPU_THROTTLES = ["utility", "background", "maintenance"] as con
 
 export type MacCpuThrottle = (typeof MAC_CPU_THROTTLES)[number]
 
-/** `THROTTLE` or `GPUIX_THROTTLE`. Empty when unset. */
 function isMacCpuThrottle(value: string): value is MacCpuThrottle {
   for (const clamp of MAC_CPU_THROTTLES) {
     if (clamp === value) return true
@@ -99,9 +98,7 @@ function isMacCpuThrottle(value: string): value is MacCpuThrottle {
 }
 
 export function readMacCpuThrottle(): MacCpuThrottle | null {
-  const raw = (process.env.THROTTLE ?? process.env.GPUIX_THROTTLE ?? "")
-    .trim()
-    .toLowerCase()
+  const raw = (process.env.THROTTLE ?? "").trim().toLowerCase()
   if (!raw) return null
   if (!isMacCpuThrottle(raw)) {
     throw new Error(
@@ -111,17 +108,7 @@ export function readMacCpuThrottle(): MacCpuThrottle | null {
   return raw
 }
 
-/**
- * Pin this process to a macOS QoS clamp via `taskpolicy -c`.
- *
- * `taskpolicy -c` only works at launch, not on a live pid. This re-execs
- * the current argv under taskpolicy. Vitest workers cannot do that; call
- * it from `examples/vitest.config.ts` so the main process wraps first.
- *
- * utility     ≈ M1/M2 Air CPU (E-cores, high QoS)
- * background  ≈ 2019–2020 Intel Mac CPU
- * maintenance harsher still
- */
+/** Re-exec under `taskpolicy -c`. Call from the process entry, not a vitest worker. */
 export function applyMacCpuThrottleFromEnv(): MacCpuThrottle | null {
   const mode = readMacCpuThrottle()
   if (!mode) return null
@@ -336,7 +323,6 @@ export class TestRenderer implements NativeRenderer {
     this.dispatchNativeEvents()
   }
 
-  /** Wheel without a pre-flush. Time the next flush() for scroll draw cost. */
   dispatchScrollWheel(
     x: number,
     y: number,
