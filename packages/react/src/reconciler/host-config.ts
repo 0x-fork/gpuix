@@ -66,6 +66,7 @@ const EVENT_PROPS = [
   ["onShowMore", "showMore"],
   ["onLineClick", "lineClick"],
   ["onLinkClick", "linkClick"],
+  ["onVisibleRange", "visibleRange"],
   ["onChange", "change"],
   ["onSubmit", "submit"],
   // Mouse events

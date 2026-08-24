@@ -199,6 +199,65 @@ describe("<virtual-list>", () => {
     expect(renderer.getPaintedText()).not.toContain("row-0")
   })
 
+  it("keeps only the mounted window in the retained tree", () => {
+    const { render, renderer } = createTestRoot()
+    const windowed = (start: number) => (
+      <virtual-list
+        itemCount={1000}
+        windowStart={start}
+        overdraw={0}
+        estimatedItemHeight={40}
+        style={{ width: 400, height: 160 }}
+      >
+        {Array.from({ length: 8 }, (_, offset) => (
+          <div
+            key={start + offset}
+            style={{
+              display: "flex",
+              height: 40,
+              flexShrink: 0,
+              alignItems: "center",
+            }}
+          >
+            <text>{`row-${start + offset}`}</text>
+          </div>
+        ))}
+      </virtual-list>
+    )
+
+    render(windowed(0))
+    const list = renderer.findByType("virtual-list")[0]
+    expect(list.children).toHaveLength(8)
+    expect(renderer.getAllText()).toEqual([
+      "row-0",
+      "row-1",
+      "row-2",
+      "row-3",
+      "row-4",
+      "row-5",
+      "row-6",
+      "row-7",
+    ])
+    expect(renderer.getPaintedText()).toContain("row-0")
+
+    render(windowed(50))
+    expect(renderer.findByType("virtual-list")[0].children).toHaveLength(8)
+    expect(renderer.getAllText()).toEqual([
+      "row-50",
+      "row-51",
+      "row-52",
+      "row-53",
+      "row-54",
+      "row-55",
+      "row-56",
+      "row-57",
+    ])
+
+    renderer.scrollToItem(list.id, 50)
+    expect(renderer.getPaintedText()).toContain("row-50")
+    expect(renderer.getPaintedText()).not.toContain("row-0")
+  })
+
   it("lets overflow-x inside a row pan without moving the list", () => {
     const { render, renderer } = createTestRoot()
     render(

@@ -6,6 +6,7 @@
  * composer chips, and the workspace footer. Data is hardcoded.
  *
  * Run with:  cd examples && bun --hot chat.tsx
+ * Slow CPU:  THROTTLE=utility bun --hot chat.tsx
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -13,9 +14,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  applyMacCpuThrottleFromEnv,
   motion,
   render,
   Select,
+  VirtualList,
   SelectContent,
   SelectItem,
   SelectLabel,
@@ -726,35 +729,43 @@ const Transcript = memo(function Transcript({
   includeSafeMdx?: boolean
   listRef?: React.Ref<{ id: number }>
 }) {
+  const extra = includeSafeMdx ? 1 : 0
   return (
-    <virtual-list
+    <VirtualList
       ref={listRef}
+      itemCount={turns.length + extra}
       overdraw={240}
       estimatedItemHeight={220}
       style={{ flexGrow: 1, minHeight: 0, width: '100%' }}
-    >
-      {includeSafeMdx && (
-        <TranscriptRow key="safemdx" first>
-          <UserTurn text="Can Markdown be composed as normal React elements instead?" />
-          <SafeMdxContent source={SAFE_MDX_STRESS} />
-        </TranscriptRow>
-      )}
-      {turns.map((turn, index) => (
-        <TranscriptRow
-          key={index}
-          first={!includeSafeMdx && index === 0}
-          last={index === turns.length - 1}
-        >
-          {turn.kind === 'user' && <UserTurn text={turn.text} />}
-          {turn.kind === 'fold' && <WorkedFor duration={turn.duration} />}
-          {turn.kind === 'markdown' && <SafeMdxContent source={turn.source} />}
-          {turn.kind === 'code' && (
-            <code code={turn.source} language={turn.language} showLineNumbers theme={CHAT_THEME} />
-          )}
-          {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
-        </TranscriptRow>
-      ))}
-    </virtual-list>
+      renderItem={(index) => {
+        if (includeSafeMdx && index === 0) {
+          return (
+            <TranscriptRow key="safemdx" first>
+              <UserTurn text="Can Markdown be composed as normal React elements instead?" />
+              <SafeMdxContent source={SAFE_MDX_STRESS} />
+            </TranscriptRow>
+          )
+        }
+        const turnIndex = index - extra
+        const turn = turns[turnIndex]
+        if (!turn) return null
+        return (
+          <TranscriptRow
+            key={turnIndex}
+            first={!includeSafeMdx && turnIndex === 0}
+            last={turnIndex === turns.length - 1}
+          >
+            {turn.kind === 'user' && <UserTurn text={turn.text} />}
+            {turn.kind === 'fold' && <WorkedFor duration={turn.duration} />}
+            {turn.kind === 'markdown' && <markdown source={turn.source} theme={CHAT_THEME} />}
+            {turn.kind === 'code' && (
+              <code code={turn.source} language={turn.language} showLineNumbers theme={CHAT_THEME} />
+            )}
+            {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
+          </TranscriptRow>
+        )
+      }}
+    />
   )
 })
 
@@ -1776,8 +1787,9 @@ const isEntryPoint =
     : process.argv[1]?.endsWith('chat.tsx')
 
 if (isEntryPoint) {
-  render(<ChatApp turnCount={5_000} includeSafeMdx />, {
-    title: 'Waku · 5,000 messages',
+  applyMacCpuThrottleFromEnv()
+  render(<ChatApp turnCount={1_000} includeSafeMdx />, {
+    title: 'Waku · 1,000 messages',
     width: 1180,
     height: 820,
     titlebarTransparent: true,

@@ -594,8 +594,8 @@ impl Default for Theme {
 }
 
 fn set(slot: &mut Hsla, value: &Option<String>) {
-    if let Some(hex) = value.as_deref().and_then(crate::style::parse_color_hex) {
-        *slot = gpui::rgba(hex).into();
+    if let Some(color) = value.as_deref().and_then(crate::color::parse_color_rgba) {
+        *slot = color.into();
     }
 }
 
@@ -766,6 +766,27 @@ mod tests {
         assert_eq!(t.syntax.keyword, gpui::rgba(0x00ff00ff).into());
         assert_eq!(t.diff_add, base.diff_add);
         assert_eq!(t.syntax.string, base.syntax.string);
+    }
+
+    #[test]
+    fn override_accepts_full_color_functions() {
+        let base = Theme::dark();
+        let o: ThemeOverride = serde_json::from_str(
+            r#"{
+          "text": "oklch(0.62796 0.25768 29.23388)",
+          "caret": "hsl(240 100% 50%)",
+          "syntax": { "keyword": "rebeccapurple" }
+        }"#,
+        )
+        .unwrap();
+        let t = base.with_override(&o);
+        let text: gpui::Rgba = t.text.into();
+        assert!((text.r - 1.0).abs() < 0.001);
+        assert!(text.g.abs() < 0.001);
+        assert!(text.b.abs() < 0.001);
+        assert!((text.a - 1.0).abs() < f32::EPSILON);
+        assert_eq!(t.caret, gpui::rgba(0x0000ffff).into());
+        assert_eq!(t.syntax.keyword, gpui::rgba(0x663399ff).into());
     }
 
     #[test]

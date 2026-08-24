@@ -31,6 +31,20 @@ describeNative("debug frame overlay", () => {
     expect(renderer.getDebugFrameOverlay()).toBe("full")
   })
 
+  it("returns recorded draw stats after flush", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ backgroundColor: "#111111", width: "100%", height: "100%" }} />
+    )
+    renderer.resetDebugFrameOverlayStats()
+    renderer.flush()
+    const stats = renderer.getDebugFrameOverlayStats()
+    expect(stats.samples).toBeGreaterThan(0)
+    expect(stats.frames).toBeGreaterThan(0)
+    expect(stats.currentMs).toBeTypeOf("number")
+    expect(stats.maxMs).toBeGreaterThanOrEqual(stats.currentMs ?? 0)
+  })
+
   it("rejects an unknown mode", () => {
     const { renderer } = createTestRoot()
     expect(() => renderer.setDebugFrameOverlay("nope" as "full")).toThrow(

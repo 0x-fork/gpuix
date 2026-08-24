@@ -35,6 +35,14 @@ export interface MotionProps {
   transition?: MotionTransition
 }
 
+export interface BoxShadow {
+  offsetX: number
+  offsetY: number
+  blurRadius: number
+  spreadRadius: number
+  color: string
+}
+
 export interface StyleDesc {
   display?: string
   visibility?: string
@@ -86,12 +94,17 @@ export interface StyleDesc {
   opacity?: number
 
   borderWidth?: number
+  borderTopWidth?: number
+  borderRightWidth?: number
+  borderBottomWidth?: number
+  borderLeftWidth?: number
   borderColor?: string
   borderRadius?: number
   borderTopLeftRadius?: number
   borderTopRightRadius?: number
   borderBottomLeftRadius?: number
   borderBottomRightRadius?: number
+  boxShadow?: BoxShadow
 
   fontSize?: number
   fontFamily?: string
@@ -274,6 +287,7 @@ export interface Props {
   onShowMore?: (event: EventPayload) => void
   onLineClick?: (event: EventPayload) => void
   onLinkClick?: (event: EventPayload) => void
+  onVisibleRange?: (event: EventPayload) => void
 
   // ── Focus props ────────────────────────────────────────────────
   /** Take keyboard focus when the element first mounts. Required for `<input>`:
@@ -310,6 +324,11 @@ export interface VirtualListProps {
   followTail?: boolean
   overdraw?: number
   estimatedItemHeight?: number
+  /** Logical row count. When set, `children` is only the mounted window. */
+  itemCount?: number
+  /** Logical index of `children[0]`. Ignored when `itemCount` is unset. */
+  windowStart?: number
+  onVisibleRange?: (event: EventPayload) => void
 }
 
 // Props for native <img> rendering.
@@ -439,9 +458,19 @@ export interface NativeRenderer {
   getDebugFrameOverlay?(): string
   cycleDebugFrameOverlay?(): string
   resetDebugFrameOverlayStats?(): void
+  getDebugFrameOverlayStats?(): DebugFrameOverlayStats
 }
 
 export type DebugFrameOverlayMode = "hidden" | "minimal" | "full"
+
+export interface DebugFrameOverlayStats {
+  currentMs?: number
+  p90Ms?: number
+  p99Ms?: number
+  maxMs?: number
+  frames: number
+  samples: number
+}
 
 // Container holds the renderer reference.
 // Mutations go directly via napi calls.

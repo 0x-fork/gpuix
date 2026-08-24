@@ -21,7 +21,8 @@ use gpui::AppContext as _;
 
 use crate::element_tree::EventPayload;
 use crate::renderer::{
-    apply_batch_to_tree, debug_frame_overlay_mode_name, parse_debug_frame_overlay_mode,
+    apply_batch_to_tree, debug_frame_overlay_mode_name, debug_frame_overlay_stats_js,
+    parse_debug_frame_overlay_mode, DebugFrameOverlayStats,
     to_element_id, EventCallback, GpuixView,
 };
 use crate::retained_tree::RetainedTree;
@@ -616,6 +617,17 @@ impl TestGpuixRenderer {
         })
     }
 
+    /// Same numbers as the on-screen overlay: current, p90, p99, max, frames.
+    #[napi]
+    pub fn get_debug_frame_overlay_stats(&self) -> Result<DebugFrameOverlayStats> {
+        with_test_state(|cx, window, _view| {
+            cx.update_window(window, |_, window, _app| {
+                debug_frame_overlay_stats_js(window.debug_frame_overlay_stats())
+            })
+            .map_err(|e| Error::from_reason(e.to_string()))
+        })
+    }
+
     /// Get the current scroll offset of a scrollable element.
     /// Returns [x, y] or null if the element has no scroll handle.
     #[napi]
@@ -757,9 +769,8 @@ impl TestGpuixRenderer {
     pub fn get_element_bounds(&self, id: f64) -> Result<Option<Vec<f64>>> {
         let id = to_element_id(id)?;
         self.flush()?;
-        Ok(crate::automation::get_bounds(id).map(|bounds| {
-            vec![bounds.x, bounds.y, bounds.width, bounds.height]
-        }))
+        Ok(crate::automation::get_bounds(id)
+            .map(|bounds| vec![bounds.x, bounds.y, bounds.width, bounds.height]))
     }
 
     #[napi]

@@ -91,6 +91,12 @@ pub struct EventPayload {
     /// Line number on the post-change side. Populated for: `<diff>` lineClick.
     pub new_line: Option<f64>,
 
+    /// First visible logical index. Populated for: `<virtual-list>` visibleRange.
+    pub start_index: Option<f64>,
+
+    /// Exclusive end of the visible logical range. Populated for: visibleRange.
+    pub end_index: Option<f64>,
+
     // ── Modifiers ────────────────────────────────────────────────────
     pub modifiers: Option<EventModifiers>,
 }
@@ -117,6 +123,8 @@ impl Default for EventPayload {
             value: None,
             old_line: None,
             new_line: None,
+            start_index: None,
+            end_index: None,
             modifiers: None,
         }
     }

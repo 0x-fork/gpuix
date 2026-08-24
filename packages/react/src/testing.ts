@@ -9,9 +9,14 @@
 /// flush the tree, dispatch through GPUI, drain events, and feed them into
 /// the React event registry via handleGpuixEvent.
 
+import { spawnSync } from "node:child_process"
 import type { ReactNode } from "react"
 import type { EventPayload } from "@gpuix/native"
-import type { DebugFrameOverlayMode, NativeRenderer } from "./types/host.js"
+import type {
+  DebugFrameOverlayMode,
+  DebugFrameOverlayStats,
+  NativeRenderer,
+} from "./types/host.js"
 import { createRoot, flushSync, type Root } from "./reconciler/reconciler.js"
 import { handleGpuixEvent } from "./reconciler/event-registry.js"
 import { resetIdCounter } from "./reconciler/host-config.js"
@@ -45,6 +50,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   getDebugFrameOverlay(): string
   cycleDebugFrameOverlay(): string
   resetDebugFrameOverlayStats(): void
+  getDebugFrameOverlayStats(): DebugFrameOverlayStats
   dragSelect(x1: number, y1: number, x2: number, y2: number): void
   getSelectedText(): string | null
   getPaintedText(): string[]
@@ -74,6 +80,48 @@ try {
 /** Whether the native TestGpuixRenderer is available (for conditional test registration). */
 export const hasNativeTestRenderer = NativeTestRenderer != null
 
+export const MAC_CPU_THROTTLES = ["utility", "background", "maintenance"] as const
+
+export type MacCpuThrottle = (typeof MAC_CPU_THROTTLES)[number]
+
+function isMacCpuThrottle(value: string): value is MacCpuThrottle {
+  for (const clamp of MAC_CPU_THROTTLES) {
+    if (clamp === value) return true
+  }
+  return false
+}
+
+export function readMacCpuThrottle(): MacCpuThrottle | null {
+  const raw = (process.env.THROTTLE ?? "").trim().toLowerCase()
+  if (!raw) return null
+  if (!isMacCpuThrottle(raw)) {
+    throw new Error(
+      `THROTTLE=${raw} is invalid. Use utility, background, or maintenance.`,
+    )
+  }
+  return raw
+}
+
+/** Re-exec under `taskpolicy -c`. Call from the process entry, not a vitest worker. */
+export function applyMacCpuThrottleFromEnv(): MacCpuThrottle | null {
+  const mode = readMacCpuThrottle()
+  if (!mode) return null
+  if (process.env.GPUIX_CPU_THROTTLE_APPLIED === mode) return mode
+  if (process.platform !== "darwin") {
+    throw new Error(`THROTTLE=${mode} needs macOS taskpolicy`)
+  }
+  if (process.argv.some((arg) => arg.includes("vitest/dist/workers"))) {
+    throw new Error(
+      `THROTTLE=${mode} must wrap the vitest process. Use examples/vitest.config.ts.`,
+    )
+  }
+  console.log(`[throttle] taskpolicy -c ${mode}`)
+  const result = spawnSync("taskpolicy", ["-c", mode, ...process.argv], {
+    stdio: "inherit",
+    env: { ...process.env, GPUIX_CPU_THROTTLE_APPLIED: mode },
+  })
+  process.exit(result.status ?? 1)
+}
 
 // ── Test element tree ────────────────────────────────────────────────
 
@@ -263,6 +311,16 @@ export class TestRenderer implements NativeRenderer {
     this.dispatchNativeEvents()
   }
 
+  dispatchScrollWheel(
+    x: number,
+    y: number,
+    deltaX: number,
+    deltaY: number
+  ): void {
+    this.native.simulateScrollWheel(x, y, deltaX, deltaY)
+    this.dispatchNativeEvents()
+  }
+
   /** End-to-end: simulate mouse move through GPUI →
    *  dispatch resulting events to React.
    *  @param pressedButton - optional button held during move (0=left, 1=middle, 2=right) for drag simulation */
@@ -402,6 +460,7 @@ export class TestRenderer implements NativeRenderer {
   scrollToItem(elementId: number, index: number): void {
     this.native.flush()
     this.native.scrollToItem(elementId, index)
+    this.dispatchNativeEvents()
     this.native.flush()
   }
 
@@ -464,6 +523,10 @@ export class TestRenderer implements NativeRenderer {
 
   resetDebugFrameOverlayStats(): void {
     this.native.resetDebugFrameOverlayStats()
+  }
+
+  getDebugFrameOverlayStats(): DebugFrameOverlayStats {
+    return this.native.getDebugFrameOverlayStats()
   }
 
   /** Capture a screenshot of the current rendered UI and save as PNG.

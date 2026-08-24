@@ -59,14 +59,15 @@ export type {
   TooltipProviderProps,
   TooltipTriggerProps,
 } from "./components/tooltip.js"
-export { motion } from "./components/index.js"
+export { motion, VirtualList } from "./components/index.js"
 export type { Root, FrameLoop, RenderOptions } from "./reconciler/renderer.js"
 export type { WindowSize } from "./hooks/use-window-size.js"
 
 // Re-export types
-export type { MotionDivProps } from "./components/index.js"
+export type { MotionDivProps, WindowedVirtualListProps } from "./components/index.js"
 export type {
   DebugFrameOverlayMode,
+  DebugFrameOverlayStats,
   MotionEase,
   MotionProps,
   MotionStyle,
@@ -78,9 +79,15 @@ export { resetIdCounter } from "./reconciler/host-config.js"
 export { handleGpuixEvent } from "./reconciler/event-registry.js"
 
 // Testing utilities
-export { TestRenderer, createTestRoot, hasNativeTestRenderer } from "./testing.js"
+export {
+  TestRenderer,
+  applyMacCpuThrottleFromEnv,
+  createTestRoot,
+  hasNativeTestRenderer,
+  readMacCpuThrottle,
+} from "./testing.js"
 export { connectTest, launch } from "./automation/index.js"
-export type { TestRoot, TestElement } from "./testing.js"
+export type { MacCpuThrottle, TestRoot, TestElement } from "./testing.js"
 export type {
   EventPayload,
   EventModifiers,

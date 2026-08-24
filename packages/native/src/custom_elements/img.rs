@@ -134,28 +134,11 @@ impl CustomElement for ImgElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &["src", "objectFit"]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "src" => Some(serde_json::Value::String(self.src.clone())),
-            "objectFit" => Some(serde_json::Value::String(
-                match self.object_fit {
-                    ImgObjectFit::Fill => "fill",
-                    ImgObjectFit::Contain => "contain",
-                    ImgObjectFit::Cover => "cover",
-                    ImgObjectFit::ScaleDown => "scaleDown",
-                    ImgObjectFit::None => "none",
-                }
-                .to_string(),
-            )),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[]
     }
 
@@ -227,8 +210,7 @@ impl CustomElement for SvgElement {
         let tint = ctx
             .style
             .and_then(|style| style.color.as_deref())
-            .and_then(crate::style::parse_color_hex)
-            .map(gpui::rgba)
+            .and_then(crate::color::parse_color_rgba)
             .unwrap_or_else(|| gpui::rgb(0xe2e2e2).into());
         let mut icon = gpui::svg().data(bytes).flex_none().text_color(tint);
         if let Some(style) = ctx.style {
@@ -243,15 +225,11 @@ impl CustomElement for SvgElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &["src"]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        (key == "src").then(|| serde_json::Value::String(self.src.clone()))
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[]
     }
 

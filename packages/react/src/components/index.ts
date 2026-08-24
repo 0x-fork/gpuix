@@ -1,8 +1,15 @@
 // GPUIX component definitions and native motion wrappers.
 
-import { createElement, forwardRef } from "react"
+import { createElement, forwardRef, useCallback, useState } from "react"
 import type { ReactElement, ReactNode } from "react"
-import type { MotionProps, Props, PublicInstance, StyleDesc } from "../types/host.js"
+import type { EventPayload } from "@gpuix/native"
+import type {
+  MotionProps,
+  Props,
+  PublicInstance,
+  StyleDesc,
+  VirtualListProps,
+} from "../types/host.js"
 
 export const gpuixComponents = {
   div: "div",
@@ -56,3 +63,75 @@ const MotionDiv = forwardRef<PublicInstance, MotionDivProps>(function MotionDiv(
 export const motion = {
   div: MotionDiv,
 } as const
+
+export interface WindowedVirtualListProps extends VirtualListProps {
+  itemCount: number
+  renderItem: (index: number) => ReactNode
+}
+
+function initialWindow(options: {
+  itemCount: number
+  pad: number
+  alignment: VirtualListProps["alignment"]
+  followTail: boolean | undefined
+}): { start: number; end: number } {
+  if (options.followTail || options.alignment === "bottom") {
+    return { start: Math.max(0, options.itemCount - options.pad), end: options.itemCount }
+  }
+  return { start: 0, end: Math.min(options.itemCount, options.pad) }
+}
+
+/** Mounts only the visible window of a virtual list. */
+export const VirtualList = forwardRef<PublicInstance, WindowedVirtualListProps>(
+  function VirtualList(
+    {
+      itemCount,
+      renderItem,
+      estimatedItemHeight = 48,
+      overdraw = 240,
+      alignment,
+      followTail,
+      onVisibleRange,
+      children: _children,
+      ...props
+    },
+    ref,
+  ): ReactElement {
+    const pad = Math.max(2, Math.ceil((800 + overdraw * 2) / Math.max(1, estimatedItemHeight)))
+    const [range, setRange] = useState(() =>
+      initialWindow({ itemCount, pad, alignment, followTail }),
+    )
+    const handleRange = useCallback(
+      (event: EventPayload & { startIndex?: number | null; endIndex?: number | null }) => {
+        const next = {
+          start: Math.max(0, Math.floor(event.startIndex ?? 0) - pad),
+          end: Math.min(itemCount, Math.ceil(event.endIndex ?? 0) + pad),
+        }
+        setRange((current) =>
+          current.start === next.start && current.end === next.end ? current : next,
+        )
+        onVisibleRange?.(event)
+      },
+      [itemCount, onVisibleRange, pad],
+    )
+    const start = Math.min(range.start, itemCount)
+    const end = Math.min(range.end, itemCount)
+    return createElement(
+      "virtual-list",
+      {
+        ...props,
+        ref,
+        alignment,
+        followTail,
+        estimatedItemHeight,
+        overdraw,
+        itemCount,
+        windowStart: start,
+        onVisibleRange: handleRange,
+      },
+      Array.from({ length: Math.max(0, end - start) }, (_, offset) =>
+        renderItem(start + offset),
+      ),
+    )
+  },
+)

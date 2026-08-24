@@ -1,12 +1,12 @@
 // Profile ChatApp wheel frames. Run with bun --cpu-prof.
 import React from 'react'
-import { createTestRoot } from '@gpuix/react'
+import { applyMacCpuThrottleFromEnv, createTestRoot } from '@gpuix/react'
 import { connectTest } from '@gpuix/react/automation'
 import { ChatApp } from './chat'
 
+applyMacCpuThrottleFromEnv()
+
 const root = createTestRoot()
-const native = (root.renderer as { native: { simulateScrollWheel: (...args: number[]) => void } })
-  .native
 
 const mountStart = performance.now()
 const count = Number(process.env.TURNS ?? 10_000)
@@ -44,13 +44,12 @@ if (process.env.MOUNT_ONLY === '1') process.exit(0)
 
 const samples: number[] = []
 for (let i = 0; i < 40; i++) {
-  native.simulateScrollWheel(700, 400, 0, i % 2 === 0 ? -160 : 160)
   const start = performance.now()
-  root.renderer.flush()
+  root.renderer.dispatchScrollWheel(700, 400, 0, i % 2 === 0 ? -160 : 160)
   samples.push(performance.now() - start)
 }
 samples.sort((a, b) => a - b)
 const mean = samples.reduce((a, b) => a + b, 0) / samples.length
 console.log(
-  `wheel flush n=${samples.length} mean=${mean.toFixed(2)}ms p50=${samples[20]!.toFixed(2)}ms p95=${samples[38]!.toFixed(2)}ms max=${samples[39]!.toFixed(2)}ms`,
+  `wheel n=${samples.length} mean=${mean.toFixed(2)}ms p50=${samples[20]!.toFixed(2)}ms p95=${samples[38]!.toFixed(2)}ms max=${samples[39]!.toFixed(2)}ms`,
 )

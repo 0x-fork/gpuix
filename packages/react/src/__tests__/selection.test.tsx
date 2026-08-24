@@ -22,6 +22,34 @@ describe("text selection", () => {
     expect(selected).toBe("hello world")
   })
 
+  it("starts a selection in the empty space before the glyphs", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "column", padding: 40 }}>
+        <text style={{ fontSize: 20 }}>hello world</text>
+      </div>
+    )
+
+    // Parent padding sits outside every TextLayout bounds. The down must
+    // still clamp to the nearest line, the same way a drag already does.
+    expect(renderer.dragSelect(8, 50, 900, 50)).toBe("hello world")
+    renderer.clearSelection()
+    expect(renderer.dragSelect(8, 50, 8, 50)).toBeNull()
+  })
+
+  it("does not start a selection from a press far below the text", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "column", padding: 40 }}>
+        <text style={{ fontSize: 20 }}>hello world</text>
+      </div>
+    )
+
+    // Composer, titlebar, and empty chrome sit off the line. Starting there
+    // must not claim the nearest paragraph.
+    expect(renderer.dragSelect(50, 700, 900, 50)).toBeNull()
+  })
+
   it("selects across sibling elements in document order", () => {
     const { render, renderer } = createTestRoot()
     render(

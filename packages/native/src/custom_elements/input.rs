@@ -312,6 +312,14 @@ impl CustomElement for TextEditorElement {
         if let Some(style) = ctx.style {
             editor = crate::renderer::apply_styles(editor, style);
         }
+        if ctx
+            .style
+            .and_then(|style| style.position.as_deref())
+            .is_none()
+        {
+            editor = editor.relative();
+        }
+        editor = editor.child(crate::text::selection_start_region(false));
         if ctx.events.contains("click") {
             let callback = ctx.event_callback.clone();
             let id = ctx.id;
@@ -344,7 +352,7 @@ impl CustomElement for TextEditorElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &[
             "value",
             "placeholder",
@@ -355,18 +363,7 @@ impl CustomElement for TextEditorElement {
         ]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "value" => Some(self.value.clone().into()),
-            "placeholder" => Some(self.placeholder.clone().into()),
-            "readOnly" => Some(self.read_only.into()),
-            "minRows" => Some(self.min_rows.into()),
-            "maxRows" => Some(self.max_rows.into()),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &[
             "change", "submit", "click", "keyDown", "keyUp", "focus", "blur",
         ]

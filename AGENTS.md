@@ -168,6 +168,14 @@ rebuilds, and re-renders the screenshot tests. **A Rust edit reaches fresh PNGs
 in about 4 seconds.** Prefer screenshot mode over `--app`: PNGs in
 `packages/react/screenshots/` can be read by an agent, a live window cannot.
 
+**Never ship or start the app on a debug native build.** `bun run build:debug`
+and `cargo build` without `--release` produce an unoptimized `.node`. GPUI
+paint is then many times slower, and that looks like an app bug. Always use
+`bun run build` in `packages/native` (release). Use `build:debug` only when
+the user asks, or when a debug-only tool (lldb, sanitizers) cannot run on
+release. After any debug build, rebuild release before starting `chat.tsx`
+or judging frame time.
+
 ## Virtualized React children re-enter through `cx.processor`
 
 `<virtual-list>` does not build its retained children during `GpuixView::render`.
@@ -223,20 +231,23 @@ Keep `<virtual-list>` `overdraw` modest. 820px on a short chat kept almost
 every row live. Profile with `debugFrameOverlay: 'full'`. The overlay is
 draw time, not FPS. `8.3 MS` is about 120 Hz.
 
-A long list is slow **only at start** when React maps every row. `createInstance`
-runs in the render phase. 10k rows become ~30k host nodes (row wrapper +
-inner + `<markdown>`/`<code>`/`<diff>`), then one `commitMutations`. GPUI does
-not build those rows yet. After that, scroll cost is visible Taffy only.
+A long `{rows.map(...)}` is slow **at start**. `createInstance` runs in the
+render phase. Use `VirtualList` with `itemCount` and `renderItem` so React
+only mounts the visible window. The host `<virtual-list>` children API still
+retains every child. After mount, scroll cost is visible Taffy only.
 
 Keep chrome state out of the component that maps the list. `memo(Transcript)`
 so a sidebar click or composer keystroke does not remap every row. A 5k-row
-chat paid 250ms per click before that.
+chat paid 250ms per click before that. Profile that path with
+`INTERACT=1 bun profile-chat-scroll.tsx`. Do not treat a fast wheel flush as
+proof that chrome updates are cheap.
 
 ## Profiling and optimizing
 
 Load the **profano** skill first. Fetch its README. Do not guess CLI flags.
 
-Separate **first mount** from **scroll**. They are different paths.
+Separate **first mount**, **scroll**, and **chrome setState**. They are
+different paths.
 
 ```
 first mount
@@ -248,6 +259,12 @@ first mount
 
 scroll
   wheel  ►  notify GpuixView  ►  render()  ►  Taffy on visible rows  ►  paint
+
+chrome setState
+  sidebar click / composer key
+    ►  parent re-render
+    ►  {rows.map(...)} again unless memo(list)
+    ►  same JS cost as mount if you forget
 ```
 
 ### JS / mount
@@ -268,7 +285,8 @@ console.log(`mount ${(performance.now() - start).toFixed(1)}ms`)
 
 ```bash
 cd examples
-bun --cpu-prof --cpu-prof-dir=../tmp/cpu-profiles profile-chat-mount.tsx
+MOUNT_ONLY=1 bun --cpu-prof --cpu-prof-dir=../tmp/cpu-profiles profile-chat-scroll.tsx
+INTERACT=1 bun profile-chat-scroll.tsx
 npx profano ../tmp/cpu-profiles/CPU.*.cpuprofile -n 30
 npx profano ../tmp/cpu-profiles/CPU.*.cpuprofile --sort total -n 20
 ```
@@ -378,7 +396,9 @@ To update the TypeScript API surface, edit the Rust source files in `packages/na
 
 ## Changesets
 
-After completing a fix or feature, add a `.changeset/*.md` file at the repo root instead of editing CHANGELOG.md. Never edit CHANGELOG.md directly; it is generated at publish time. Never bump `package.json` version manually. Load the `changesets` skill for format and rules.
+**Always** add a `.changeset/*.md` file after a user-facing fix or feature. Do this before you consider the work done. Never skip it. Never edit CHANGELOG.md. Never bump `package.json` version by hand.
+
+Load the `changesets` skill for format and rules. If the change fixes a GitHub issue or should close a PR, put `Fixes #N` / `Closes #N` on its own line. changepub copies those onto the release commit.
 
 ## Publishing
 
@@ -477,7 +497,8 @@ pub struct StyleDesc {
     pub padding: Option<f64>,
     pub margin: Option<f64>,
     
-    // Colors (parsed from "#rrggbb" or "rgb(r,g,b)")
+    // Colors (parsed centrally in src/color.rs with csscolorparser 0.8.3;
+    // parser-version changes require running both absolute and relative matrices)
     pub background_color: Option<String>,
     pub color: Option<String>,
     
@@ -539,6 +560,63 @@ xcodebuild -downloadComponent MetalToolchain
 4. Match `rust-toolchain.toml` to `zed/rust-toolchain.toml`.
 5. Run `cargo check --all-targets`, `bun run build`, and the test suites.
 
+### PRs to Zed
+
+A "PR to Zed" means **upstream** [`zed-industries/zed`](https://github.com/zed-industries/zed)
+`main`. Never open that PR from this checkout. Never point it at `remorses/zed`.
+
+Do **not** branch, commit review markers, or reset `zed/` inside this checkout.
+That submodule is what GPUIX builds against. A dirty or switched `zed/` breaks
+the native addon and the test renderer.
+
+```bash
+# from gpuixlocal/zed. leaves this submodule on its current commit
+git remote add upstream https://github.com/zed-industries/zed.git  # once
+git fetch upstream
+git worktree add /Users/morse/Documents/GitHub/zed-<branch-name> -b <branch-name> upstream/main
+```
+
+Commit only in that worktree. Do not add comments to Zed source. Push the branch
+to `remorses/zed`, then open the PR with `--repo zed-industries/zed --base main`.
+After merge, cherry-pick onto `gpui-macos-embedded` and fast-forward the submodule
+here. Never run `git reset` in `zed/` to "undo" PR work.
+
+### PRs to GPUIX
+
+When you open a PR with `gh pr create` against **this repo** (`remorses/gpuix`),
+the body must name the **harness**, **agent**, and **model** that wrote the
+change. Then put **every user prompt** from the session in a collapsed
+`<details>` block. Reviewers use that to judge prompt quality and how much
+the agent invented.
+
+Do this for `gh pr create` and for later `gh pr edit` if the first body missed
+it. Do not add this block to Zed PRs.
+
+```md
+**Harness:** OpenCode / Kimaki
+**Agent:** build
+**Model:** xai/grok-4.6
+
+<details>
+<summary>User prompts</summary>
+
+1. first user message, verbatim
+
+2. second user message, verbatim
+
+</details>
+```
+
+- **Harness:** the product that ran the agent. Examples: OpenCode, Kimaki,
+  Claude Code, Cursor, Codex.
+- **Agent:** the named agent if the harness has one (`build`, `plan`, `opus`).
+  Write `none` if there is no named agent.
+- **Model:** the exact model id from the session (`xai/grok-4.6`,
+  `anthropic/claude-opus-4.6`). Do not guess a shorter marketing name.
+- **User prompts:** every user message that drove the PR, in order, verbatim.
+  Skip system reminders, tool output, and your own replies. If a prompt is
+  huge, keep the full text inside the details block; do not summarize it.
+
 ## Current Status
 
 Keep this list in sync with the README **Status** section. User-facing APIs
@@ -597,7 +675,24 @@ cd packages/react && bun run test
 
 # Example app tests
 cd examples && bun run test
+
+# Chat draw / chrome regression (same suite, file filter)
+cd examples && bun run test chat.perf.test.tsx
+
+# macOS CPU clamp. E-cores, not Chrome 6x. Do not set in CI.
+THROTTLE=utility bun run test chat.perf.test.tsx
+THROTTLE=utility bun profile-chat-scroll.tsx
+THROTTLE=utility bun --hot chat.tsx
 ```
+
+`examples/chat.perf.test.tsx` is the automated profile. It uses `createTestRoot()`,
+not the live window. Assert **p95 draw / flush ms**, not a per-frame FPS floor.
+
+`THROTTLE` re-execs under `taskpolicy -c`. `utility` is an M1/M2 Air CPU proxy.
+`background` is harsher, closer to a 2019 Intel Mac. GPU and RAM stay on this
+machine. `taskpolicy -c` only works at launch. The vitest config wraps the main
+process so workers inherit the clamp. A throttled run **logs** numbers and
+skips the default budgets. Those budgets are for an unclamped M-series CPU.
 
 Use `bun run test`, not `bun test`. The suites are vitest, so `bun test` picks the
 wrong runner and fails on the `vitest` imports.

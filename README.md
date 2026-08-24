@@ -243,9 +243,23 @@ renderer.setDebugFrameOverlay('full')
 renderer.cycleDebugFrameOverlay()
 renderer.resetDebugFrameOverlayStats()
 renderer.getDebugFrameOverlay() // 'hidden' | 'minimal' | 'full'
+renderer.getDebugFrameOverlayStats()
+// { currentMs, p90Ms, p99Ms, maxMs, frames, samples }
 ```
 
+`p90Ms` is the overlay **10%** line. `p99Ms` is the **1%** line. Those are the slow tail.
+
 The overlay shows **draw time**, not FPS. `8.3 MS` is about 120 Hz.
+
+The chat example has a regression test for this: `examples/chat.perf.test.tsx`. It times mount, wheel draw, and sidebar clicks. It asserts p95, not every frame.
+
+On macOS, `THROTTLE=utility` restarts the process under `taskpolicy -c utility`. That pins work to E-cores. It is an **M1/M2 Air CPU** proxy, not Chrome 6x. GPU and RAM stay fast. `THROTTLE=background` is slower.
+
+```bash
+cd examples
+THROTTLE=utility bun run test chat.perf.test.tsx
+THROTTLE=utility bun --hot chat.tsx
+```
 
 ## Hot reload
 
@@ -644,15 +658,15 @@ function Results({ rows }: { rows: Result[] }) {
 
 ### Performance model
 
-| Work | Plain scroll container | `<virtual-list>` |
-|---|---|---|
-| React Fiber nodes | All rows | All rows |
-| Rust retained nodes | All rows | All rows |
-| GPUI row construction | All rows | Visible rows plus overdraw |
-| Layout and paint | All rows | Visible rows plus overdraw |
-| Height metadata | None | One lightweight entry per row |
+| Work | Plain scroll container | `<virtual-list>` children | `VirtualList` + `itemCount` |
+|---|---|---|---|
+| React Fiber nodes | All rows | All rows | Visible window |
+| Rust retained nodes | All rows | All rows | Visible window |
+| GPUI row construction | All rows | Visible rows plus overdraw | Visible rows plus overdraw |
+| Layout and paint | All rows | Visible rows plus overdraw | Visible rows plus overdraw |
+| Height metadata | None | One lightweight entry per row | One lightweight entry per logical row |
 
-Virtualization removes the **per-render GPUI cost**, not the memory used by React and the retained tree. For normal chat histories this is the useful tradeoff. Collections with millions of rows still need application-level paging or a data-owning native element.
+`VirtualList` with `itemCount` and `renderItem` mounts only the visible window. Use that for long transcripts. A 10,000-row `turns.map` still creates every React child. Collections with millions of rows still need application-level paging or a data-owning native element.
 
 ### Keep scroll fast
 
@@ -664,10 +678,39 @@ Put a long list on `<virtual-list>`. Keep `overdraw` near one extra
 viewport. Put fat content in one native node (`<markdown>`, `<code>`, `<diff>`),
 not a tree of React spans.
 
-The **first mount** still creates every React child and every retained node.
-A 10,000-row list hitches once while those nodes cross FFI. After that
-a wheel only rebuilds the visible rows. Collections that large need
-application-level paging if the first paint must stay instant.
+The host `<virtual-list>` still retains every React child. Pass `itemCount`
+and `renderItem` through `VirtualList` so mount only creates the window.
+
+```tsx
+import { VirtualList } from '@gpuix/react'
+
+const Transcript = memo(function Transcript({ turns }: { turns: Turn[] }) {
+  return (
+    <VirtualList
+      itemCount={turns.length}
+      estimatedItemHeight={220}
+      style={{ flexGrow: 1, minHeight: 0 }}
+      renderItem={(index) => <ChatTurn key={turns[index].id} turn={turns[index]} />}
+    />
+  )
+})
+
+function ChatApp() {
+  const [collapsed, setCollapsed] = useState(false)
+  const [turns, setTurns] = useState(initialTurns)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'row', height: '100%' }}>
+      <Sidebar collapsed={collapsed} onCollapse={() => setCollapsed(true)} />
+      <Transcript turns={turns} />
+      <Composer onSend={(text) => setTurns((current) => [...current, { text }])} />
+    </div>
+  )
+}
+```
+
+`turns` is a new array only when a message arrives. Sidebar and draft updates
+leave that reference alone, so `memo` skips the map. The chat example uses
+this pattern.
 
 `overflowX: "scroll"` on a wide child must not steal the vertical wheel.
 GPUIX sets `restrict_scroll_to_axis` on that path. Native
@@ -1218,7 +1261,7 @@ CSS-like styling via the `style` prop:
 </div>
 ```
 
-**Layout:** `display` (`"flex"` | `"grid"`), `flexDirection`, `flexWrap`, `flexGrow`, `flexShrink`, `alignItems`, `alignSelf`, `justifyContent`, `gap`, `rowGap`, `columnGap`, `gridTemplateColumns`, `gridTemplateRows`, `gridColumnMin`, `gridRowMin`
+**Layout:** `display` (`"flex"` | `"grid"`), `flexDirection`, `flexWrap`, `flexGrow`, `flexShrink`, `flexBasis`, `alignItems`, `alignSelf`, `alignContent`, `justifyContent`, `gap`, `rowGap`, `columnGap`, `gridTemplateColumns`, `gridTemplateRows`, `gridColumnMin`, `gridRowMin`
 
 **Sizing:** `width`, `height`, `minWidth`, `minHeight`, `maxWidth`, `maxHeight` — accepts pixels (number) or percentages (string like `"100%"`)
 
@@ -1226,7 +1269,70 @@ CSS-like styling via the `style` prop:
 
 **Position:** `position` (`"relative"` | `"absolute"`), `top`, `right`, `bottom`, `left`
 
-**Visual:** `backgroundColor`, `color`, `opacity`, `cursor`, `pointerEvents`, `borderRadius`, `borderWidth`, `borderColor`
+**Visual:** `backgroundColor`, `color`, `opacity`, `cursor`, `pointerEvents`, `borderRadius`, `borderTopLeftRadius`, `borderTopRightRadius`, `borderBottomLeftRadius`, `borderBottomRightRadius`, `borderWidth`, `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth`, `borderColor`, `boxShadow`
+
+### Colors
+
+Every color-bearing style field accepts the same string grammar. GPUIX native
+uses `csscolorparser` 0.8.3 and accepts:
+
+- named colors and `transparent`;
+- 3/4/6/8-digit hex, with or without `#`;
+- `rgb()` / `rgba()`, `hsl()` / `hsla()`, `hwb()` / `hwba()`, and
+  `hsv()` / `hsva()`;
+- `lab()`, `lch()`, `oklab()`, and `oklch()`;
+- `none` components and the parser's limited relative-color `from` / `calc()`
+  forms.
+
+Standard comma and modern space/slash alpha forms work. Values are converted
+to hard-clipped sRGB before GPUI paints them. Invalid strings are ignored for
+that property; they do not reject the full style object.
+
+`hsv()`, `hsva()`, and `hwba()` are parser extensions rather than CSS Color 4
+standard functions. `color()`, platform/dynamic colors, and numeric color
+integers are not accepted.
+
+Theme values can use the same modern grammar:
+
+```tsx
+const theme = {
+  surface: 'oklch(18% 0.02 260)',
+  accent: 'oklch(67.3% 0.182 276.935)',
+  text: 'oklch(96% 0 0)',
+}
+
+<div style={{ backgroundColor: theme.surface, borderColor: theme.accent }}>
+  <text style={{ color: theme.text }}>Hello GPUIX!</text>
+</div>
+```
+
+Limited relative-color forms can derive a new color from a base value:
+
+```tsx
+<div
+  style={{
+    backgroundColor: '#bad455',
+    borderColor: 'oklch(from #bad455 calc(l - 0.15) calc(c * 0.7) h)',
+  }}
+/>
+```
+
+`boxShadow` accepts one structured shadow. Its fields are `offsetX`, `offsetY`,
+`blurRadius`, `spreadRadius`, and `color`:
+
+```tsx
+<div
+  style={{
+    boxShadow: {
+      offsetX: 0,
+      offsetY: 4,
+      blurRadius: 12,
+      spreadRadius: 0,
+      color: '#00000033',
+    },
+  }}
+/>
+```
 
 **Overflow:** `overflow`, `overflowX`, `overflowY` — `"hidden"` clips content, `"scroll"` creates a native scrollable container with persistent scroll state
 

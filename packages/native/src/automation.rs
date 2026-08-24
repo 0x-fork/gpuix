@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, point, px, App, Bounds, InputEvent, IntoElement, Modifiers, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Styled, Window,
+    canvas, point, px, App, Bounds, InputEvent, IntoElement, Modifiers, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Styled, Window,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -34,7 +34,6 @@ impl ElementBounds {
             height: f64::from(f32::from(bounds.size.height)),
         }
     }
-
 }
 
 thread_local! {
@@ -56,7 +55,8 @@ pub fn bounds_frame_reset() -> impl IntoElement {
 
 pub fn record_bounds(id: u64, bounds: Bounds<Pixels>) {
     BOUNDS.with(|cell| {
-        cell.borrow_mut().insert(id, ElementBounds::from_gpui(bounds));
+        cell.borrow_mut()
+            .insert(id, ElementBounds::from_gpui(bounds));
     });
 }
 
@@ -68,11 +68,14 @@ pub fn all_bounds() -> HashMap<u64, ElementBounds> {
     BOUNDS.with(|cell| cell.borrow().clone())
 }
 
-pub fn bounds_tracker(id: u64) -> impl IntoElement {
+pub fn bounds_tracker(id: u64, selection_start: Option<bool>) -> impl IntoElement {
     canvas(
         |bounds, _, _| bounds,
         move |bounds, _, _, _| {
             record_bounds(id, bounds);
+            if let Some(selectable) = selection_start {
+                crate::text::record_start_region(bounds, selectable);
+            }
         },
     )
     .absolute()

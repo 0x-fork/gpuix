@@ -11,3 +11,4 @@ bun -e "require('@gpuix/native'); console.log('OK')"
 ```
 
 Fixes #1
+Closes #2
