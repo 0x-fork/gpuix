@@ -1817,7 +1817,7 @@ export function ChatApp({
 
 const isEntryPoint =
   typeof Bun !== 'undefined'
-    ? Bun.main === import.meta.path
+    ? Bun.isStandaloneExecutable || Bun.main === import.meta.path
     : process.argv[1]?.endsWith('chat.tsx')
 
 if (isEntryPoint) {

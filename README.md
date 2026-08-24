@@ -25,6 +25,15 @@ cd examples && bun --hot chat.tsx
 
 All of them live in [`examples/`](./examples) and use hardcoded data.
 
+Or download a standalone **chat** build from the [GitHub release](https://github.com/remorses/gpuix/releases). Files are named `example-chat-<target>`. No Bun or Rust install is required.
+
+```bash
+chmod +x example-chat-aarch64-apple-darwin
+./example-chat-aarch64-apple-darwin
+```
+
+macOS may block the unsigned binary the first time. Right-click the file, choose **Open**, and confirm. Windows: download `example-chat-x86_64-pc-windows-msvc.exe` and double-click it.
+
 Markdown, code and a virtualized diff in one frame:
 
 ![Markdown, code and diff rendered together](docs/images/showcase.png)
