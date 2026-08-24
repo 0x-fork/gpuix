@@ -11,7 +11,8 @@
     "build:native": "cd packages/native && bun run build",
     "build:react": "cd packages/react && bun run build",
     "example:counter": "cd examples && bun --hot counter.tsx",
-    "dev": "bun scripts/dev.ts"
+    "dev": "bun scripts/dev.ts",
+    "web": "bun scripts/web.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

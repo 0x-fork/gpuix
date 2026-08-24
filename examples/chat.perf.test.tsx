@@ -16,7 +16,7 @@ import {
   hasNativeTestRenderer,
   readMacCpuThrottle,
   type TestRoot,
-} from '@gpuix/react'
+} from '@gpuix/react/testing'
 import { connectTest } from '@gpuix/react/automation'
 import { ChatApp } from './chat'
 

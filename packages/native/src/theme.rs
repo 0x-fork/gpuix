@@ -605,7 +605,9 @@ fn with_alpha(mut color: Hsla, alpha: f32) -> Hsla {
 }
 
 fn system_sans() -> &'static str {
-    if cfg!(target_os = "macos") {
+    if cfg!(target_family = "wasm") {
+        "IBM Plex Sans"
+    } else if cfg!(target_os = "macos") {
         "Helvetica"
     } else if cfg!(target_os = "windows") {
         "Segoe UI"
@@ -615,7 +617,9 @@ fn system_sans() -> &'static str {
 }
 
 fn system_mono() -> &'static str {
-    if cfg!(target_os = "macos") {
+    if cfg!(target_family = "wasm") {
+        "Lilex"
+    } else if cfg!(target_os = "macos") {
         "Menlo"
     } else if cfg!(target_os = "windows") {
         "Consolas"

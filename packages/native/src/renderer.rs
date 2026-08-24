@@ -1,10 +1,10 @@
-//! GpuixRenderer — napi-rs binding exposed to Node.js.
+//! GPUIX retained renderer for napi desktop hosts and GPUI's browser platform.
 //!
 //! Mutation-based API: React's reconciler sends individual mutations
 //! (createElement, appendChild, setStyle, etc.) instead of a full JSON tree.
 //! Rust maintains a RetainedTree and rebuilds GPUI elements from it each frame.
 //!
-//! Lifecycle:
+//! Desktop lifecycle:
 //!   const renderer = new GpuixRenderer(eventCallback)
 //!   renderer.init({ title: 'My App', width: 800, height: 600 })
 //!   renderer.createElement(1, "div")     // mutations from React reconciler
@@ -17,8 +17,11 @@
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
 use futures::{channel::mpsc, StreamExt as _};
 use gpui::AppContext as _;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi::bindgen_prelude::*;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi_derive::napi;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -79,11 +82,16 @@ pub(crate) type EventCallback = Arc<dyn Fn(EventPayload) + Send + Sync>;
 
 /// Validate and convert a JS number (f64) to a u64 element ID.
 /// JS numbers are f64 — lossless for integers up to 2^53.
-pub(crate) fn to_element_id(id: f64) -> Result<u64> {
+fn raw_element_id(id: f64) -> std::result::Result<u64, String> {
     if !id.is_finite() || id < 0.0 || id.fract() != 0.0 || id > 9_007_199_254_740_991.0 {
-        return Err(Error::from_reason(format!("Invalid element id: {}", id)));
+        return Err(format!("Invalid element id: {id}"));
     }
     Ok(id as u64)
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub(crate) fn to_element_id(id: f64) -> Result<u64> {
+    raw_element_id(id).map_err(Error::from_reason)
 }
 
 thread_local! {
@@ -93,6 +101,10 @@ thread_local! {
     static GPUI_APP: RefCell<Option<gpui::ApplicationHandle>> = const { RefCell::new(None) };
     #[cfg(target_os = "macos")]
     static GPUI_WINDOW: RefCell<Option<gpui::WindowHandle<GpuixView>>> = const { RefCell::new(None) };
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    static WEB_APP: RefCell<Option<gpui::ApplicationHandle>> = const { RefCell::new(None) };
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    static WEB_WINDOW: RefCell<Option<gpui::WindowHandle<GpuixView>>> = const { RefCell::new(None) };
     /// Shared scroll handles — GpuixView writes here during render(),
     /// platform-local handlers read from here for programmatic scroll control.
     /// ScrollHandle is Rc<RefCell<...>> so its methods (set_offset, offset,
@@ -105,6 +117,7 @@ thread_local! {
     static VIRTUAL_LIST_STATES: RefCell<HashMap<u64, gpui::ListState>> = RefCell::new(HashMap::new());
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) fn parse_debug_frame_overlay_mode(mode: &str) -> Result<gpui::DebugFrameOverlayMode> {
     match mode {
         "hidden" => Ok(gpui::DebugFrameOverlayMode::Hidden),
@@ -116,6 +129,7 @@ pub(crate) fn parse_debug_frame_overlay_mode(mode: &str) -> Result<gpui::DebugFr
     }
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) fn debug_frame_overlay_mode_name(mode: gpui::DebugFrameOverlayMode) -> &'static str {
     match mode {
         gpui::DebugFrameOverlayMode::Hidden => "hidden",
@@ -124,6 +138,7 @@ pub(crate) fn debug_frame_overlay_mode_name(mode: gpui::DebugFrameOverlayMode) -
     }
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) fn debug_frame_overlay_stats_js(
     stats: gpui::DebugFrameOverlayStats,
 ) -> DebugFrameOverlayStats {
@@ -472,6 +487,7 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
 }
 
 /// The main GPUI renderer exposed to Node.js.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 #[napi]
 pub struct GpuixRenderer {
     event_callback: Mutex<Option<Arc<ThreadsafeFunction<EventPayload>>>>,
@@ -484,6 +500,7 @@ pub struct GpuixRenderer {
     ui_commands: Mutex<Option<mpsc::UnboundedSender<UiCommand>>>,
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 #[napi]
 impl GpuixRenderer {
     fn event_callback_for_view(&self) -> Option<EventCallback> {
@@ -941,7 +958,7 @@ impl GpuixRenderer {
         let ops: Vec<serde_json::Value> = serde_json::from_str(&json)
             .map_err(|e| Error::from_reason(format!("Failed to parse batch: {}", e)))?;
         let mut tree = self.tree.lock().unwrap();
-        let destroyed = apply_batch_to_tree(&mut tree, &ops)?;
+        let destroyed = apply_batch_to_tree(&mut tree, &ops).map_err(Error::from_reason)?;
         drop(tree);
         self.request_invalidate()?;
         Ok(destroyed)
@@ -1605,6 +1622,394 @@ fn collect_text(id: u64, tree: &RetainedTree, texts: &mut Vec<String>) {
         for &child_id in &element.children {
             collect_text(child_id, tree, texts);
         }
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn start_web_app(
+    tree: Arc<Mutex<RetainedTree>>,
+    selection: SharedSelection,
+) -> Result<(), wasm_bindgen::JsValue> {
+    if WEB_APP.with(|stored| stored.borrow().is_some()) {
+        return Err(wasm_bindgen::JsValue::from_str(
+            "GPUIX web is already running",
+        ));
+    }
+    gpui_platform::web_init();
+    let app = gpui_platform::single_threaded_web().run_embedded(move |cx| {
+        init_key_bindings(cx);
+        crate::custom_elements::input::init(cx);
+        let window = cx.open_window(Default::default(), |_window, cx| {
+            cx.new(|_| GpuixView::new(tree, None, "GPUIX Web".to_string(), selection))
+        });
+        match window {
+            Ok(window) => WEB_WINDOW.with(|stored| *stored.borrow_mut() = Some(window)),
+            Err(error) => log::error!("Failed to open the GPUIX web window: {error:#}"),
+        }
+        cx.activate(true);
+    });
+    WEB_APP.with(|stored| *stored.borrow_mut() = Some(app));
+    Ok(())
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn web_element_id(id: f64) -> Result<u64, wasm_bindgen::JsValue> {
+    raw_element_id(id).map_err(|error| wasm_bindgen::JsValue::from_str(&error))
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn web_number_array(values: impl IntoIterator<Item = f64>) -> wasm_bindgen::JsValue {
+    let result = js_sys::Array::new();
+    for value in values {
+        result.push(&value.into());
+    }
+    result.into()
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn update_web_window<R>(
+    update: impl FnOnce(&mut GpuixView, &mut gpui::Window, &mut gpui::Context<GpuixView>) -> R,
+) -> Result<R, wasm_bindgen::JsValue> {
+    WEB_APP.with(|app| {
+        let app = app.borrow();
+        let app = app
+            .as_ref()
+            .ok_or_else(|| wasm_bindgen::JsValue::from_str("GPUIX web is not initialized"))?;
+        app.update(|cx| {
+            WEB_WINDOW.with(|window| {
+                let window = (*window.borrow()).ok_or_else(|| {
+                    wasm_bindgen::JsValue::from_str("GPUIX web window is not ready")
+                })?;
+                window
+                    .update(cx, update)
+                    .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+            })
+        })
+    })
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn notify_web() {
+    if let Err(error) = update_web_window(|_view, _window, cx| cx.notify()) {
+        if WEB_WINDOW.with(|window| window.borrow().is_some()) {
+            log::error!("Failed to invalidate the GPUIX web window: {error:?}");
+        }
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[wasm_bindgen::prelude::wasm_bindgen(js_name = GpuixRenderer)]
+pub struct WebGpuixRenderer {
+    tree: Arc<Mutex<RetainedTree>>,
+    selection: SharedSelection,
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[wasm_bindgen::prelude::wasm_bindgen(js_class = GpuixRenderer)]
+impl WebGpuixRenderer {
+    #[wasm_bindgen::prelude::wasm_bindgen(constructor)]
+    pub fn new(_event_callback: wasm_bindgen::JsValue) -> Self {
+        Self {
+            tree: Arc::new(Mutex::new(RetainedTree::new())),
+            selection: SharedSelection::default(),
+        }
+    }
+
+    pub fn init(&self, _options: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {
+        start_web_app(self.tree.clone(), self.selection.clone())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = createElement)]
+    pub fn create_element(
+        &self,
+        id: f64,
+        element_type: String,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree
+            .lock()
+            .unwrap()
+            .create_element(web_element_id(id)?, element_type);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = destroyElement)]
+    pub fn destroy_element(&self, id: f64) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let destroyed = self
+            .tree
+            .lock()
+            .unwrap()
+            .destroy_element(web_element_id(id)?)
+            .into_iter()
+            .map(|id| id as f64);
+        Ok(web_number_array(destroyed))
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = appendChild)]
+    pub fn append_child(&self, parent_id: f64, child_id: f64) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree
+            .lock()
+            .unwrap()
+            .append_child(web_element_id(parent_id)?, web_element_id(child_id)?);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = removeChild)]
+    pub fn remove_child(&self, parent_id: f64, child_id: f64) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree
+            .lock()
+            .unwrap()
+            .remove_child(web_element_id(parent_id)?, web_element_id(child_id)?);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = insertBefore)]
+    pub fn insert_before(
+        &self,
+        parent_id: f64,
+        child_id: f64,
+        before_id: f64,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree.lock().unwrap().insert_before(
+            web_element_id(parent_id)?,
+            web_element_id(child_id)?,
+            web_element_id(before_id)?,
+        );
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setStyle)]
+    pub fn set_style(&self, id: f64, style_json: String) -> Result<(), wasm_bindgen::JsValue> {
+        let style = serde_json::from_str(&style_json).map_err(|error| {
+            wasm_bindgen::JsValue::from_str(&format!("Failed to parse style: {error}"))
+        })?;
+        self.tree
+            .lock()
+            .unwrap()
+            .set_style(web_element_id(id)?, style);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setText)]
+    pub fn set_text(&self, id: f64, content: String) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree
+            .lock()
+            .unwrap()
+            .set_text(web_element_id(id)?, content);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setEventListener)]
+    pub fn set_event_listener(
+        &self,
+        id: f64,
+        event_type: String,
+        has_handler: bool,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree
+            .lock()
+            .unwrap()
+            .set_event_listener(web_element_id(id)?, event_type, has_handler);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setRoot)]
+    pub fn set_root(&self, id: f64) -> Result<(), wasm_bindgen::JsValue> {
+        self.tree.lock().unwrap().root_id = Some(web_element_id(id)?);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setCustomProp)]
+    pub fn set_custom_prop(
+        &self,
+        id: f64,
+        key: String,
+        value_json: String,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        let value = serde_json::from_str(&value_json).map_err(|error| {
+            wasm_bindgen::JsValue::from_str(&format!("Failed to parse custom prop: {error}"))
+        })?;
+        self.tree
+            .lock()
+            .unwrap()
+            .set_custom_prop(web_element_id(id)?, key, value);
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getCustomProp)]
+    pub fn get_custom_prop(
+        &self,
+        id: f64,
+        key: String,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let value = self
+            .tree
+            .lock()
+            .unwrap()
+            .get_custom_prop(web_element_id(id)?, &key)
+            .map(serde_json::Value::to_string);
+        Ok(value.map_or(wasm_bindgen::JsValue::NULL, |value| {
+            wasm_bindgen::JsValue::from_str(&value)
+        }))
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = applyBatch)]
+    pub fn apply_batch(
+        &self,
+        json: String,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let ops: Vec<serde_json::Value> = serde_json::from_str(&json).map_err(|error| {
+            wasm_bindgen::JsValue::from_str(&format!("Failed to parse batch: {error}"))
+        })?;
+        let destroyed = apply_batch_to_tree(&mut self.tree.lock().unwrap(), &ops)
+            .map_err(|error| wasm_bindgen::JsValue::from_str(&error))?;
+        notify_web();
+        Ok(web_number_array(destroyed))
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = commitMutations)]
+    pub fn commit_mutations(&self) {
+        notify_web();
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = isInitialized)]
+    pub fn is_initialized(&self) -> bool {
+        WEB_APP.with(|app| app.borrow().is_some())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = requiresTick)]
+    pub fn requires_tick(&self) -> bool {
+        false
+    }
+
+    pub fn tick(&self) {}
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getWindowSize)]
+    pub fn get_window_size(&self) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let window = web_sys::window()
+            .ok_or_else(|| wasm_bindgen::JsValue::from_str("Browser window is unavailable"))?;
+        let size = js_sys::Object::new();
+        js_sys::Reflect::set(&size, &"width".into(), &window.inner_width()?)?;
+        js_sys::Reflect::set(&size, &"height".into(), &window.inner_height()?)?;
+        Ok(size.into())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setWindowTitle)]
+    pub fn set_window_title(&self, title: String) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(move |view, _window, cx| {
+            view.window_title = title;
+            cx.notify();
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = focusElement)]
+    pub fn focus_element(&self, element_id: f64) -> Result<(), wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        update_web_window(move |view, window, cx| {
+            view.reveal_virtual_list_ancestor(id);
+            if let Some(handle) = view.focus_handles.get(&id) {
+                handle.focus(window, cx);
+            }
+            cx.notify();
+        })
+    }
+
+    pub fn blur(&self) -> Result<(), wasm_bindgen::JsValue> {
+        update_web_window(|_view, window, _cx| window.blur())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getSelectedText)]
+    pub fn get_selected_text(&self) -> wasm_bindgen::JsValue {
+        self.selection
+            .lock()
+            .selected_text()
+            .map_or(wasm_bindgen::JsValue::NULL, |value| {
+                wasm_bindgen::JsValue::from_str(&value)
+            })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = clearSelection)]
+    pub fn clear_selection(&self) {
+        self.selection.lock().clear();
+        notify_web();
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = scrollTo)]
+    pub fn scroll_to(&self, element_id: f64, x: f64, y: f64) -> Result<(), wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        if !VIRTUAL_LIST_STATES.with(|states| {
+            let states = states.borrow();
+            let Some(state) = states.get(&id) else {
+                return false;
+            };
+            state.set_offset_from_scrollbar(gpui::point(gpui::px(x as f32), gpui::px(y as f32)));
+            true
+        }) {
+            SCROLL_HANDLES.with(|handles| {
+                if let Some(handle) = handles.borrow().get(&id) {
+                    handle.set_offset(gpui::point(gpui::px(x as f32), gpui::px(y as f32)));
+                }
+            });
+        }
+        notify_web();
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = scrollToItem)]
+    pub fn scroll_to_item(&self, element_id: f64, index: f64) -> Result<(), wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        let index = index as usize;
+        if !VIRTUAL_LIST_STATES.with(|states| {
+            let states = states.borrow();
+            let Some(state) = states.get(&id) else {
+                return false;
+            };
+            state.scroll_to(gpui::ListOffset {
+                item_ix: index,
+                offset_in_item: gpui::px(0.0),
+            });
+            true
+        }) {
+            SCROLL_HANDLES.with(|handles| {
+                if let Some(handle) = handles.borrow().get(&id) {
+                    handle.scroll_to_item(index);
+                }
+            });
+        }
+        notify_web();
+        Ok(())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getScrollOffset)]
+    pub fn get_scroll_offset(
+        &self,
+        element_id: f64,
+    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        let offset = VIRTUAL_LIST_STATES
+            .with(|states| {
+                states.borrow().get(&id).map(|state| {
+                    let offset = state.scroll_px_offset_for_scrollbar();
+                    [
+                        f64::from(f32::from(offset.x)),
+                        f64::from(f32::from(offset.y)),
+                    ]
+                })
+            })
+            .or_else(|| {
+                SCROLL_HANDLES.with(|handles| {
+                    handles.borrow().get(&id).map(|handle| {
+                        let offset = handle.offset();
+                        [
+                            f64::from(f32::from(offset.x)),
+                            f64::from(f32::from(offset.y)),
+                        ]
+                    })
+                })
+            });
+        let Some([x, y]) = offset else {
+            return Ok(wasm_bindgen::JsValue::NULL);
+        };
+        Ok(web_number_array([x, y]))
     }
 }
 
@@ -3364,17 +3769,19 @@ enum BatchOp {
 
 /// Parse all batch ops from JSON into typed enums.
 /// Returns Err on the first invalid op — no tree mutation has occurred yet.
-fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
+type BatchResult<T> = std::result::Result<T, String>;
+
+fn parse_batch_ops(ops: &[serde_json::Value]) -> BatchResult<Vec<BatchOp>> {
     let mut parsed = Vec::with_capacity(ops.len());
 
     for (i, op) in ops.iter().enumerate() {
         let arr = op
             .as_array()
-            .ok_or_else(|| Error::from_reason(format!("Batch op {} is not an array", i)))?;
+            .ok_or_else(|| format!("Batch op {i} is not an array"))?;
         let op_name = arr
             .first()
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::from_reason(format!("Batch op {} missing op name string", i)))?;
+            .ok_or_else(|| format!("Batch op {i} missing op name string"))?;
 
         let batch_op = match op_name {
             "createElement" => BatchOp::CreateElement {
@@ -3398,9 +3805,8 @@ fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
                 before_id: batch_id(arr, 3, i)?,
             },
             "setStyle" => {
-                let style: StyleDesc = batch_decode(arr, 2, i).map_err(|e| {
-                    Error::from_reason(format!("Batch op {} setStyle parse error: {}", i, e))
-                })?;
+                let style: StyleDesc = batch_decode(arr, 2, i)
+                    .map_err(|error| format!("Batch op {i} setStyle parse error: {error}"))?;
                 BatchOp::SetStyle {
                     id: batch_id(arr, 1, i)?,
                     style,
@@ -3415,10 +3821,9 @@ fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
                     .get(3)
                     .and_then(|v| v.as_bool().or_else(|| v.as_u64().map(|n| n != 0)))
                     .ok_or_else(|| {
-                        Error::from_reason(format!(
-                            "Batch op {} setEventListener missing/invalid hasHandler at index 3",
-                            i
-                        ))
+                        format!(
+                            "Batch op {i} setEventListener missing/invalid hasHandler at index 3"
+                        )
                     })?;
                 BatchOp::SetEventListener {
                     id: batch_id(arr, 1, i)?,
@@ -3437,15 +3842,13 @@ fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
             "setCustomPropValue" => BatchOp::SetCustomProp {
                 id: batch_id(arr, 1, i)?,
                 key: batch_str(arr, 2, i)?,
-                value: arr.get(3).cloned().ok_or_else(|| {
-                    Error::from_reason(format!("Batch op {} missing custom prop value", i))
-                })?,
+                value: arr
+                    .get(3)
+                    .cloned()
+                    .ok_or_else(|| format!("Batch op {i} missing custom prop value"))?,
             },
             _ => {
-                return Err(Error::from_reason(format!(
-                    "Batch op {} unknown operation: {:?}",
-                    i, op_name
-                )));
+                return Err(format!("Batch op {i} unknown operation: {op_name:?}"));
             }
         };
         parsed.push(batch_op);
@@ -3467,7 +3870,7 @@ fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
 pub(crate) fn apply_batch_to_tree(
     tree: &mut RetainedTree,
     ops: &[serde_json::Value],
-) -> Result<Vec<f64>> {
+) -> BatchResult<Vec<f64>> {
     // Phase 1: parse and validate all ops (no mutation).
     let parsed = parse_batch_ops(ops)?;
 
@@ -3527,11 +3930,12 @@ pub(crate) fn apply_batch_to_tree(
 }
 
 /// Extract a u64 element ID from a batch tuple at the given index.
-fn batch_id(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> Result<u64> {
-    let v = arr.get(idx).and_then(|v| v.as_f64()).ok_or_else(|| {
-        Error::from_reason(format!("Batch op {} missing id at index {}", op_idx, idx))
-    })?;
-    to_element_id(v)
+fn batch_id(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> BatchResult<u64> {
+    let value = arr
+        .get(idx)
+        .and_then(|value| value.as_f64())
+        .ok_or_else(|| format!("Batch op {op_idx} missing id at index {idx}"))?;
+    raw_element_id(value)
 }
 
 /// A style or custom-prop payload. Objects land as JSON. Legacy batches
@@ -3540,13 +3944,10 @@ fn batch_payload(
     arr: &[serde_json::Value],
     idx: usize,
     op_idx: usize,
-) -> Result<serde_json::Value> {
-    let value = arr.get(idx).ok_or_else(|| {
-        Error::from_reason(format!(
-            "Batch op {} missing value at index {}",
-            op_idx, idx
-        ))
-    })?;
+) -> BatchResult<serde_json::Value> {
+    let value = arr
+        .get(idx)
+        .ok_or_else(|| format!("Batch op {op_idx} missing value at index {idx}"))?;
     if let Some(encoded) = value.as_str() {
         match serde_json::from_str(encoded) {
             Ok(parsed) => Ok(parsed),
@@ -3561,34 +3962,30 @@ fn batch_decode<T: serde::de::DeserializeOwned>(
     arr: &[serde_json::Value],
     idx: usize,
     op_idx: usize,
-) -> Result<T> {
+) -> BatchResult<T> {
     let value = batch_payload(arr, idx, op_idx)?;
-    serde_json::from_value(value).map_err(|e| Error::from_reason(e.to_string()))
+    serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
 /// Extract a String from a batch tuple at the given index.
-fn batch_str(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> Result<String> {
+fn batch_str(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> BatchResult<String> {
     arr.get(idx)
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| {
-            Error::from_reason(format!(
-                "Batch op {} missing string at index {}",
-                op_idx, idx
-            ))
-        })
+        .ok_or_else(|| format!("Batch op {op_idx} missing string at index {idx}"))
 }
 
 // ── Types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct WindowSize {
     pub width: f64,
     pub height: f64,
 }
 
 /// Recorded draw times from the debug frame overlay.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 #[derive(Debug, Clone)]
 #[napi(object)]
 pub struct DebugFrameOverlayStats {
@@ -3601,7 +3998,7 @@ pub struct DebugFrameOverlayStats {
 }
 
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct WindowOptions {
     pub title: Option<String>,
     pub width: Option<f64>,

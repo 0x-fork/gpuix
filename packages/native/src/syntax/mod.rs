@@ -18,6 +18,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::path::Path;
 
+#[cfg(not(target_family = "wasm"))]
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 /// Sources larger than this are rendered plain. Highlighting a megabyte of
@@ -300,6 +301,15 @@ pub fn highlight(request: HighlightRequest<'_>) -> Result<HighlightedDocument, H
     highlight_with_limits(request, HighlightLimits::default())
 }
 
+#[cfg(target_family = "wasm")]
+pub fn highlight_with_limits(
+    _request: HighlightRequest<'_>,
+    _limits: HighlightLimits,
+) -> Result<HighlightedDocument, HighlightError> {
+    Err(HighlightError::UnknownLanguage)
+}
+
+#[cfg(not(target_family = "wasm"))]
 pub fn highlight_with_limits(
     request: HighlightRequest<'_>,
     limits: HighlightLimits,
@@ -366,6 +376,7 @@ pub fn highlight_with_limits(
     HighlightedDocument::from_absolute_spans(language, request.source, spans)
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn injected_languages(parent: LanguageId) -> Vec<LanguageId> {
     use LanguageId::*;
     match parent {
@@ -378,6 +389,7 @@ fn injected_languages(parent: LanguageId) -> Vec<LanguageId> {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn make_configuration(
     language: tree_sitter::Language,
     name: &str,
@@ -389,6 +401,7 @@ fn make_configuration(
         .map_err(|error| HighlightError::Parser(error.to_string()))
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn rust_configuration() -> Result<HighlightConfiguration, HighlightError> {
     // The upstream Rust query groups numbers and booleans under
     // `constant.builtin`. Splitting them keeps a number amber and a bool its
@@ -415,6 +428,7 @@ fn rust_configuration() -> Result<HighlightConfiguration, HighlightError> {
     )
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn configuration(language: LanguageId) -> Result<HighlightConfiguration, HighlightError> {
     use LanguageId::*;
     match language {
@@ -541,6 +555,7 @@ fn configuration(language: LanguageId) -> Result<HighlightConfiguration, Highlig
 /// Ordered generic to specific. `HighlightConfiguration::configure` resolves a
 /// dotted capture such as `function.method` to the best entry in this table, so
 /// the order is load-bearing: `function` must precede `function.builtin`.
+#[cfg(not(target_family = "wasm"))]
 const CAPTURE_NAMES: &[&str] = &[
     "comment",
     "keyword",
@@ -569,6 +584,7 @@ const CAPTURE_NAMES: &[&str] = &[
     "error",
 ];
 
+#[cfg(not(target_family = "wasm"))]
 const CAPTURE_KINDS: &[HighlightKind] = &[
     HighlightKind::Comment,
     HighlightKind::Keyword,

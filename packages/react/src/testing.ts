@@ -9,7 +9,6 @@
 /// flush the tree, dispatch through GPUI, drain events, and feed them into
 /// the React event registry via handleGpuixEvent.
 
-import { spawnSync } from "node:child_process"
 import React from "react"
 import type { ReactNode } from "react"
 import type { EventPayload } from "@gpuix/native"
@@ -26,6 +25,12 @@ import { wrapWithBatching } from "./reconciler/batch-renderer.js"
 import { GpuixContext } from "./hooks/use-gpuix.js"
 import type { OpaqueRoot } from "react-reconciler"
 import { ConcurrentRoot } from "react-reconciler/constants.js"
+export {
+  applyMacCpuThrottleFromEnv,
+  MAC_CPU_THROTTLES,
+  readMacCpuThrottle,
+} from "./cpu-throttle.js"
+export type { MacCpuThrottle } from "./cpu-throttle.js"
 
 interface NativeTestRendererApi extends NativeRenderer {
   applyBatch(json: string): number[]
@@ -85,49 +90,6 @@ try {
 
 /** Whether the native TestGpuixRenderer is available (for conditional test registration). */
 export const hasNativeTestRenderer = NativeTestRenderer != null
-
-export const MAC_CPU_THROTTLES = ["utility", "background", "maintenance"] as const
-
-export type MacCpuThrottle = (typeof MAC_CPU_THROTTLES)[number]
-
-function isMacCpuThrottle(value: string): value is MacCpuThrottle {
-  for (const clamp of MAC_CPU_THROTTLES) {
-    if (clamp === value) return true
-  }
-  return false
-}
-
-export function readMacCpuThrottle(): MacCpuThrottle | null {
-  const raw = (process.env.THROTTLE ?? "").trim().toLowerCase()
-  if (!raw) return null
-  if (!isMacCpuThrottle(raw)) {
-    throw new Error(
-      `THROTTLE=${raw} is invalid. Use utility, background, or maintenance.`,
-    )
-  }
-  return raw
-}
-
-/** Re-exec under `taskpolicy -c`. Call from the process entry, not a vitest worker. */
-export function applyMacCpuThrottleFromEnv(): MacCpuThrottle | null {
-  const mode = readMacCpuThrottle()
-  if (!mode) return null
-  if (process.env.GPUIX_CPU_THROTTLE_APPLIED === mode) return mode
-  if (process.platform !== "darwin") {
-    throw new Error(`THROTTLE=${mode} needs macOS taskpolicy`)
-  }
-  if (process.argv.some((arg) => arg.includes("vitest/dist/workers"))) {
-    throw new Error(
-      `THROTTLE=${mode} must wrap the vitest process. Use examples/vitest.config.ts.`,
-    )
-  }
-  console.log(`[throttle] taskpolicy -c ${mode}`)
-  const result = spawnSync("taskpolicy", ["-c", mode, ...process.argv], {
-    stdio: "inherit",
-    env: { ...process.env, GPUIX_CPU_THROTTLE_APPLIED: mode },
-  })
-  process.exit(result.status ?? 1)
-}
 
 // Access reconciler.flushSync (name varies by version)
 const _r = reconciler as typeof reconciler & {

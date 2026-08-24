@@ -22,6 +22,7 @@ cd examples && bun --hot chat.tsx
 | **native-text** | `bun --hot native-text.tsx` | The three native text components with a tab switcher |
 | **counter** | `bun --hot counter.tsx` | The smallest possible app: state, events, hover |
 | **diff** | `bun --hot diff.tsx` | A diff viewer composed from `<div>` and `<text>` in JS, for comparison |
+| **web** | `bun run web` from the repository root | The ChatGPT example rendered in a browser canvas with WebGPU |
 
 All of them live in [`examples/`](./examples) and use hardcoded data.
 
@@ -34,13 +35,39 @@ chmod +x example-chat-aarch64-apple-darwin
 
 macOS may block the unsigned binary the first time. Right-click the file, choose **Open**, and confirm. Windows: download `example-chat-x86_64-pc-windows-msvc.exe` and double-click it.
 
+The web example bundles the same React app and reconciler as the desktop chat
+example. wasm-bindgen exposes the mutation interface to the existing retained
+tree and `GpuixView`, which run through GPUI's browser platform. Browser event
+callbacks are not supported yet.
+
+The web build needs nightly Rust and the matching wasm-bindgen CLI:
+
+```bash
+rustup toolchain install nightly --component rust-src --target wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127 --locked
+bun run web
+```
+
+The generated Wasm uses shared memory. Production servers must include these
+headers on the page, JavaScript, and Wasm responses:
+
+```http
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+The chat example puts a virtualized `<diff>` and a GFM table inside an assistant
+turn, inside a scrolling transcript:
+
+![A diff and a markdown table inside a chat turn](docs/images/chat-diff.png)
+
 Markdown, code and a virtualized diff in one frame:
 
 ![Markdown, code and diff rendered together](docs/images/showcase.png)
 
 ## Architecture
 
-GPUIX bridges React to GPUI using a **mutation-based protocol** over napi-rs FFI. React's reconciler sends individual DOM-like mutations (`createElement`, `appendChild`, `setStyle`, etc.) directly to Rust — no JSON tree serialization. Rust maintains a retained element tree that GPUI reads each frame.
+GPUIX bridges React to GPUI using a **mutation-based protocol**. Desktop apps use napi-rs; browser apps load the same Rust renderer through wasm-bindgen. React's reconciler sends individual DOM-like mutations (`createElement`, `appendChild`, `setStyle`, etc.) directly to Rust, with no JSON tree serialization. Rust maintains a retained element tree that GPUI reads each frame.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -57,14 +84,14 @@ GPUIX bridges React to GPUI using a **mutation-based protocol** over napi-rs FFI
 │    )                                                            │
 │  }                                                              │
 └─────────────────────────────────────────────────────────────────┘
-                    │ napi FFI mutations
+                    │ napi desktop / wasm-bindgen browser
                     │ createElement(1, "div")
                     │ appendChild(0, 1)
                     │ setStyle(1, "{...}")
                     │ commitMutations()
                     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Rust (napi-rs)                                                 │
+│  Rust host bridge                                               │
 │                                                                 │
 │  RetainedTree ── stores elements, styles, event flags           │
 │       │                                                         │
@@ -76,7 +103,7 @@ GPUIX bridges React to GPUI using a **mutation-based protocol** over napi-rs FFI
 ┌─────────────────────────────────────────────────────────────────┐
 │  GPUI                                                           │
 │                                                                 │
-│  GPU rendering via Metal (macOS), DirectX (Windows), or Vulkan  │
+│  Metal, DirectX, Vulkan, or browser WebGPU / WebGL2              │
 │  Flexbox layout via Taffy                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -85,7 +112,7 @@ GPUIX bridges React to GPUI using a **mutation-based protocol** over napi-rs FFI
 
 GPUI is an **immediate-mode** UI framework — it rebuilds the entire element tree every frame. Instead of fighting this, GPUIX embraces it:
 
-1. React reconciler detects a state change and calls napi mutations (`createElement`, `setStyle`, `appendChild`, etc.)
+1. React reconciler detects a state change and calls host mutations (`createElement`, `setStyle`, `appendChild`, etc.)
 2. Each mutation updates a **RetainedTree** on the Rust side — a HashMap of element nodes with styles, children, and event flags
 3. On each GPUI frame, `GpuixView::render()` walks the RetainedTree and calls `build_element()` to produce ephemeral GPUI elements
 4. GPUI lays them out (Taffy flexbox) and renders to the GPU
@@ -95,7 +122,7 @@ This is the same protocol React uses for the DOM (`createElement`, `appendChild`
 
 ## Mutation API
 
-The FFI surface between JS and Rust is a set of direct napi calls — the `NativeRenderer` interface:
+The host surface between JS and Rust is the `NativeRenderer` interface. Desktop uses napi calls and the browser uses wasm-bindgen methods:
 
 ```ts
 interface NativeRenderer {
@@ -116,7 +143,7 @@ Element IDs are plain numbers generated by an incrementing counter in JS. `commi
 
 ## Event Flow
 
-Events travel from GPUI back to React through a `ThreadsafeFunction` callback:
+On desktop, events travel from GPUI back to React through a `ThreadsafeFunction` callback. Browser event callbacks are not connected yet.
 
 ```
 User clicks element id=3
@@ -144,7 +171,7 @@ Event handlers are stored in a JS-side registry keyed by `(elementId, eventType)
 
 ## Packages
 
-- **`@gpuix/native`** — Rust/napi-rs bindings to GPUI. Contains `GpuixRenderer`, `RetainedTree`, `build_element()`, `apply_styles()`, and the event wiring.
+- **`@gpuix/native`** — Rust bindings to GPUI. It publishes napi-rs desktop binaries and a wasm-bindgen browser build, both backed by `GpuixRenderer`, `RetainedTree`, `build_element()`, and `apply_styles()`.
 - **`@gpuix/react`** — React reconciler, event registry, and TypeScript types. Implements the `react-reconciler` host config using the mutation API.
 
 ## Building
@@ -1175,13 +1202,13 @@ Bash, TOML, YAML, Markdown, HTML, CSS, C.
 | `textarea`      | Native multiline, auto-growing text editor       |
 | `virtual-list`  | Long collections; only visible rows are built    |
 | `img`           | Local raster or SVG images                       |
-| `svg`           | Tintable monochrome SVG icons from local files   |
+| `svg`           | Tintable monochrome SVG icons from source or disk |
 | `anchored`      | Positioned overlay                               |
 | `canvas`        | Custom drawing (planned)                         |
 
 ## Images and icons
 
-Both elements take a **filesystem path**, not a URL. Resolve the file with
+`<img>` takes a **filesystem path**, not a URL. Resolve the file with
 `fileURLToPath` or `path.join` and pass that string as `src`.
 
 ### `<img>`
@@ -1203,9 +1230,9 @@ placeholder instead of crashing.
 
 ### `<svg>`
 
-`<svg>` uses GPUI's **monochrome icon renderer**. The file is drawn as a single
-shape and tinted with `style.color`. Use this for toolbar icons, not for
-full-colour artwork.
+`<svg>` uses GPUI's **monochrome icon renderer**. Raw `source` works on desktop
+and in the browser. Desktop apps can also use a local `src` path. The icon is
+drawn as one shape and tinted with `style.color`.
 
 `src` is a filesystem path **or** a `data:image/svg+xml,…` URL. Vitest and some
 Bun `import … with { type: 'file' }` bindings emit the data URL. GPUIX decodes
@@ -1216,13 +1243,16 @@ both.
 the same as `style.color`.
 
 ```tsx
+import searchSvg from './assets/icons/search.svg' with { type: 'text' }
+
 <svg
-  src={fileURLToPath(new URL('./assets/icons/search.svg', import.meta.url))}
+  source={searchSvg}
   style={{ width: 16, height: 16, color: '#b4b4b4' }}
 />
 ```
 
-The chat example builds every sidebar and composer icon this way.
+The chat example builds every sidebar and composer icon from raw SVG source this
+way.
 
 ## Supported Events
 

@@ -220,6 +220,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -228,6 +230,18 @@ jobs:
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
+
+      - name: Install browser Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+          target: wasm32-unknown-unknown
+          components: rust-src
+          cache: false
+          rustflags: ""
+
+      - name: Install wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
 
       - name: Install dependencies
         run: bun install

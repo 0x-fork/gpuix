@@ -274,7 +274,7 @@ impl TestGpuixRenderer {
         let ops: Vec<serde_json::Value> = serde_json::from_str(&json)
             .map_err(|e| Error::from_reason(format!("Failed to parse batch: {}", e)))?;
         let mut tree = self.tree.lock().unwrap();
-        apply_batch_to_tree(&mut tree, &ops)
+        apply_batch_to_tree(&mut tree, &ops).map_err(Error::from_reason)
     }
 
     // ── Test-specific methods ────────────────────────────────────────

@@ -10,14 +10,9 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import React from 'react'
 import { beforeAll, describe, expect, it } from 'vitest'
-import {
-  createTestRoot,
-  hasNativeTestRenderer,
-  render,
-  resetRender,
-  TestRenderer,
-} from '@gpuix/react'
+import { render, resetRender } from '@gpuix/react'
 import { connectTest } from '@gpuix/react/automation'
+import { createTestRoot, hasNativeTestRenderer, TestRenderer } from '@gpuix/react/testing'
 import { ChatApp, SafeMdxContent, SafeMdxTranscript } from './chat'
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip

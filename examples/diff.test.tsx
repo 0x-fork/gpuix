@@ -14,7 +14,7 @@
 import fs from "fs"
 import { describe, it, expect, beforeEach } from "vitest"
 import React from "react"
-import { createTestRoot, hasNativeTestRenderer } from "@gpuix/react"
+import { createTestRoot, hasNativeTestRenderer, type TestRoot } from "@gpuix/react/testing"
 import type { StructuredPatchHunk as Hunk } from "diff"
 import { DiffViewer } from "./diff"
 
@@ -128,7 +128,7 @@ const longHunk: Hunk[] = [
 // ── Tests ────────────────────────────────────────────────────────────
 
 describeNative("diff viewer", () => {
-  let testRoot: ReturnType<typeof createTestRoot>
+  let testRoot: TestRoot
 
   beforeEach(() => {
     testRoot = createTestRoot()
@@ -160,7 +160,7 @@ describeNative("diff viewer", () => {
       // Verify key text content is present
       const allText = testRoot.renderer.getAllText()
       // Line numbers and code should be present
-      expect(allText.some((t: string) => t.includes("const"))).toBe(true)
+      expect(allText.some((t) => t.includes("const"))).toBe(true)
 
       const path = `${SCREENSHOT_DIR}/gpuix-diff-unified-simple.png`
       if (fs.existsSync(path)) fs.unlinkSync(path)
@@ -193,10 +193,10 @@ describeNative("diff viewer", () => {
 
       const allText = testRoot.renderer.getAllText()
       // Should contain both hunks' content
-      expect(allText.some((t: string) => t.includes("import"))).toBe(true)
-      expect(allText.some((t: string) => t.includes("button"))).toBe(true)
+      expect(allText.some((t) => t.includes("import"))).toBe(true)
+      expect(allText.some((t) => t.includes("button"))).toBe(true)
       // Should have hunk separator
-      expect(allText.some((t: string) => t.includes("..."))).toBe(true)
+      expect(allText.some((t) => t.includes("..."))).toBe(true)
 
       const path = `${SCREENSHOT_DIR}/gpuix-diff-unified-multi.png`
       if (fs.existsSync(path)) fs.unlinkSync(path)
@@ -230,7 +230,7 @@ describeNative("diff viewer", () => {
       testRoot.render(<SplitSimple />)
 
       const allText = testRoot.renderer.getAllText()
-      expect(allText.some((t: string) => t.includes("const"))).toBe(true)
+      expect(allText.some((t) => t.includes("const"))).toBe(true)
 
       const path = `${SCREENSHOT_DIR}/gpuix-diff-split-simple.png`
       if (fs.existsSync(path)) fs.unlinkSync(path)
@@ -340,7 +340,7 @@ describeNative("diff viewer", () => {
       testRoot.render(<EmptyDiff />)
 
       const allText = testRoot.renderer.getAllText()
-      expect(allText.some((t: string) => t.includes("No changes"))).toBe(true)
+      expect(allText.some((t) => t.includes("No changes"))).toBe(true)
 
       const path = `${SCREENSHOT_DIR}/gpuix-diff-empty.png`
       if (fs.existsSync(path)) fs.unlinkSync(path)

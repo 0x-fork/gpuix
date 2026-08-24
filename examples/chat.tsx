@@ -1,17 +1,15 @@
 /**
- * A Waku-style desktop app, rendered natively on the GPU.
+ * A Waku-style app, rendered directly on the GPU.
  *
  * Layout, palette, and chrome follow https://github.com/egoist/waku:
  * transparent titlebar, traffic lights in the sidebar, graphite surfaces,
  * composer chips, and the workspace footer. Data is hardcoded.
  *
- * Run with:  cd examples && bun --hot chat.tsx
- * Slow CPU:  THROTTLE=utility bun --hot chat.tsx
+ * Run on desktop: cd examples && bun --hot chat.tsx
+ * Run in a browser: bun run web
+ * Slow CPU: THROTTLE=utility bun --hot chat.tsx
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   applyMacCpuThrottleFromEnv,
@@ -28,34 +26,34 @@ import {
 import { SafeMdxRenderer } from 'safe-mdx'
 import { mdxParse } from 'safe-mdx/parse'
 import type { Root } from 'mdast'
-import iconCompose from './assets/icons/compose.svg' with { type: 'file' }
-import iconSearch from './assets/icons/search.svg' with { type: 'file' }
-import iconSidebar from './assets/icons/panel-left.svg' with { type: 'file' }
-import iconPanelRight from './assets/icons/panel-right.svg' with { type: 'file' }
-import iconArrowLeft from './assets/icons/arrow-left.svg' with { type: 'file' }
-import iconArrowRight from './assets/icons/arrow-right.svg' with { type: 'file' }
-import iconFolder from './assets/icons/folder.svg' with { type: 'file' }
-import iconSettings from './assets/icons/settings.svg' with { type: 'file' }
-import iconGitBranch from './assets/icons/git-branch.svg' with { type: 'file' }
-import iconLaptop from './assets/icons/laptop.svg' with { type: 'file' }
-import iconLockOpen from './assets/icons/lock-open.svg' with { type: 'file' }
-import iconLock from './assets/icons/lock.svg' with { type: 'file' }
-import iconList from './assets/icons/list.svg' with { type: 'file' }
-import iconZap from './assets/icons/zap.svg' with { type: 'file' }
-import iconPencil from './assets/icons/pencil.svg' with { type: 'file' }
-import iconChevronDown from './assets/icons/chevron-down.svg' with { type: 'file' }
-import iconChevronRight from './assets/icons/chevron-right.svg' with { type: 'file' }
-import iconListFilter from './assets/icons/list-filter.svg' with { type: 'file' }
-import iconSparkle from './assets/icons/sparkle.svg' with { type: 'file' }
-import iconWrench from './assets/icons/wrench.svg' with { type: 'file' }
-import iconSend from './assets/icons/arrow-up.svg' with { type: 'file' }
-import iconCopy from './assets/icons/copy.svg' with { type: 'file' }
-import iconCheck from './assets/icons/check.svg' with { type: 'file' }
-import iconRetry from './assets/icons/rotate-ccw.svg' with { type: 'file' }
-import iconThumbsUp from './assets/icons/thumbs-up.svg' with { type: 'file' }
-import iconThumbsDown from './assets/icons/thumbs-down.svg' with { type: 'file' }
-import iconShare from './assets/icons/share.svg' with { type: 'file' }
-import iconMore from './assets/icons/ellipsis.svg' with { type: 'file' }
+import iconCompose from './assets/icons/compose.svg' with { type: 'text' }
+import iconSearch from './assets/icons/search.svg' with { type: 'text' }
+import iconSidebar from './assets/icons/panel-left.svg' with { type: 'text' }
+import iconPanelRight from './assets/icons/panel-right.svg' with { type: 'text' }
+import iconArrowLeft from './assets/icons/arrow-left.svg' with { type: 'text' }
+import iconArrowRight from './assets/icons/arrow-right.svg' with { type: 'text' }
+import iconFolder from './assets/icons/folder.svg' with { type: 'text' }
+import iconSettings from './assets/icons/settings.svg' with { type: 'text' }
+import iconGitBranch from './assets/icons/git-branch.svg' with { type: 'text' }
+import iconLaptop from './assets/icons/laptop.svg' with { type: 'text' }
+import iconLockOpen from './assets/icons/lock-open.svg' with { type: 'text' }
+import iconLock from './assets/icons/lock.svg' with { type: 'text' }
+import iconList from './assets/icons/list.svg' with { type: 'text' }
+import iconZap from './assets/icons/zap.svg' with { type: 'text' }
+import iconPencil from './assets/icons/pencil.svg' with { type: 'text' }
+import iconChevronDown from './assets/icons/chevron-down.svg' with { type: 'text' }
+import iconChevronRight from './assets/icons/chevron-right.svg' with { type: 'text' }
+import iconListFilter from './assets/icons/list-filter.svg' with { type: 'text' }
+import iconSparkle from './assets/icons/sparkle.svg' with { type: 'text' }
+import iconWrench from './assets/icons/wrench.svg' with { type: 'text' }
+import iconSend from './assets/icons/arrow-up.svg' with { type: 'text' }
+import iconCopy from './assets/icons/copy.svg' with { type: 'text' }
+import iconCheck from './assets/icons/check.svg' with { type: 'text' }
+import iconRetry from './assets/icons/rotate-ccw.svg' with { type: 'text' }
+import iconThumbsUp from './assets/icons/thumbs-up.svg' with { type: 'text' }
+import iconThumbsDown from './assets/icons/thumbs-down.svg' with { type: 'text' }
+import iconShare from './assets/icons/share.svg' with { type: 'text' }
+import iconMore from './assets/icons/ellipsis.svg' with { type: 'text' }
 
 const C = {
   canvas: '#1A1A1A',
@@ -79,54 +77,49 @@ const C = {
 }
 
 const SIDEBAR_WIDTH = 252
-const TRAFFIC_LIGHT_CLEARANCE = process.platform === 'darwin' ? 86 : 8
+const TRAFFIC_LIGHT_CLEARANCE =
+  typeof process !== 'undefined' && process.platform === 'darwin' ? 86 : 8
 const CONTENT_MAX_WIDTH = 720
 const TITLEBAR_HEIGHT = 48
 
-function realAssetPath(virtualPath: string): string {
-  if (!virtualPath.includes('/$bunfs/')) return virtualPath
-  const destDir = path.join(tmpdir(), 'gpuix-chat-assets')
-  mkdirSync(destDir, { recursive: true })
-  const dest = path.join(destDir, path.basename(virtualPath))
-  writeFileSync(dest, readFileSync(virtualPath))
-  return dest
-}
+const FONT_SANS = typeof window === 'undefined' ? 'Helvetica' : 'IBM Plex Sans'
+const FONT_MONO = typeof window === 'undefined' ? 'Menlo' : 'Lilex'
 
 const ICONS = {
-  compose: realAssetPath(iconCompose),
-  search: realAssetPath(iconSearch),
-  sidebar: realAssetPath(iconSidebar),
-  panelRight: realAssetPath(iconPanelRight),
-  arrowLeft: realAssetPath(iconArrowLeft),
-  arrowRight: realAssetPath(iconArrowRight),
-  folder: realAssetPath(iconFolder),
-  settings: realAssetPath(iconSettings),
-  gitBranch: realAssetPath(iconGitBranch),
-  laptop: realAssetPath(iconLaptop),
-  lockOpen: realAssetPath(iconLockOpen),
-  lock: realAssetPath(iconLock),
-  list: realAssetPath(iconList),
-  zap: realAssetPath(iconZap),
-  pencil: realAssetPath(iconPencil),
-  chevronDown: realAssetPath(iconChevronDown),
-  chevronRight: realAssetPath(iconChevronRight),
-  listFilter: realAssetPath(iconListFilter),
-  sparkle: realAssetPath(iconSparkle),
-  wrench: realAssetPath(iconWrench),
-  send: realAssetPath(iconSend),
-  copy: realAssetPath(iconCopy),
-  check: realAssetPath(iconCheck),
-  retry: realAssetPath(iconRetry),
-  thumbsUp: realAssetPath(iconThumbsUp),
-  thumbsDown: realAssetPath(iconThumbsDown),
-  share: realAssetPath(iconShare),
-  more: realAssetPath(iconMore),
+  compose: iconCompose,
+  search: iconSearch,
+  sidebar: iconSidebar,
+  panelRight: iconPanelRight,
+  arrowLeft: iconArrowLeft,
+  arrowRight: iconArrowRight,
+  folder: iconFolder,
+  settings: iconSettings,
+  gitBranch: iconGitBranch,
+  laptop: iconLaptop,
+  lockOpen: iconLockOpen,
+  lock: iconLock,
+  list: iconList,
+  zap: iconZap,
+  pencil: iconPencil,
+  chevronDown: iconChevronDown,
+  chevronRight: iconChevronRight,
+  listFilter: iconListFilter,
+  sparkle: iconSparkle,
+  wrench: iconWrench,
+  send: iconSend,
+  copy: iconCopy,
+  check: iconCheck,
+  retry: iconRetry,
+  thumbsUp: iconThumbsUp,
+  thumbsDown: iconThumbsDown,
+  share: iconShare,
+  more: iconMore,
 } as const
 
 type IconName = keyof typeof ICONS
 
 function Icon({ name, size = 14, color }: { name: IconName; size?: number; color: string }) {
-  return <svg src={ICONS[name]} style={{ width: size, height: size, flexShrink: 0, color }} />
+  return <svg source={ICONS[name]} style={{ width: size, height: size, flexShrink: 0, color }} />
 }
 
 const CHAT_THEME = {
@@ -138,7 +131,7 @@ const CHAT_THEME = {
   bg: C.canvas,
   accent: C.accent,
   caret: C.accent,
-  fontSans: '.SystemUIFont',
+  fontSans: FONT_SANS,
   codeText: C.codeText,
   codeWash: '#E6EAF214',
   metrics: {
@@ -1598,7 +1591,7 @@ const SAFE_MDX_COMPONENTS = {
   code: ({ children }: MdxChildren) => (
     <MdxInline
       style={{
-        fontFamily: 'Menlo',
+        fontFamily: FONT_MONO,
         fontSize: 13,
         backgroundColor: C.raised,
         borderRadius: 5,
@@ -1746,7 +1739,8 @@ export function ChatApp({
         flexDirection: 'row',
         width: '100%',
         height: '100%',
-        fontFamily: '.SystemUIFont',
+        backgroundColor: C.canvas,
+        fontFamily: FONT_SANS,
         color: C.text,
       }}
     >
@@ -1818,7 +1812,7 @@ export function ChatApp({
 const isEntryPoint =
   typeof Bun !== 'undefined'
     ? Bun.isStandaloneExecutable || Bun.main === import.meta.path
-    : process.argv[1]?.endsWith('chat.tsx')
+    : typeof process !== 'undefined' && process.argv[1]?.endsWith('chat.tsx')
 
 if (isEntryPoint) {
   applyMacCpuThrottleFromEnv()

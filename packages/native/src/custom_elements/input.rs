@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 use std::ops::Range;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gpui::{
     actions, div, fill, point, prelude::*, px, relative, size, App, Bounds, ClipboardItem, Context,
@@ -14,6 +14,7 @@ use gpui::{
     UnderlineStyle, Window, WrappedLine,
 };
 use unicode_segmentation::UnicodeSegmentation;
+use web_time::Instant;
 
 use super::{CustomElement, CustomElementFactory, CustomRenderContext};
 use crate::renderer::{emit_event_full, EventCallback};

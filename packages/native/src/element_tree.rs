@@ -5,11 +5,12 @@
 /// event types. Fields are optional — each event type populates only the
 /// fields it needs. This avoids N different napi structs while keeping the
 /// FFI surface small.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi_derive::napi;
 
 /// Event payload sent back to JS when a user interacts with an element.
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct EventPayload {
     /// Numeric element ID (matches the ID assigned in JS via createElement).
     pub element_id: f64,
@@ -131,7 +132,7 @@ impl Default for EventPayload {
 }
 
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct EventModifiers {
     pub shift: bool,
     pub ctrl: bool,

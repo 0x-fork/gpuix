@@ -77,17 +77,12 @@ export type {
 } from "./types/host.js"
 export { resetIdCounter } from "./reconciler/host-config.js"
 export { handleGpuixEvent } from "./reconciler/event-registry.js"
-
-// Testing utilities
 export {
-  TestRenderer,
   applyMacCpuThrottleFromEnv,
-  createTestRoot,
-  hasNativeTestRenderer,
+  MAC_CPU_THROTTLES,
   readMacCpuThrottle,
-} from "./testing.js"
-export { connectTest, launch } from "./automation/index.js"
-export type { MacCpuThrottle, TestRoot, TestElement } from "./testing.js"
+} from "./cpu-throttle.js"
+export type { MacCpuThrottle } from "./cpu-throttle.js"
 export type {
   EventPayload,
   EventModifiers,

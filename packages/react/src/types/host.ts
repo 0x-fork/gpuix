@@ -338,9 +338,12 @@ export interface ImgProps extends Props {
   alt?: string
 }
 
-// Props for monochrome SVGs loaded from local files and tinted by style.color.
+// Props for monochrome SVGs tinted by style.color.
 export interface SvgProps extends Props {
+  /** Desktop local path. Use source for portable browser rendering. */
   src?: string
+  /** Raw SVG markup rendered directly by GPUI. */
+  source?: string
 }
 
 // Props for the <code> custom element — a syntax-highlighted code block.
