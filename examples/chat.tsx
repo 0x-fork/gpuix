@@ -18,7 +18,6 @@ import {
   motion,
   render,
   Select,
-  VirtualList,
   SelectContent,
   SelectItem,
   SelectLabel,
@@ -730,43 +729,35 @@ const Transcript = memo(function Transcript({
   includeSafeMdx?: boolean
   listRef?: React.Ref<{ id: number }>
 }) {
-  const extra = includeSafeMdx ? 1 : 0
   return (
-    <VirtualList
+    <virtual-list
       ref={listRef}
-      itemCount={turns.length + extra}
       overdraw={240}
       estimatedItemHeight={220}
       style={{ flexGrow: 1, minHeight: 0, width: '100%' }}
-      renderItem={(index) => {
-        if (includeSafeMdx && index === 0) {
-          return (
-            <TranscriptRow key="safemdx" first>
-              <UserTurn text="Can Markdown be composed as normal React elements instead?" />
-              <SafeMdxContent source={SAFE_MDX_STRESS} />
-            </TranscriptRow>
-          )
-        }
-        const turnIndex = index - extra
-        const turn = turns[turnIndex]
-        if (!turn) return null
-        return (
-          <TranscriptRow
-            key={turnIndex}
-            first={!includeSafeMdx && turnIndex === 0}
-            last={turnIndex === turns.length - 1}
-          >
-            {turn.kind === 'user' && <UserTurn text={turn.text} />}
-            {turn.kind === 'fold' && <WorkedFor duration={turn.duration} />}
-            {turn.kind === 'markdown' && <markdown source={turn.source} theme={CHAT_THEME} />}
-            {turn.kind === 'code' && (
-              <code code={turn.source} language={turn.language} showLineNumbers theme={CHAT_THEME} />
-            )}
-            {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
-          </TranscriptRow>
-        )
-      }}
-    />
+    >
+      {includeSafeMdx && (
+        <TranscriptRow key="safemdx" first>
+          <UserTurn text="Can Markdown be composed as normal React elements instead?" />
+          <SafeMdxContent source={SAFE_MDX_STRESS} />
+        </TranscriptRow>
+      )}
+      {turns.map((turn, index) => (
+        <TranscriptRow
+          key={index}
+          first={!includeSafeMdx && index === 0}
+          last={index === turns.length - 1}
+        >
+          {turn.kind === 'user' && <UserTurn text={turn.text} />}
+          {turn.kind === 'fold' && <WorkedFor duration={turn.duration} />}
+          {turn.kind === 'markdown' && <SafeMdxContent source={turn.source} />}
+          {turn.kind === 'code' && (
+            <code code={turn.source} language={turn.language} showLineNumbers theme={CHAT_THEME} />
+          )}
+          {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
+        </TranscriptRow>
+      ))}
+    </virtual-list>
   )
 })
 

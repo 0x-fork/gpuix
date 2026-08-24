@@ -161,7 +161,6 @@ describeNative('chat example', () => {
     expect(painted.some((line) => line.includes('control plane for local coding agents'))).toBe(
       true
     )
-    expect(renderer.findByType('markdown').length).toBeGreaterThan(0)
   })
 
   it('scrolls the transcript past the first turn', () => {
@@ -172,7 +171,7 @@ describeNative('chat example', () => {
 
     const transcript = renderer.findByType('virtual-list')[0]
     renderer.nativeSimulateScrollWheel(700, 400, 0, -1400)
-    renderer.scrollToItem(transcript.id, 23)
+    renderer.scrollToItem(transcript.id, transcript.children.length - 1)
     renderer.flush()
 
     expect(renderer.getPaintedText()).toContain('Which models should I wire up?')
@@ -221,7 +220,7 @@ describeNative('chat example', () => {
     expect(renderer.getPaintedText()).toContain('Do anything...')
 
     const transcript = renderer.findByType('virtual-list')[0]
-    renderer.scrollToItem(transcript.id, 24)
+    renderer.scrollToItem(transcript.id, transcript.children.length - 1)
     renderer.flush()
     expect(renderer.getPaintedText()).toContain('hello')
   })
@@ -257,8 +256,7 @@ describeNative('chat example', () => {
     const { render, renderer } = createTestRoot()
     render(<ChatApp turnCount={80} />)
     const before = renderer.findByType('virtual-list')[0]?.children.slice() ?? []
-    expect(before.length).toBeGreaterThan(0)
-    expect(before.length).toBeLessThan(80)
+    expect(before.length).toBe(80)
 
     const app = await connectTest(renderer)
     await app.getByTestId('sidebar-collapse').click()
