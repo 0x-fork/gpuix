@@ -235,8 +235,31 @@ pub fn should_occlude(style: &StyleDesc) -> bool {
     let Some(color) = fill else {
         return false;
     };
-    match parse_color_hex(color) {
-        Some(hex) => hex & 0xFF > 0,
+    match crate::color::parse_color_rgba(color) {
+        Some(color) => color.a > 0.0,
         None => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_fill(fill: &str) -> StyleDesc {
+        StyleDesc {
+            background_color: Some(fill.to_owned()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn transparent_function_does_not_occlude() {
+        assert!(!should_occlude(&with_fill("transparent")));
+        assert!(!should_occlude(&with_fill("oklch(50% 0.2 30 / 0%)")));
+    }
+
+    #[test]
+    fn invalid_fill_keeps_conservative_occlusion() {
+        assert!(should_occlude(&with_fill("not-a-color")));
     }
 }

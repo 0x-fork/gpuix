@@ -32,7 +32,7 @@ use std::time::Duration;
 use crate::custom_elements::{CustomElementRegistry, CustomRenderContext};
 use crate::element_tree::EventPayload;
 use crate::retained_tree::RetainedTree;
-use crate::style::{parse_color_hex, StyleDesc};
+use crate::style::StyleDesc;
 use crate::text::{selectable_text, selection_frame_reset, selection_key, SharedSelection};
 use crate::theme::Theme;
 
@@ -1535,12 +1535,12 @@ impl Inherited {
             Some("text") | Some("auto") => self.selectable = true,
             _ => {}
         }
-        if let Some(hex) = style
+        if let Some(color) = style
             .selection_color
             .as_deref()
-            .and_then(crate::style::parse_color_hex)
+            .and_then(crate::color::parse_color_rgba)
         {
-            self.selection_wash = gpui::rgba(hex).into();
+            self.selection_wash = color.into();
         }
         self
     }
@@ -2766,13 +2766,13 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
         .as_ref()
         .or(style.background.as_ref())
     {
-        if let Some(hex) = parse_color_hex(bg) {
-            el = el.bg(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(bg) {
+            el = el.bg(color);
         }
     }
     if let Some(ref color) = style.color {
-        if let Some(hex) = parse_color_hex(color) {
-            el = el.text_color(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(color) {
+            el = el.text_color(color);
         }
     }
     if let Some(size) = style.font_size {
@@ -2847,16 +2847,16 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
         el = el.border_l(gpui::px(width.max(0.0) as f32));
     }
     if let Some(ref color) = style.border_color {
-        if let Some(hex) = parse_color_hex(color) {
-            el = el.border_color(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(color) {
+            el = el.border_color(color);
         }
     }
     if let Some(ref shadow) = style.box_shadow {
-        if let Some(hex) = parse_color_hex(&shadow.color) {
+        if let Some(color) = crate::color::parse_color_rgba(&shadow.color) {
             let shadow = gpui::BoxShadow::new(
                 gpui::px(shadow.offset_x as f32),
                 gpui::px(shadow.offset_y as f32),
-                gpui::rgba(hex).into(),
+                color.into(),
             )
             .blur_radius(gpui::px(shadow.blur_radius.max(0.0) as f32))
             .spread_radius(gpui::px(shadow.spread_radius as f32));
