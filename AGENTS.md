@@ -2,6 +2,8 @@
 
 **Read [README.md](./README.md) first** to understand what GPUIX is, the architecture, mutation API, event flow, supported elements/events/styles, and the test renderer.
 
+Not **remorses**? Do not open a pull request. Open an issue. See [External contributors](#external-contributors).
+
 ## Project Goal
 
 GPUIX enables building **native GPU-accelerated desktop applications** using **React and TypeScript**, powered by [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (Zed's rendering framework).
@@ -758,11 +760,40 @@ you record a sidebar open/close, not a screen recorder.
 - [create-gpui-app](https://github.com/zed-industries/create-gpui-app) - Official GPUI starter template
 - [react-reconciler](https://github.com/facebook/react/tree/main/packages/react-reconciler) - React's custom renderer API
 
-## Contributing
+## External contributors
+
+This section is for anyone who is not [remorses](https://github.com/remorses) (Tommy).
+
+**Do not open a pull request.** Open a GitHub issue. Describe the bug or the idea. Wait.
+
+Open a PR only after remorses says it is OK on that issue. Unsolicited PRs will be closed.
+
+If remorses says OK, follow the rest of this file and these rules.
+
+**How to work**
 
 1. For Rust changes, work in `zed/crates/gpuix` (easier to build)
-2. Copy changes to `gpuix/packages/native/src/` when ready
+2. Copy changes to `packages/native/src/` when ready
 3. TypeScript changes can be made directly in `packages/react/`
+
+**Do not**
+
+- Edit auto-generated files: `packages/native/index.d.ts`, `packages/native/index.js`, `packages/native/*.node`. Change the Rust `#[napi]` source and run `bun run build` in `packages/native`
+- Edit `CHANGELOG.md` or bump `package.json` version by hand
+- Publish from a local machine. CI is the only release path
+- Branch, commit, or reset the `zed/` submodule in this checkout. Do not open a Zed PR from here
+- Ship or start the app on a debug native build. Use `bun run build` in `packages/native` (release)
+- Use `bun test`. The suites are Vitest. Use `bun run test`
+
+**Must**
+
+- Add a `.changeset/*.md` file for every user-facing fix or feature. Put `Fixes #N` on its own line when the work closes an issue
+- Run the package test scripts: `packages/react` then build `@gpuix/react`, then `examples`
+- Keep one scroll parent. Nested scrolling is not supported
+- Send every painted string through `crate::text`. Never `div().child(some_string)`
+- Put layout numbers on `Theme::metrics`, not new Rust constants
+
+If an agent writes the change, the PR body must include **harness**, **agent**, **model**, and every user prompt. See **PRs to GPUIX**.
 
 
 ## Examples using same tech as ours. To unblock on issues and compare to our code
