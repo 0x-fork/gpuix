@@ -164,20 +164,24 @@ describeNative('chat example', () => {
     expect(selected).not.toContain('Native SDK vs GPUI comparison')
   })
 
-  it('opens the model picker and changes the selected model', () => {
+  it('opens the model picker and changes the selected model', async () => {
     const { render, renderer } = createTestRoot()
     render(<ChatApp />)
 
     expect(renderer.getPaintedText()).toContain('DeepSeek V4 Flash')
     expect(renderer.getPaintedText()).not.toContain('Claude Opus 4.6')
 
-    renderer.nativeSimulateClick(480, 724)
-    renderer.flush()
-    expect(renderer.getPaintedText()).toContain('Claude Opus 4.6')
+    const app = await connectTest(renderer)
+    try {
+      await app.getByTestId('model-picker').click()
+      expect(renderer.getPaintedText()).toContain('Claude Opus 4.6')
 
-    const shot = path.join(SHOTS, 'chat-model-picker.png')
-    renderer.captureScreenshot(shot)
-    expect(fs.statSync(shot).size).toBeGreaterThan(0)
+      const shot = path.join(SHOTS, 'chat-model-picker.png')
+      renderer.captureScreenshot(shot)
+      expect(fs.statSync(shot).size).toBeGreaterThan(0)
+    } finally {
+      await app.close()
+    }
   })
 
   it('types into the composer and clears on enter', () => {
