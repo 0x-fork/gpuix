@@ -769,9 +769,8 @@ impl TestGpuixRenderer {
     pub fn get_element_bounds(&self, id: f64) -> Result<Option<Vec<f64>>> {
         let id = to_element_id(id)?;
         self.flush()?;
-        Ok(crate::automation::get_bounds(id).map(|bounds| {
-            vec![bounds.x, bounds.y, bounds.width, bounds.height]
-        }))
+        Ok(crate::automation::get_bounds(id)
+            .map(|bounds| vec![bounds.x, bounds.y, bounds.width, bounds.height]))
     }
 
     #[napi]

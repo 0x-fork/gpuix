@@ -274,6 +274,7 @@ export interface Props {
   onShowMore?: (event: EventPayload) => void
   onLineClick?: (event: EventPayload) => void
   onLinkClick?: (event: EventPayload) => void
+  onVisibleRange?: (event: EventPayload) => void
 
   // ── Focus props ────────────────────────────────────────────────
   /** Take keyboard focus when the element first mounts. Required for `<input>`:
@@ -310,6 +311,11 @@ export interface VirtualListProps {
   followTail?: boolean
   overdraw?: number
   estimatedItemHeight?: number
+  /** Logical row count. When set, `children` is only the mounted window. */
+  itemCount?: number
+  /** Logical index of `children[0]`. Ignored when `itemCount` is unset. */
+  windowStart?: number
+  onVisibleRange?: (event: EventPayload) => void
 }
 
 // Props for native <img> rendering.

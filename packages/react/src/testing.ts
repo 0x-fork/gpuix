@@ -486,6 +486,7 @@ export class TestRenderer implements NativeRenderer {
   scrollToItem(elementId: number, index: number): void {
     this.native.flush()
     this.native.scrollToItem(elementId, index)
+    this.dispatchNativeEvents()
     this.native.flush()
   }
 

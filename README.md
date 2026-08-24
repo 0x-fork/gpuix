@@ -658,15 +658,15 @@ function Results({ rows }: { rows: Result[] }) {
 
 ### Performance model
 
-| Work | Plain scroll container | `<virtual-list>` |
-|---|---|---|
-| React Fiber nodes | All rows | All rows |
-| Rust retained nodes | All rows | All rows |
-| GPUI row construction | All rows | Visible rows plus overdraw |
-| Layout and paint | All rows | Visible rows plus overdraw |
-| Height metadata | None | One lightweight entry per row |
+| Work | Plain scroll container | `<virtual-list>` children | `VirtualList` + `itemCount` |
+|---|---|---|---|
+| React Fiber nodes | All rows | All rows | Visible window |
+| Rust retained nodes | All rows | All rows | Visible window |
+| GPUI row construction | All rows | Visible rows plus overdraw | Visible rows plus overdraw |
+| Layout and paint | All rows | Visible rows plus overdraw | Visible rows plus overdraw |
+| Height metadata | None | One lightweight entry per row | One lightweight entry per logical row |
 
-Virtualization removes the **per-render GPUI cost**, not the memory used by React and the retained tree. For normal chat histories this is the useful tradeoff. Collections with millions of rows still need application-level paging or a data-owning native element.
+`VirtualList` with `itemCount` and `renderItem` mounts only the visible window. Use that for long transcripts. A 10,000-row `turns.map` still creates every React child. Collections with millions of rows still need application-level paging or a data-owning native element.
 
 ### Keep scroll fast
 
@@ -678,10 +678,39 @@ Put a long list on `<virtual-list>`. Keep `overdraw` near one extra
 viewport. Put fat content in one native node (`<markdown>`, `<code>`, `<diff>`),
 not a tree of React spans.
 
-The **first mount** still creates every React child and every retained node.
-A 10,000-row list hitches once while those nodes cross FFI. After that
-a wheel only rebuilds the visible rows. Collections that large need
-application-level paging if the first paint must stay instant.
+The host `<virtual-list>` still retains every React child. Pass `itemCount`
+and `renderItem` through `VirtualList` so mount only creates the window.
+
+```tsx
+import { VirtualList } from '@gpuix/react'
+
+const Transcript = memo(function Transcript({ turns }: { turns: Turn[] }) {
+  return (
+    <VirtualList
+      itemCount={turns.length}
+      estimatedItemHeight={220}
+      style={{ flexGrow: 1, minHeight: 0 }}
+      renderItem={(index) => <ChatTurn key={turns[index].id} turn={turns[index]} />}
+    />
+  )
+})
+
+function ChatApp() {
+  const [collapsed, setCollapsed] = useState(false)
+  const [turns, setTurns] = useState(initialTurns)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'row', height: '100%' }}>
+      <Sidebar collapsed={collapsed} onCollapse={() => setCollapsed(true)} />
+      <Transcript turns={turns} />
+      <Composer onSend={(text) => setTurns((current) => [...current, { text }])} />
+    </div>
+  )
+}
+```
+
+`turns` is a new array only when a message arrives. Sidebar and draft updates
+leave that reference alone, so `memo` skips the map. The chat example uses
+this pattern.
 
 `overflowX: "scroll"` on a wide child must not steal the vertical wheel.
 GPUIX sets `restrict_scroll_to_axis` on that path. Native

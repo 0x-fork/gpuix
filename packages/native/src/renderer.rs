@@ -1182,9 +1182,8 @@ impl GpuixRenderer {
     #[napi]
     pub fn get_element_bounds(&self, id: f64) -> Result<Option<Vec<f64>>> {
         let id = to_element_id(id)?;
-        Ok(crate::automation::get_bounds(id).map(|bounds| {
-            vec![bounds.x, bounds.y, bounds.width, bounds.height]
-        }))
+        Ok(crate::automation::get_bounds(id)
+            .map(|bounds| vec![bounds.x, bounds.y, bounds.width, bounds.height]))
     }
 
     #[napi]
@@ -1212,7 +1211,9 @@ impl GpuixRenderer {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (x, y, button);
-            Err(Error::from_reason("simulateClick is only implemented on macOS"))
+            Err(Error::from_reason(
+                "simulateClick is only implemented on macOS",
+            ))
         }
     }
 
@@ -1226,7 +1227,9 @@ impl GpuixRenderer {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (x, y, button);
-            Err(Error::from_reason("simulateMouseDown is only implemented on macOS"))
+            Err(Error::from_reason(
+                "simulateMouseDown is only implemented on macOS",
+            ))
         }
     }
 
@@ -1240,17 +1243,14 @@ impl GpuixRenderer {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (x, y, button);
-            Err(Error::from_reason("simulateMouseUp is only implemented on macOS"))
+            Err(Error::from_reason(
+                "simulateMouseUp is only implemented on macOS",
+            ))
         }
     }
 
     #[napi]
-    pub fn simulate_mouse_move(
-        &self,
-        x: f64,
-        y: f64,
-        pressed_button: Option<u32>,
-    ) -> Result<()> {
+    pub fn simulate_mouse_move(&self, x: f64, y: f64, pressed_button: Option<u32>) -> Result<()> {
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
             crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
@@ -1259,7 +1259,9 @@ impl GpuixRenderer {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (x, y, pressed_button);
-            Err(Error::from_reason("simulateMouseMove is only implemented on macOS"))
+            Err(Error::from_reason(
+                "simulateMouseMove is only implemented on macOS",
+            ))
         }
     }
 
@@ -1273,7 +1275,9 @@ impl GpuixRenderer {
         });
 
         #[cfg(not(target_os = "macos"))]
-        Err(Error::from_reason("clockPause is only implemented on macOS"))
+        Err(Error::from_reason(
+            "clockPause is only implemented on macOS",
+        ))
     }
 
     #[napi]
@@ -1320,7 +1324,9 @@ impl GpuixRenderer {
         });
 
         #[cfg(not(target_os = "macos"))]
-        Err(Error::from_reason("clockResume is only implemented on macOS"))
+        Err(Error::from_reason(
+            "clockResume is only implemented on macOS",
+        ))
     }
 
     #[napi]
@@ -1431,19 +1437,28 @@ impl GpuixView {
 
         let row_focus_handle = self.virtual_lists.get_mut(&list_id).and_then(|entry| {
             entry.seen_rows.insert(expected_child_id);
-            (entry.child_ids.get(index) == Some(&expected_child_id))
-                .then(|| entry.row_focus_handles.get(index).cloned())
+            (entry.child_at(index) == Some(expected_child_id))
+                .then(|| {
+                    index
+                        .checked_sub(entry.window_start)
+                        .and_then(|offset| entry.row_focus_handles.get(offset).cloned())
+                })
                 .flatten()
                 .flatten()
         });
 
         let tree_arc = self.tree.clone();
         let tree = tree_arc.lock().unwrap();
-        let child_matches = tree
-            .elements
+        let window_start = self
+            .virtual_lists
             .get(&list_id)
-            .and_then(|list| list.children.get(index))
-            == Some(&expected_child_id);
+            .map(|entry| entry.window_start)
+            .unwrap_or(0);
+        let child_matches = tree.elements.get(&list_id).and_then(|list| {
+            index
+                .checked_sub(window_start)
+                .and_then(|offset| list.children.get(offset))
+        }) == Some(&expected_child_id);
         if !child_matches {
             return gpui::Empty.into_any_element();
         }
@@ -1489,6 +1504,10 @@ impl GpuixView {
         entry.state.scroll_to(gpui::ListOffset {
             item_ix: index,
             offset_in_item: gpui::px(0.0),
+        });
+        emit_event_full(&self.event_callback, id, "visibleRange", |payload| {
+            payload.start_index = Some(index as f64);
+            payload.end_index = Some((index + 1) as f64);
         });
         true
     }
@@ -1605,12 +1624,34 @@ impl Inherited {
     }
 }
 
+fn json_usize(value: &serde_json::Value) -> Option<usize> {
+    value
+        .as_u64()
+        .map(|n| n as usize)
+        .or_else(|| {
+            value
+                .as_f64()
+                .filter(|n| *n >= 0.0 && n.is_finite())
+                .map(|n| n as usize)
+        })
+        .or_else(|| value.as_i64().filter(|n| *n >= 0).map(|n| n as usize))
+}
+
+fn window_start_from_element(element: &crate::retained_tree::RetainedElement) -> usize {
+    element
+        .custom_props
+        .get("windowStart")
+        .and_then(json_usize)
+        .unwrap_or(0)
+}
+
 #[derive(Clone, Copy, PartialEq)]
 struct VirtualListConfig {
     alignment: gpui::ListAlignment,
     follow_tail: bool,
     overdraw: f32,
     estimated_item_height: Option<f32>,
+    item_count: Option<usize>,
 }
 
 impl VirtualListConfig {
@@ -1631,18 +1672,27 @@ impl VirtualListConfig {
             .and_then(serde_json::Value::as_f64)
             .filter(|height| *height > 0.0)
             .map(|height| height as f32);
+        let item_count = prop("itemCount").and_then(json_usize);
         Self {
             alignment,
             follow_tail,
             overdraw,
             estimated_item_height,
+            item_count,
         }
     }
 
-    fn make_state(self, focus_handles: &[Option<gpui::FocusHandle>]) -> gpui::ListState {
-        let item_count = focus_handles.len();
+    fn logical_count(self, child_len: usize) -> usize {
+        self.item_count.unwrap_or(child_len)
+    }
+
+    fn make_state(self, item_count: usize, focus_handles: &[Option<gpui::FocusHandle>]) -> gpui::ListState {
         let mut state = gpui::ListState::new(item_count, self.alignment, gpui::px(self.overdraw));
-        state.splice_focusable(0..item_count, focus_handles.iter().cloned());
+        if focus_handles.len() == item_count {
+            state.splice_focusable(0..item_count, focus_handles.iter().cloned());
+        } else {
+            state.splice_focusable(0..item_count, (0..item_count).map(|_| None));
+        }
         if let Some(height) = self.estimated_item_height {
             state = state.with_uniform_item_height(gpui::px(height));
         }
@@ -1656,6 +1706,7 @@ impl VirtualListConfig {
 struct VirtualListEntry {
     state: gpui::ListState,
     config: VirtualListConfig,
+    window_start: usize,
     child_ids: Vec<u64>,
     child_revisions: Vec<u64>,
     row_focus_handles: Vec<Option<gpui::FocusHandle>>,
@@ -1665,13 +1716,30 @@ struct VirtualListEntry {
 impl VirtualListEntry {
     fn new(
         config: VirtualListConfig,
+        window_start: usize,
         child_ids: Vec<u64>,
         child_revisions: Vec<u64>,
         row_focus_handles: Vec<Option<gpui::FocusHandle>>,
     ) -> Self {
+        let item_count = config.logical_count(child_ids.len());
+        let state = config.make_state(item_count, &row_focus_handles);
+        if row_focus_handles.len() != item_count {
+            for (offset, handle) in row_focus_handles.iter().enumerate() {
+                if handle.is_some() {
+                    let logical = window_start + offset;
+                    if logical < item_count {
+                        state.splice_focusable(
+                            logical..logical + 1,
+                            std::iter::once(handle.clone()),
+                        );
+                    }
+                }
+            }
+        }
         Self {
-            state: config.make_state(&row_focus_handles),
+            state,
             config,
+            window_start,
             child_ids,
             child_revisions,
             row_focus_handles,
@@ -1679,9 +1747,23 @@ impl VirtualListEntry {
         }
     }
 
+    fn child_at(&self, logical_index: usize) -> Option<u64> {
+        logical_index
+            .checked_sub(self.window_start)
+            .and_then(|offset| self.child_ids.get(offset).copied())
+    }
+
+    fn logical_index_of(&self, child_id: u64) -> Option<usize> {
+        self.child_ids
+            .iter()
+            .position(|id| *id == child_id)
+            .map(|offset| self.window_start + offset)
+    }
+
     fn sync(
         &mut self,
         config: VirtualListConfig,
+        window_start: usize,
         child_ids: Vec<u64>,
         child_revisions: Vec<u64>,
         focusable_rows: &HashSet<u64>,
@@ -1694,7 +1776,11 @@ impl VirtualListEntry {
                 .iter()
                 .zip(&self.row_focus_handles)
                 .all(|(id, handle)| handle.is_some() == focusable_rows.contains(id));
-        if self.config == config && focus_unchanged && self.child_revisions == child_revisions {
+        if self.config == config
+            && self.window_start == window_start
+            && focus_unchanged
+            && self.child_revisions == child_revisions
+        {
             return;
         }
 
@@ -1721,7 +1807,8 @@ impl VirtualListEntry {
             let scroll_top = self.state.logical_scroll_top();
             let should_follow =
                 config.follow_tail && (!self.config.follow_tail || self.state.is_following_tail());
-            let mut replacement = Self::new(config, child_ids, child_revisions, row_focus_handles);
+            let mut replacement =
+                Self::new(config, window_start, child_ids, child_revisions, row_focus_handles);
             replacement.seen_rows = std::mem::take(&mut self.seen_rows);
             replacement
                 .seen_rows
@@ -1733,7 +1820,9 @@ impl VirtualListEntry {
             return;
         }
 
-        if self.child_ids != child_ids {
+        // A windowed list's children are a sliding viewport. Splicing by
+        // child position would treat a scroll as a rewrite of items 0..N.
+        if config.item_count.is_none() && self.child_ids != child_ids {
             let prefix = self
                 .child_ids
                 .iter()
@@ -1760,34 +1849,38 @@ impl VirtualListEntry {
             }
         }
 
-        for (index, (&id, focus_handle)) in child_ids.iter().zip(&row_focus_handles).enumerate() {
+        for (offset, (&id, focus_handle)) in child_ids.iter().zip(&row_focus_handles).enumerate() {
+            let logical = window_start + offset;
             let focusability_changed = old_rows
                 .get(&id)
                 .is_some_and(|(_, old_handle)| old_handle.is_some() != focus_handle.is_some());
             if focusability_changed {
                 self.state
-                    .splice_focusable(index..index + 1, std::iter::once(focus_handle.clone()));
+                    .splice_focusable(logical..logical + 1, std::iter::once(focus_handle.clone()));
             }
         }
 
         let mut changed_start = None;
-        for (index, (&id, &revision)) in child_ids.iter().zip(&child_revisions).enumerate() {
+        for (offset, (&id, &revision)) in child_ids.iter().zip(&child_revisions).enumerate() {
+            let logical = window_start + offset;
             let changed = old_rows
                 .get(&id)
                 .is_some_and(|(old_revision, _)| *old_revision != revision);
             match (changed_start, changed) {
-                (None, true) => changed_start = Some(index),
+                (None, true) => changed_start = Some(logical),
                 (Some(start), false) => {
-                    self.state.remeasure_items(start..index);
+                    self.state.remeasure_items(start..logical);
                     changed_start = None;
                 }
                 _ => {}
             }
         }
         if let Some(start) = changed_start {
-            self.state.remeasure_items(start..child_ids.len());
+            self.state
+                .remeasure_items(start..window_start + child_ids.len());
         }
 
+        self.window_start = window_start;
         self.child_ids = child_ids;
         self.child_revisions = child_revisions;
         self.row_focus_handles = row_focus_handles;
@@ -2169,10 +2262,12 @@ fn build_virtual_list(
             })
         });
     let config = VirtualListConfig::from_element(element);
+    let window_start = window_start_from_element(element);
     let list_state = match ctx.virtual_lists.entry(element.id) {
         std::collections::hash_map::Entry::Occupied(mut entry) => {
             entry.get_mut().sync(
                 config,
+                window_start,
                 child_ids.clone(),
                 child_revisions,
                 &focusable_rows,
@@ -2180,7 +2275,7 @@ fn build_virtual_list(
             );
             let entry = entry.into_mut();
             if let Some(row_id) = focused_row.filter(|row_id| !entry.seen_rows.contains(row_id)) {
-                if let Some(index) = entry.child_ids.iter().position(|id| *id == row_id) {
+                if let Some(index) = entry.logical_index_of(row_id) {
                     entry.state.scroll_to(gpui::ListOffset {
                         item_ix: index,
                         offset_in_item: gpui::px(0.0),
@@ -2196,12 +2291,13 @@ fn build_virtual_list(
                 .collect();
             let entry = entry.insert(VirtualListEntry::new(
                 config,
+                window_start,
                 child_ids.clone(),
                 child_revisions,
                 row_focus_handles,
             ));
             if let Some(row_id) = focused_row {
-                if let Some(index) = entry.child_ids.iter().position(|id| *id == row_id) {
+                if let Some(index) = entry.logical_index_of(row_id) {
                     entry.state.scroll_to(gpui::ListOffset {
                         item_ix: index,
                         offset_in_item: gpui::px(0.0),
@@ -2212,18 +2308,32 @@ fn build_virtual_list(
         }
     };
 
+    if element.events.contains("visibleRange") {
+        let callback = ctx.event_callback.clone();
+        let list_id = element.id;
+        list_state.set_scroll_handler(move |event, _window, _cx| {
+            emit_event_full(&callback, list_id, "visibleRange", |payload| {
+                payload.start_index = Some(event.visible_range.start as f64);
+                payload.end_index = Some(event.visible_range.end as f64);
+            });
+        });
+    }
+
     let list_id = element.id;
-    let child_ids = Rc::new(child_ids);
     let inherited = ctx.inherited;
     let render_item = cx.processor(move |view, index: usize, window, cx| {
-        let Some(&child_id) = child_ids.get(index) else {
+        let Some(child_id) = view
+            .virtual_lists
+            .get(&list_id)
+            .and_then(|entry| entry.child_at(index))
+        else {
             return gpui::Empty.into_any_element();
         };
         view.build_virtual_child(list_id, index, child_id, inherited, window, cx)
     });
     let mut list =
         gpui::list(list_state, render_item).with_sizing_behavior(gpui::ListSizingBehavior::Auto);
-    if let Some(style) = element.style.as_ref() {
+    if let Some(style) = element.style.as_deref() {
         list = apply_styles(list, style);
     }
     list.into_any_element()
@@ -2271,8 +2381,9 @@ pub(crate) fn build_div(
             // then never sees the wheel. In-flow fills must use
             // BlockMouseExceptScroll. Keep occlude for overlays that steal
             // the pointer: absolute, fixed, or pointerEvents: "auto".
-            let steal_scroll = matches!(style.position.as_deref(), Some("absolute") | Some("fixed"))
-                || style.pointer_events.as_deref() == Some("auto");
+            let steal_scroll =
+                matches!(style.position.as_deref(), Some("absolute") | Some("fixed"))
+                    || style.pointer_events.as_deref() == Some("auto");
             el = if steal_scroll {
                 el.occlude()
             } else {
@@ -3159,7 +3270,11 @@ fn batch_id(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> Result<u64>
 
 /// A style or custom-prop payload. Objects land as JSON. Legacy batches
 /// still send a JSON string and get decoded here.
-fn batch_payload(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> Result<serde_json::Value> {
+fn batch_payload(
+    arr: &[serde_json::Value],
+    idx: usize,
+    op_idx: usize,
+) -> Result<serde_json::Value> {
     let value = arr.get(idx).ok_or_else(|| {
         Error::from_reason(format!(
             "Batch op {} missing value at index {}",

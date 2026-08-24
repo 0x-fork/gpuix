@@ -223,20 +223,23 @@ Keep `<virtual-list>` `overdraw` modest. 820px on a short chat kept almost
 every row live. Profile with `debugFrameOverlay: 'full'`. The overlay is
 draw time, not FPS. `8.3 MS` is about 120 Hz.
 
-A long list is slow **only at start** when React maps every row. `createInstance`
-runs in the render phase. 10k rows become ~30k host nodes (row wrapper +
-inner + `<markdown>`/`<code>`/`<diff>`), then one `commitMutations`. GPUI does
-not build those rows yet. After that, scroll cost is visible Taffy only.
+A long `{rows.map(...)}` is slow **at start**. `createInstance` runs in the
+render phase. Use `VirtualList` with `itemCount` and `renderItem` so React
+only mounts the visible window. The host `<virtual-list>` children API still
+retains every child. After mount, scroll cost is visible Taffy only.
 
 Keep chrome state out of the component that maps the list. `memo(Transcript)`
 so a sidebar click or composer keystroke does not remap every row. A 5k-row
-chat paid 250ms per click before that.
+chat paid 250ms per click before that. Profile that path with
+`INTERACT=1 bun profile-chat-scroll.tsx`. Do not treat a fast wheel flush as
+proof that chrome updates are cheap.
 
 ## Profiling and optimizing
 
 Load the **profano** skill first. Fetch its README. Do not guess CLI flags.
 
-Separate **first mount** from **scroll**. They are different paths.
+Separate **first mount**, **scroll**, and **chrome setState**. They are
+different paths.
 
 ```
 first mount
@@ -248,6 +251,12 @@ first mount
 
 scroll
   wheel  ►  notify GpuixView  ►  render()  ►  Taffy on visible rows  ►  paint
+
+chrome setState
+  sidebar click / composer key
+    ►  parent re-render
+    ►  {rows.map(...)} again unless memo(list)
+    ►  same JS cost as mount if you forget
 ```
 
 ### JS / mount
@@ -268,7 +277,8 @@ console.log(`mount ${(performance.now() - start).toFixed(1)}ms`)
 
 ```bash
 cd examples
-bun --cpu-prof --cpu-prof-dir=../tmp/cpu-profiles profile-chat-mount.tsx
+MOUNT_ONLY=1 bun --cpu-prof --cpu-prof-dir=../tmp/cpu-profiles profile-chat-scroll.tsx
+INTERACT=1 bun profile-chat-scroll.tsx
 npx profano ../tmp/cpu-profiles/CPU.*.cpuprofile -n 30
 npx profano ../tmp/cpu-profiles/CPU.*.cpuprofile --sort total -n 20
 ```
