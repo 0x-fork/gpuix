@@ -405,6 +405,8 @@ export interface NativeRenderer {
   removeChild(parentId: number, childId: number): void
   insertBefore(parentId: number, childId: number, beforeId: number): void
   setStyle(id: number, styleJson: string | object): void
+  internStyle(styleId: number, style: string | object): void
+  setStyleId(id: number, styleId: number): void
   setText(id: number, content: string): void
   setEventListener(id: number, eventType: string, hasHandler: boolean): void
   setRoot(id: number): void
@@ -454,7 +456,6 @@ export interface Container {
 export interface Instance {
   id: number
   type: ElementType
-  props: Props
 }
 
 // Text instance for raw text nodes

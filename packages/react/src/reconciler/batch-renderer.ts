@@ -51,6 +51,8 @@ const BATCHED_METHODS = new Set([
   "removeChild",
   "insertBefore",
   "setStyle",
+  "internStyle",
+  "setStyleId",
   "setText",
   "setEventListener",
   "setRoot",
@@ -73,6 +75,14 @@ export function wrapWithBatching(inner: NativeRenderer): NativeRenderer {
         if (prop === "setStyle") {
           return (id: number, style: string | object) => {
             target.setStyle(id, typeof style === "string" ? style : JSON.stringify(style))
+          }
+        }
+        if (prop === "internStyle") {
+          return (styleId: number, style: string | object) => {
+            target.internStyle(
+              styleId,
+              typeof style === "string" ? style : JSON.stringify(style),
+            )
           }
         }
         if (prop === "setCustomProp") {

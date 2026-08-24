@@ -103,6 +103,8 @@ export interface TestElement {
 
 export class TestRenderer implements NativeRenderer {
   commitCount = 0
+  /** Last applyBatch payload. Empty when a commit sent no mutations. */
+  lastBatchOps: Array<Array<number | string | boolean | object | null>> = []
 
   /** Native TestGpuixRenderer — all state lives here in Rust's RetainedTree. */
   private native: NativeTestRendererApi
@@ -142,6 +144,17 @@ export class TestRenderer implements NativeRenderer {
     this.native.setStyle(id, styleJson)
   }
 
+  internStyle(styleId: number, style: string | object): void {
+    this.native.internStyle(
+      styleId,
+      typeof style === "string" ? style : JSON.stringify(style),
+    )
+  }
+
+  setStyleId(id: number, styleId: number): void {
+    this.native.setStyleId(id, styleId)
+  }
+
   setText(id: number, content: string): void {
     this.native.setText(id, content)
   }
@@ -159,11 +172,13 @@ export class TestRenderer implements NativeRenderer {
   }
 
   commitMutations(): void {
+    this.lastBatchOps = []
     this.native.commitMutations()
     this.commitCount++
   }
 
   applyBatch(json: string): Array<number> {
+    this.lastBatchOps = JSON.parse(json)
     return this.native.applyBatch(json)
   }
 
