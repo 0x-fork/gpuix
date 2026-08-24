@@ -692,7 +692,7 @@ function dispatchBrowserKeystroke({
   type: "keydown" | "keyup"
   isHeld?: boolean
 }): void {
-  const input = document.querySelector("input[data-gpuix-input]")
+  const input = document.querySelector("input[data-gpui-input]")
   if (!input) {
     throw new AutomationError("Unsupported", "GPUI browser input is unavailable")
   }

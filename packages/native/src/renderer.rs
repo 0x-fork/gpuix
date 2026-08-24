@@ -1617,35 +1617,6 @@ fn collect_text(id: u64, tree: &RetainedTree, texts: &mut Vec<String>) {
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-fn web_input_count() -> u32 {
-    web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.query_selector_all("input").ok())
-        .map_or(0, |inputs| inputs.length())
-}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-fn mark_web_inputs(first_new_input: u32) {
-    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
-        return;
-    };
-    let Ok(inputs) = document.query_selector_all("input") else {
-        return;
-    };
-    for index in first_new_input..inputs.length() {
-        let Some(input) = inputs.item(index) else {
-            continue;
-        };
-        let Ok(input) = input.dyn_into::<web_sys::Element>() else {
-            continue;
-        };
-        if let Err(error) = input.set_attribute("data-gpuix-input", "") {
-            log::error!("Failed to identify the GPUIX browser input: {error:?}");
-        }
-    }
-}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn start_web_app(
     tree: Arc<Mutex<RetainedTree>>,
     selection: SharedSelection,
@@ -1656,7 +1627,6 @@ fn start_web_app(
             "GPUIX web is already running",
         ));
     }
-    let first_new_input = web_input_count();
     gpui_platform::web_init();
     let app = gpui_platform::single_threaded_web().run_embedded(move |cx| {
         init_key_bindings(cx);
@@ -1675,7 +1645,6 @@ fn start_web_app(
             Ok(window) => WEB_WINDOW.with(|stored| *stored.borrow_mut() = Some(window)),
             Err(error) => log::error!("Failed to open the GPUIX web window: {error:#}"),
         }
-        mark_web_inputs(first_new_input);
         cx.activate(true);
     });
     WEB_APP.with(|stored| *stored.borrow_mut() = Some(app));
@@ -1737,64 +1706,6 @@ fn notify_web() {
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-struct WebCopyListener {
-    target: web_sys::EventTarget,
-    closure: wasm_bindgen::closure::Closure<dyn FnMut(web_sys::KeyboardEvent)>,
-}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl WebCopyListener {
-    fn new(selection: SharedSelection) -> Option<Self> {
-        let window = web_sys::window()?;
-        let target: web_sys::EventTarget = window.document()?.into();
-        let closure = wasm_bindgen::closure::Closure::new(move |event: web_sys::KeyboardEvent| {
-            if event.default_prevented()
-                || !event.key().eq_ignore_ascii_case("c")
-                || !(event.meta_key() || event.ctrl_key())
-            {
-                return;
-            }
-            let Some(text) = selection.lock().selected_text() else {
-                return;
-            };
-            let Some(window) = web_sys::window() else {
-                return;
-            };
-            let navigator = window.navigator();
-            let clipboard_available = js_sys::Reflect::get(
-                navigator.as_ref(),
-                &wasm_bindgen::JsValue::from_str("clipboard"),
-            )
-            .is_ok_and(|clipboard| !clipboard.is_undefined() && !clipboard.is_null());
-            if !clipboard_available {
-                return;
-            }
-            drop(navigator.clipboard().write_text(&text));
-            event.prevent_default();
-        });
-        if let Err(error) =
-            target.add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
-        {
-            log::error!("Failed to register the GPUIX browser copy listener: {error:?}");
-            return None;
-        }
-        Some(Self { target, closure })
-    }
-}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl Drop for WebCopyListener {
-    fn drop(&mut self) {
-        if let Err(error) = self
-            .target
-            .remove_event_listener_with_callback("keydown", self.closure.as_ref().unchecked_ref())
-        {
-            log::error!("Failed to remove the GPUIX browser copy listener: {error:?}");
-        }
-    }
-}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn web_event_callback(callback: js_sys::Function) -> EventCallback {
     Rc::new(move |payload| {
         let Ok(json) = serde_json::to_string(&payload) else {
@@ -1828,7 +1739,6 @@ pub struct WebGpuixRenderer {
     tree: Arc<Mutex<RetainedTree>>,
     selection: SharedSelection,
     event_callback: EventCallback,
-    _copy_listener: Option<WebCopyListener>,
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -1836,11 +1746,9 @@ pub struct WebGpuixRenderer {
 impl WebGpuixRenderer {
     #[wasm_bindgen::prelude::wasm_bindgen(constructor)]
     pub fn new(event_callback: js_sys::Function) -> Self {
-        let selection = SharedSelection::default();
         Self {
             tree: Arc::new(Mutex::new(RetainedTree::new())),
-            _copy_listener: WebCopyListener::new(selection.clone()),
-            selection,
+            selection: SharedSelection::default(),
             event_callback: web_event_callback(event_callback),
         }
     }

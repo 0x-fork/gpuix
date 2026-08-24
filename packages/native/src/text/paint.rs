@@ -61,9 +61,9 @@ thread_local! {
 }
 
 /// A zero-size canvas that clears the per-frame registries and installs the
-/// frame's mouse-down listener and the desktop copy listener. Paint it FIRST in
-/// the root, before any text, so each frame holds exactly that frame's visible
-/// text elements in paint order.
+/// frame's copy and mouse-down listeners. Paint it FIRST in the root, before
+/// any text, so each frame holds exactly that frame's visible text elements
+/// in paint order.
 pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
     canvas(
         |_, _, _| (),
@@ -71,7 +71,6 @@ pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
             REGISTRY.with(|r| r.borrow_mut().clear());
             START_REGIONS.with(|r| r.borrow_mut().clear());
             PAINTED.with(|p| p.borrow_mut().clear());
-            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
             register_copy_listener(window, &selection);
             register_down_listener(window, &selection);
         },
@@ -498,7 +497,6 @@ fn register_listeners(window: &mut Window, key: &Arc<str>, selection: &SharedSel
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn register_copy_listener(window: &mut Window, selection: &SharedSelection) {
     use gpui::{ClipboardItem, DispatchPhase, KeyDownEvent};
 
