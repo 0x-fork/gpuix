@@ -472,10 +472,22 @@ export interface DebugFrameOverlayStats {
   samples: number
 }
 
-// Container holds the renderer reference.
-// Mutations go directly via napi calls.
+export type EventHandlerMap = Map<
+  number,
+  Map<string, (event: EventPayload) => void>
+>
+
+export interface ElementIdAllocator {
+  nextElementId: number
+}
+
+// One React root. Event handlers stay on this object so two live roots
+// can both use id 1. Ids come from an allocator that lives with the
+// NativeRenderer, so a remount on the same renderer cannot reuse them.
 export interface Container {
   renderer: NativeRenderer
+  ids: ElementIdAllocator
+  eventHandlers: EventHandlerMap
 }
 
 // Instance — minimal handle for React's reconciler.
