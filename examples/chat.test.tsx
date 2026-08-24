@@ -148,7 +148,7 @@ describeNative('chat example', () => {
     const icons = renderer.findByType('svg')
     expect(icons.length).toBeGreaterThan(8)
     expect(
-      icons.every((icon) => String(icon.customProps?.src ?? '').includes('svg'))
+      icons.every((icon) => String(icon.customProps?.source ?? '').length > 0)
     ).toBe(true)
 
     expect(painted).toContain('DeepSeek V4 Flash')
@@ -246,6 +246,15 @@ describeNative('chat example', () => {
     ).toBe(true)
     expect(fs.statSync(after).size).toBeGreaterThan(0)
   }, 20_000)
+
+  it('honors a transcript count below the source turn count', () => {
+    const { render, renderer } = createTestRoot()
+    render(<ChatApp turnCount={6} />)
+
+    const transcript = renderer.findByType('virtual-list')[0]
+    expect(transcript?.customProps?.itemCount).toBe(6)
+    expect(transcript?.children).toHaveLength(6)
+  })
 
   it('keeps transcript row ids when the sidebar collapses', async () => {
     const { render, renderer } = createTestRoot()

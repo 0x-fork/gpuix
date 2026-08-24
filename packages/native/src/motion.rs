@@ -1,8 +1,9 @@
 //! Native motion tracks resolved during GPUI rendering, outside React.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::Deserialize;
+use web_time::Instant;
 
 use crate::style::{DimensionValue, StyleDesc};
 

@@ -33,7 +33,7 @@ export function createRenderer(
     }
   })
   // A pipe means a controller owns stdin. A TTY is a human keyboard.
-  if (!process.stdin.isTTY) {
+  if (typeof process !== "undefined" && process.stdin && !process.stdin.isTTY) {
     const init = renderer.init.bind(renderer)
     renderer.init = (options) => {
       init(options)

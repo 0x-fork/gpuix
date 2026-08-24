@@ -5,6 +5,6 @@ import { render } from '@gpuix/react'
 import { ChatApp } from './chat'
 
 render(
-  <ChatApp />,
+  <ChatApp turnCount={6} />,
   { title: 'GPUIX Chat', width: 1180, height: 820 },
 )

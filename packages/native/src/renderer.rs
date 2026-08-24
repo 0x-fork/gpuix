@@ -153,10 +153,7 @@ pub(crate) fn debug_frame_overlay_stats_js(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
-fn recv_ui_response<T>(
-    receiver: std::sync::mpsc::Receiver<T>,
-    operation: &str,
-) -> Result<T> {
+fn recv_ui_response<T>(receiver: std::sync::mpsc::Receiver<T>, operation: &str) -> Result<T> {
     match receiver.recv_timeout(Duration::from_secs(2)) {
         Ok(response) => Ok(response),
         Err(RecvTimeoutError::Timeout) => Err(Error::from_reason(format!(
@@ -430,9 +427,7 @@ async fn run_ui_commands(
                     let now_ms = match control {
                         ClockControl::Pause => view.clock.pause(),
                         ClockControl::Set(now_ms) => view.clock.set_ms(now_ms),
-                        ClockControl::FastForward(delta_ms) => {
-                            view.clock.fast_forward_ms(delta_ms)
-                        }
+                        ClockControl::FastForward(delta_ms) => view.clock.fast_forward_ms(delta_ms),
                         ClockControl::Resume => view.clock.resume(),
                     };
                     cx.notify();
@@ -529,13 +524,10 @@ impl GpuixRenderer {
             input,
             response: response_sender,
         })?;
-        recv_ui_response(response_receiver, "the GPUI UI command")?
-            .map_err(Error::from_reason)
+        recv_ui_response(response_receiver, "the GPUI UI command")?.map_err(Error::from_reason)
     }
 
-    fn automation_bounds(
-        &self,
-    ) -> Result<HashMap<u64, crate::automation::ElementBounds>> {
+    fn automation_bounds(&self) -> Result<HashMap<u64, crate::automation::ElementBounds>> {
         #[cfg(target_os = "macos")]
         return Ok(crate::automation::all_bounds());
 
@@ -555,10 +547,7 @@ impl GpuixRenderer {
         Err(Error::from_reason("Unsupported operating system"))
     }
 
-    fn element_bounds(
-        &self,
-        id: u64,
-    ) -> Result<Option<crate::automation::ElementBounds>> {
+    fn element_bounds(&self, id: u64) -> Result<Option<crate::automation::ElementBounds>> {
         #[cfg(target_os = "macos")]
         return Ok(crate::automation::get_bounds(id));
 
@@ -1345,8 +1334,7 @@ impl GpuixRenderer {
             let (response, receiver) = sync_channel(1);
             self.send_ui_command(UiCommand::GetScrollOffset { id, response })?;
             return Ok(
-                recv_ui_response(receiver, "the GPUI scroll query")?
-                    .map(|[x, y]| vec![x, y]),
+                recv_ui_response(receiver, "the GPUI scroll query")?.map(|[x, y]| vec![x, y])
             );
         }
 
@@ -2224,7 +2212,7 @@ pub(crate) struct BuildCtx<'a> {
     pub custom_registry: &'a mut CustomElementRegistry,
     virtual_lists: &'a mut HashMap<u64, VirtualListEntry>,
     pub motion_states: &'a mut HashMap<u64, crate::motion::MotionState>,
-    pub now: std::time::Instant,
+    pub now: web_time::Instant,
     pub motion_active: &'a mut bool,
     pub selection: SharedSelection,
     /// Inherited text state, resolved the way CSS inherits it. The renderer's
@@ -2333,7 +2321,11 @@ impl VirtualListConfig {
         self.item_count.unwrap_or(child_len)
     }
 
-    fn make_state(self, item_count: usize, focus_handles: &[Option<gpui::FocusHandle>]) -> gpui::ListState {
+    fn make_state(
+        self,
+        item_count: usize,
+        focus_handles: &[Option<gpui::FocusHandle>],
+    ) -> gpui::ListState {
         let mut state = gpui::ListState::new(item_count, self.alignment, gpui::px(self.overdraw));
         if focus_handles.len() == item_count {
             state.splice_focusable(0..item_count, focus_handles.iter().cloned());
@@ -2454,8 +2446,13 @@ impl VirtualListEntry {
             let scroll_top = self.state.logical_scroll_top();
             let should_follow =
                 config.follow_tail && (!self.config.follow_tail || self.state.is_following_tail());
-            let mut replacement =
-                Self::new(config, window_start, child_ids, child_revisions, row_focus_handles);
+            let mut replacement = Self::new(
+                config,
+                window_start,
+                child_ids,
+                child_revisions,
+                row_focus_handles,
+            );
             replacement.seen_rows = std::mem::take(&mut self.seen_rows);
             replacement
                 .seen_rows
@@ -2804,13 +2801,8 @@ pub(crate) fn build_element(
                 selectable: inherited.selectable,
                 selection_wash: inherited.selection_wash,
             };
-            ctx.custom_registry.render(
-                custom_type,
-                &element.custom_props,
-                render_ctx,
-                window,
-                cx,
-            )
+            ctx.custom_registry
+                .render(custom_type, &element.custom_props, render_ctx, window, cx)
         }
     };
 

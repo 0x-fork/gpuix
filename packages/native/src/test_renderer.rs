@@ -22,8 +22,8 @@ use gpui::AppContext as _;
 use crate::element_tree::EventPayload;
 use crate::renderer::{
     apply_batch_to_tree, debug_frame_overlay_mode_name, debug_frame_overlay_stats_js,
-    parse_debug_frame_overlay_mode, DebugFrameOverlayStats,
-    to_element_id, EventCallback, GpuixView,
+    parse_debug_frame_overlay_mode, to_element_id, DebugFrameOverlayStats, EventCallback,
+    GpuixView,
 };
 use crate::retained_tree::RetainedTree;
 use crate::style::StyleDesc;

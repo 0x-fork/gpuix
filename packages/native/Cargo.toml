@@ -55,9 +55,6 @@ napi-derive = "3"
 gpui_platform = { path = "../../zed/crates/gpui_platform", default-features = false }
 js-sys = "0.3"
 wasm-bindgen = "=0.2.127"
-web-sys = { version = "0.3", features = ["Window"] }
-
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 web-sys = { version = "0.3", features = ["Navigator", "Window"] }
 
 # macOS text/graphics deps - pinned to avoid core-graphics version conflicts

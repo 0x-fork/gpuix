@@ -10,12 +10,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gpui::{
     canvas, point, px, App, Bounds, InputEvent, IntoElement, Modifiers, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Styled, Window,
 };
+use web_time::Instant;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ElementBounds {

@@ -705,7 +705,7 @@ function TranscriptRow({
 }
 
 function expandTurns(count: number): Turn[] {
-  if (count <= TURNS.length) return TURNS
+  if (count <= TURNS.length) return TURNS.slice(0, count)
   const out = new Array<Turn>(count)
   for (let i = 0; i < count; i++) {
     out[i] = TURNS[i % TURNS.length]!

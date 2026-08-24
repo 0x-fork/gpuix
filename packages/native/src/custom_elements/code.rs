@@ -246,7 +246,11 @@ pub(crate) fn wire_standard_events(
 
     // Same last-paint box `div` / `text` record. Without this, `getElementBounds`
     // and automation locators return null for `<markdown>`, `<code>`, and `<diff>`.
-    if ctx.style.and_then(|style| style.position.as_deref()).is_none() {
+    if ctx
+        .style
+        .and_then(|style| style.position.as_deref())
+        .is_none()
+    {
         el = el.relative();
     }
     el = el.child(crate::automation::bounds_tracker(ctx.id, None));
