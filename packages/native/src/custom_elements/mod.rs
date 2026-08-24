@@ -28,8 +28,8 @@ pub mod markdown;
 pub struct CustomRenderContext<'a> {
     /// Numeric element ID (matches React's instance ID).
     pub id: u64,
-    /// Event types this adapter declared support for.
-    pub events: HashSet<String>,
+    /// Event types registered by React (e.g. "keyDown", "click").
+    pub events: &'a HashSet<String>,
     /// Callback for emitting events back to JS.
     pub event_callback: &'a Option<EventCallback>,
     /// Pre-created FocusHandle for this element (if it has keyboard/focus listeners).
@@ -135,7 +135,7 @@ struct CustomElementEntry {
 }
 
 impl CustomElementEntry {
-    fn sync(&mut self, props: &HashMap<String, serde_json::Value>, events: &mut HashSet<String>) {
+    fn sync(&mut self, props: &HashMap<String, serde_json::Value>) {
         let supported_props = self.element.supported_props();
         for &key in supported_props {
             let value = props.get(key).cloned().unwrap_or(serde_json::Value::Null);
@@ -164,9 +164,6 @@ impl CustomElementEntry {
             self.element.set_prop(&key, serde_json::Value::Null);
             self.applied_props.remove(&key);
         }
-
-        let supported_events = self.element.supported_events();
-        events.retain(|event| supported_events.contains(&event.as_str()));
     }
 }
 
@@ -232,7 +229,7 @@ impl CustomElementRegistry {
         &mut self,
         element_type: &str,
         props: &HashMap<String, serde_json::Value>,
-        mut ctx: CustomRenderContext,
+        ctx: CustomRenderContext,
         window: &mut gpui::Window,
         cx: &mut gpui::Context<crate::renderer::GpuixView>,
     ) -> gpui::AnyElement {
@@ -243,7 +240,18 @@ impl CustomElementRegistry {
             return gpui::Empty.into_any_element();
         };
 
-        entry.sync(props, &mut ctx.events);
+        entry.sync(props);
+        let supported = entry.element.supported_events();
+        let filtered: HashSet<String> = ctx
+            .events
+            .iter()
+            .filter(|event| supported.contains(&event.as_str()))
+            .cloned()
+            .collect();
+        let ctx = CustomRenderContext {
+            events: &filtered,
+            ..ctx
+        };
         entry.element.render(ctx, window, cx)
     }
 
@@ -346,10 +354,7 @@ mod tests {
             ("source".to_string(), serde_json::json!("first")),
             ("future".to_string(), serde_json::json!(true)),
         ]);
-        let events = HashSet::from(["click".to_string(), "change".to_string()]);
-        let mut filtered = events.clone();
-        entry.sync(&props, &mut filtered);
-        assert_eq!(filtered, HashSet::from(["click".to_string()]));
+        entry.sync(&props);
         assert_eq!(
             updates.borrow().as_slice(),
             [
@@ -358,10 +363,10 @@ mod tests {
             ]
         );
 
-        entry.sync(&props, &mut events.clone());
+        entry.sync(&props);
         assert_eq!(updates.borrow().len(), 2);
 
-        entry.sync(&HashMap::new(), &mut events.clone());
+        entry.sync(&HashMap::new());
         assert_eq!(
             updates.borrow().as_slice(),
             [

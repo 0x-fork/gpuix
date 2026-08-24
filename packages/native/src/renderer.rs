@@ -1996,7 +1996,7 @@ pub(crate) fn build_element(
             let inherited = ctx.inherited;
             let render_ctx = CustomRenderContext {
                 id,
-                events: element.events.clone(),
+                events: &element.events,
                 event_callback: ctx.event_callback,
                 focus_handle: ctx.focus_handles.get(&id),
                 style,

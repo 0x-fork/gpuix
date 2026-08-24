@@ -237,7 +237,7 @@ pub(crate) fn wire_standard_events(
     use gpui::prelude::*;
 
     let id = ctx.id;
-    for event in &ctx.events {
+    for event in ctx.events {
         let callback = ctx.event_callback.clone();
         match event.as_str() {
             "click" => {
