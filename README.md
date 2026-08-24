@@ -253,11 +253,13 @@ The overlay shows **draw time**, not FPS. `8.3 MS` is about 120 Hz.
 
 The chat example has a regression test for this: `examples/chat.perf.test.tsx`. It times mount, wheel draw, and sidebar clicks. It asserts p95, not every frame.
 
+The default example suite excludes this hardware-timing test so shared CI runner variance does not fail functional checks. Run it explicitly on the target Mac:
+
 On macOS, `THROTTLE=utility` restarts the process under `taskpolicy -c utility`. That pins work to E-cores. It is an **M1/M2 Air CPU** proxy, not Chrome 6x. GPU and RAM stay fast. `THROTTLE=background` is slower.
 
 ```bash
 cd examples
-THROTTLE=utility bun run test chat.perf.test.tsx
+THROTTLE=utility bun run test:perf
 THROTTLE=utility bun --hot chat.tsx
 ```
 
