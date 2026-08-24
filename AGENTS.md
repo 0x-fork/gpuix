@@ -530,9 +530,14 @@ pub struct EventPayload {
 
 ### Standalone Build
 
-The `zed/` submodule tracks the `gpui-macos-embedded` branch of `remorses/zed`. Cargo uses path
+The `zed/` submodule tracks the `gpuix` branch of `remorses/zed`. Cargo uses path
 dependencies from that submodule so the native addon and native platforms always
 compile from the same source:
+
+**Always keep `zed/` checked out on the local `gpuix` branch. Never
+leave the submodule in detached HEAD state**, including after `git submodule update`
+or a pointer update. If Git detaches it, immediately switch back to
+`gpuix` before doing any other work.
 
 - macOS uses `MacPlatform::new_embedded()` and pumps AppKit on Node's main thread
 - Windows and Linux run `gpui_platform::application().run()` on a dedicated UI thread
@@ -558,9 +563,9 @@ xcodebuild -downloadComponent MetalToolchain
 
 ### Bumping the gpui revision
 
-1. Merge upstream Zed into the `gpui-macos-embedded` branch in `remorses/zed`.
+1. Merge upstream Zed into the `gpuix` branch in `remorses/zed`.
 2. Resolve any embedded `gpui_macos` conflicts in a new commit; do not rewrite history.
-3. Fast-forward the `zed/` submodule to the updated `gpui-macos-embedded` branch.
+3. Fast-forward the `zed/` submodule to the updated `gpuix` branch.
 4. Match `rust-toolchain.toml` to `zed/rust-toolchain.toml`.
 5. Run `cargo check --all-targets`, `bun run build`, and the test suites.
 
@@ -571,7 +576,7 @@ the fork when a reusable GPUI API or platform correction keeps GPUIX simpler
 and avoids browser, embedded-platform, or event-routing workarounds. Do not keep
 a hack in `packages/native` only because the required API is missing upstream.
 
-Fork-only fixes must be normal commits on the `gpui-macos-embedded` branch and
+Fork-only fixes must be normal commits on the `gpuix` branch and
 must be pushed to `remorses/zed` before the GPUIX submodule points at them. Never
 pin GPUIX to a detached commit that is not reachable from that remote branch.
 Use a separate Zed worktree for the change; do not develop or commit inside the
@@ -579,20 +584,21 @@ Use a separate Zed worktree for the change; do not develop or commit inside the
 
 ```bash
 # from gpuixlocal/zed
-git fetch origin gpui-macos-embedded
+git fetch origin gpuix
 git worktree add /Users/morse/Documents/GitHub/zed-gpuix-<change> \
-  -b gpuix-<change> origin/gpui-macos-embedded
+  -b gpuix-<change> origin/gpuix
 
 # from the Zed worktree, after review
-git push origin HEAD:gpui-macos-embedded
+git push origin HEAD:gpuix
 
 # then update this repository to that reachable commit
-git fetch origin gpui-macos-embedded
-git switch --detach origin/gpui-macos-embedded
+git fetch origin gpuix
+git switch gpuix
+git merge --ff-only origin/gpuix
 ```
 
 Commit the resulting `zed` submodule pointer in GPUIX with the code that uses
-the new API. The `.gitmodules` branch remains `gpui-macos-embedded`.
+the new API. The `.gitmodules` branch remains `gpuix`.
 
 ### PRs to Zed
 
@@ -600,9 +606,14 @@ A "PR to Zed" means **upstream** [`zed-industries/zed`](https://github.com/zed-i
 `main`. This is different from a GPUIX fork fix above. Never open an upstream
 PR from this checkout. Never point that PR at `remorses/zed`.
 
-Do **not** branch, commit review markers, or reset `zed/` inside this checkout.
-That submodule is what GPUIX builds against. A dirty or switched `zed/` breaks
-the native addon and the test renderer.
+`gpui-macos-embedded` is the head branch for the focused upstream macOS embedding
+PR. Keep it limited to that PR. Never put general GPUIX fork changes there and
+never point this repository's submodule at it.
+
+Do **not** switch `zed/` to another branch, detach HEAD, commit review markers,
+or reset it inside this checkout. That submodule is what GPUIX builds against.
+A dirty or incorrectly switched `zed/` breaks the native addon and the test
+renderer.
 
 ```bash
 # from gpuixlocal/zed. leaves this submodule on its current commit
@@ -613,7 +624,7 @@ git worktree add /Users/morse/Documents/GitHub/zed-<branch-name> -b <branch-name
 
 Commit only in that worktree. Do not add comments to Zed source. Push the branch
 to `remorses/zed`, then open the PR with `--repo zed-industries/zed --base main`.
-After merge, cherry-pick onto `gpui-macos-embedded` and fast-forward the submodule
+After merge, cherry-pick onto `gpuix` and fast-forward the submodule
 here. Never run `git reset` in `zed/` to "undo" PR work.
 
 ### PRs to GPUIX

@@ -501,7 +501,7 @@ fn register_copy_listener(window: &mut Window, selection: &SharedSelection) {
     use gpui::{ClipboardItem, DispatchPhase, KeyDownEvent};
 
     let selection = selection.clone();
-    window.on_global_key_event(move |e: &KeyDownEvent, phase, _window, cx| {
+    window.on_root_key_event(move |e: &KeyDownEvent, phase, _window, cx| {
         if phase != DispatchPhase::Bubble {
             return;
         }
