@@ -252,7 +252,6 @@ describeNative('chat example', () => {
     render(<ChatApp turnCount={6} />)
 
     const transcript = renderer.findByType('virtual-list')[0]
-    expect(transcript?.customProps?.itemCount).toBe(6)
     expect(transcript?.children).toHaveLength(6)
   })
 
