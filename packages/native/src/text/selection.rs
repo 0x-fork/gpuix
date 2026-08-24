@@ -99,19 +99,12 @@ impl SelectionState {
         Some(join_spans(&self.spans))
     }
 
-    /// Clear when `key` owns a settled selection. A mouse-down landed outside
-    /// the owner; the element the down landed IN claims right after. Returns
-    /// true when something was cleared.
-    pub fn clear_if_owner(&mut self, key: &str) -> bool {
-        if self.active && self.anchor_key == key && !self.dragging {
-            self.clear();
-            return true;
-        }
-        false
-    }
-
     pub fn clear(&mut self) {
         *self = SelectionState::default();
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 
     /// The wash range for `key` this frame. `None` means nothing to paint.
@@ -253,8 +246,7 @@ mod tests {
         assert_eq!(sel.wash_range("p3"), None);
         assert_eq!(sel.end_drag("p1").as_deref(), Some("paragraph\nsecond"));
         assert_eq!(sel.selected_text().as_deref(), Some("paragraph\nsecond"));
-        assert!(!sel.clear_if_owner("p2"));
-        assert!(sel.clear_if_owner("p1"));
+        sel.clear();
         assert_eq!(sel.selected_text(), None);
     }
 

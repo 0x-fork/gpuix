@@ -38,8 +38,19 @@ struct RegEntry {
     layout: TextLayout,
 }
 
+/// Full element box that owns whether a press may start a selection.
+///
+/// `userSelect: "none"` chrome and native inputs register `selectable: false`
+/// so a same-row nearest-text clamp cannot steal their press. An explicit
+/// `userSelect: "text"` island registers `true` and can override an ancestor.
+struct StartRegion {
+    bounds: Bounds<gpui::Pixels>,
+    selectable: bool,
+}
+
 thread_local! {
     static REGISTRY: RefCell<Vec<RegEntry>> = const { RefCell::new(Vec::new()) };
+    static START_REGIONS: RefCell<Vec<StartRegion>> = const { RefCell::new(Vec::new()) };
     /// Every string painted this frame, selectable or not, in paint order.
     ///
     /// Native elements draw their text inside gpui, so it never appears in the
@@ -50,20 +61,57 @@ thread_local! {
 }
 
 /// A zero-size canvas that clears the per-frame registries and installs the
-/// frame's copy listener. Paint it FIRST in the root, before any text, so each
-/// frame holds exactly that frame's visible text elements in paint order.
+/// frame's copy and mouse-down listeners. Paint it FIRST in the root, before
+/// any text, so each frame holds exactly that frame's visible text elements
+/// in paint order.
 pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
     canvas(
         |_, _, _| (),
         move |_, _, window, _| {
             REGISTRY.with(|r| r.borrow_mut().clear());
+            START_REGIONS.with(|r| r.borrow_mut().clear());
             PAINTED.with(|p| p.borrow_mut().clear());
             register_copy_listener(window, &selection);
+            register_down_listener(window, &selection);
         },
     )
     .absolute()
     .w(px(0.0))
     .h(px(0.0))
+}
+
+/// Record a selection-start region from an element's painted box.
+///
+/// Called from `bounds_tracker` so the region is the same box automation
+/// already uses. Last painted region that contains the point wins.
+pub fn record_start_region(bounds: Bounds<gpui::Pixels>, selectable: bool) {
+    START_REGIONS.with(|r| r.borrow_mut().push(StartRegion { bounds, selectable }));
+}
+
+/// Overlay that records this element's box as a selection-start region.
+///
+/// The parent must be positioned (`relative` is enough). Used by native
+/// inputs, which do not go through `bounds_tracker`.
+pub fn selection_start_region(selectable: bool) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, _, _| {
+            record_start_region(bounds, selectable);
+        },
+    )
+    .absolute()
+    .size_full()
+}
+
+/// Last painted start region that contains `position`.
+fn start_region_at(position: gpui::Point<gpui::Pixels>) -> Option<bool> {
+    START_REGIONS.with(|r| {
+        r.borrow()
+            .iter()
+            .rev()
+            .find(|region| region.bounds.contains(&position))
+            .map(|region| region.selectable)
+    })
 }
 
 /// Every string painted in the last frame, in paint order. Test-facing.
@@ -197,7 +245,7 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
                         layout: layout.clone(),
                     })
                 });
-                register_listeners(window, &key, &text, &layout, &selection);
+                register_listeners(window, &key, &selection);
             }
             PAINTED.with(|p| p.borrow_mut().push(text.clone()));
             if let Some(on_link) = &on_link {
@@ -269,8 +317,13 @@ fn register_link_listener(
 /// Prefers the element whose full bounds contain the point, taking the LAST
 /// such element in paint order so an overlay wins over what it covers. Only
 /// when the point is outside every text does it fall back to the nearest by
-/// vertical distance, which is what makes a drag into the gutter or past the
-/// end of a document clamp sensibly.
+/// vertical then horizontal distance. `index_for_position` then clamps: left
+/// of a line is the line start, right of a line is the line end.
+///
+/// Mouse-down uses [`registry_point_on_line`] so a press in a composer or
+/// titlebar does not start a selection on the nearest paragraph. The drag
+/// head keeps the unbounded clamp so a selection that already started can
+/// still run into the gutter or past the last line.
 ///
 /// Comet compares Y only, because its transcript is a single column where two
 /// texts never share a vertical band. GPUIX lays out arbitrary React trees: a
@@ -322,6 +375,17 @@ fn registry_point(position: gpui::Point<gpui::Pixels>) -> Option<(usize, usize)>
     })
 }
 
+/// Like [`registry_point`], but only when the pointer shares a text's vertical
+/// band. That is the empty start or end of the line, a gutter, or parent
+/// padding on that row. A press above or below every line is chrome.
+fn registry_point_on_line(position: gpui::Point<gpui::Pixels>) -> Option<(usize, usize)> {
+    let (ei, ix) = registry_point(position)?;
+    REGISTRY.with(|r| {
+        let b = r.borrow().get(ei)?.layout.bounds();
+        (position.y >= b.top() && position.y <= b.bottom()).then_some((ei, ix))
+    })
+}
+
 /// Resolve anchor + head into document-ordered spans over the frame's registry.
 /// True when the selection changed.
 fn resolve_drag(
@@ -345,46 +409,64 @@ fn resolve_drag(
     })
 }
 
-/// Register this frame's window-level listeners for one text element.
+/// One window-level mouse-down for the whole frame.
+///
+/// Per-element downs required the press to land inside a `TextLayout` box,
+/// which is the glyph bounds, not the parent padding. A single listener
+/// clamps with [`registry_point_on_line`].
+fn register_down_listener(window: &mut Window, selection: &SharedSelection) {
+    use gpui::{DispatchPhase, MouseButton, MouseDownEvent};
+
+    let selection = selection.clone();
+    window.on_mouse_event(move |e: &MouseDownEvent, phase, window, _cx| {
+        if phase != DispatchPhase::Bubble || e.button != MouseButton::Left {
+            return;
+        }
+        if start_region_at(e.position) == Some(false) {
+            let mut sel = selection.lock();
+            if !sel.is_active() {
+                return;
+            }
+            sel.clear();
+            drop(sel);
+            window.refresh();
+            return;
+        }
+        let hit = registry_point_on_line(e.position).and_then(|(ei, ix)| {
+            REGISTRY.with(|r| {
+                r.borrow()
+                    .get(ei)
+                    .map(|entry| (entry.key.clone(), entry.text.clone(), ix))
+            })
+        });
+        let mut sel = selection.lock();
+        if let Some((key, text, ix)) = hit {
+            match e.click_count {
+                2 => {
+                    let range = selection::word_range(&text, ix);
+                    sel.begin_with_span(&key, &text, range);
+                }
+                n if n >= 3 => sel.begin_with_span(&key, &text, 0..text.len()),
+                _ => sel.begin(&key, ix),
+            }
+        } else if sel.is_active() {
+            sel.clear();
+        } else {
+            return;
+        }
+        drop(sel);
+        window.refresh();
+    });
+}
+
+/// Register this frame's window-level move and up listeners for one text
+/// element. Down is registered once on the frame reset.
 ///
 /// Window-level, not element-level, so a drag keeps tracking after the mouse
 /// leaves the element's bounds. Frame-scoped, so paint re-registers every frame.
-fn register_listeners(
-    window: &mut Window,
-    key: &Arc<str>,
-    text: &SharedString,
-    layout: &TextLayout,
-    selection: &SharedSelection,
-) {
-    use gpui::{DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent};
+fn register_listeners(window: &mut Window, key: &Arc<str>, selection: &SharedSelection) {
+    use gpui::{DispatchPhase, MouseMoveEvent, MouseUpEvent};
 
-    {
-        let (key, text, layout, selection) =
-            (key.clone(), text.clone(), layout.clone(), selection.clone());
-        window.on_mouse_event(move |e: &MouseDownEvent, phase, window, _cx| {
-            if phase != DispatchPhase::Bubble || e.button != MouseButton::Left {
-                return;
-            }
-            if layout.bounds().contains(&e.position) {
-                let ix = match layout.index_for_position(e.position) {
-                    Ok(ix) | Err(ix) => ix,
-                };
-                let mut sel = selection.lock();
-                match e.click_count {
-                    2 => {
-                        let range = selection::word_range(&text, ix);
-                        sel.begin_with_span(&key, &text, range);
-                    }
-                    n if n >= 3 => sel.begin_with_span(&key, &text, 0..text.len()),
-                    _ => sel.begin(&key, ix),
-                }
-                drop(sel);
-                window.refresh();
-            } else if selection.lock().clear_if_owner(&key) {
-                window.refresh();
-            }
-        });
-    }
     {
         let (key, selection) = (key.clone(), selection.clone());
         window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, _cx| {

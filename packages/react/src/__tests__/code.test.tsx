@@ -110,6 +110,18 @@ describe("<code>", () => {
     expect(selected?.endsWith("beta")).toBe(true)
   })
 
+  it("starts a selection in the gutter and still skips line numbers", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "column", padding: 20 }}>
+        <code code={"alpha\nbeta"} language="ts" showHeader={false} showLineNumbers />
+      </div>
+    )
+
+    const selected = renderer.dragSelect(24, 42, 900, 500)
+    expect(selected).toBe("alpha\nbeta")
+  })
+
   it("changes appearance when a syntax theme is applied", () => {
     const before = path.join(SHOTS_DIR, "code-theme-default.png")
     const after = path.join(SHOTS_DIR, "code-theme-custom.png")

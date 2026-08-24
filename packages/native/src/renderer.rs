@@ -2449,7 +2449,10 @@ pub(crate) fn build_div(
     if style.and_then(|style| style.position.as_deref()).is_none() {
         el = el.relative();
     }
-    el = el.child(crate::automation::bounds_tracker(element.id));
+    el = el.child(crate::automation::bounds_tracker(
+        element.id,
+        selection_start_flag(style),
+    ));
 
     if let Some(handle) = ctx.focus_handles.get(&element.id) {
         el = el.track_focus(handle);
@@ -2704,7 +2707,7 @@ pub(crate) fn build_text(
         let content = element.content.clone().unwrap_or_default();
         return gpui::div()
             .relative()
-            .child(crate::automation::bounds_tracker(element.id))
+            .child(crate::automation::bounds_tracker(element.id, None))
             .child(text_content(element.id, &content, ctx))
             .into_any_element();
     }
@@ -2719,7 +2722,10 @@ pub(crate) fn build_text(
     if style.and_then(|style| style.position.as_deref()).is_none() {
         el = el.relative();
     }
-    el = el.child(crate::automation::bounds_tracker(element.id));
+    el = el.child(crate::automation::bounds_tracker(
+        element.id,
+        selection_start_flag(style),
+    ));
 
     if let Some(ref content) = element.content {
         el = el.child(text_content(element.id, content, ctx));
@@ -2731,6 +2737,16 @@ pub(crate) fn build_text(
     }
 
     el.into_any_element()
+}
+
+/// Explicit `userSelect` on this node. `None` means inherit; the ancestor
+/// that set the value already owns the start region.
+fn selection_start_flag(style: Option<&StyleDesc>) -> Option<bool> {
+    match style.and_then(|style| style.user_select.as_deref()) {
+        Some("none") => Some(false),
+        Some("text") | Some("auto") => Some(true),
+        _ => None,
+    }
 }
 
 // ── Style application ────────────────────────────────────────────────

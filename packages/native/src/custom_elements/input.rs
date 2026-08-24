@@ -312,6 +312,14 @@ impl CustomElement for TextEditorElement {
         if let Some(style) = ctx.style {
             editor = crate::renderer::apply_styles(editor, style);
         }
+        if ctx
+            .style
+            .and_then(|style| style.position.as_deref())
+            .is_none()
+        {
+            editor = editor.relative();
+        }
+        editor = editor.child(crate::text::selection_start_region(false));
         if ctx.events.contains("click") {
             let callback = ctx.event_callback.clone();
             let id = ctx.id;

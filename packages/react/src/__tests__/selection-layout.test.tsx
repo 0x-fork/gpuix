@@ -40,6 +40,54 @@ describe("selection hit testing across layouts", () => {
     expect(selected).not.toContain("RIGHT")
   })
 
+  it("does not start a selection from userSelect none chrome on the same row", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "row", padding: 20, gap: 80 }}>
+        <div
+          style={{
+            userSelect: "none",
+            width: 180,
+            height: 40,
+            backgroundColor: "#333333",
+          }}
+        >
+          <text style={{ fontSize: 20 }}>SIDEBAR</text>
+        </div>
+        <text style={{ fontSize: 20 }}>message text here</text>
+      </div>
+    )
+
+    expect(renderer.dragSelect(30, 40, 900, 40)).toBeNull()
+  })
+
+  it("does not start a document selection from an input on the same row", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "row", padding: 20, gap: 40 }}>
+        <text style={{ fontSize: 20 }}>DOCUMENT</text>
+        <input value="typed" style={{ width: 220, height: 32 }} />
+      </div>
+    )
+
+    expect(renderer.dragSelect(280, 36, 30, 36)).toBeNull()
+  })
+
+  it("starts in left padding and still picks the left column", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "row", padding: 40, gap: 200 }}>
+        <text style={{ fontSize: 20 }}>LEFTSIDE</text>
+        <text style={{ fontSize: 20 }}>RIGHTSIDE</text>
+      </div>
+    )
+
+    const selected = renderer.dragSelect(8, 50, 160, 50)
+    expect(selected).not.toBeNull()
+    expect(selected).not.toContain("RIGHT")
+    expect("LEFTSIDE".endsWith(selected!)).toBe(true)
+  })
+
   it("spans two columns when the drag crosses them", () => {
     const { render, renderer } = createTestRoot()
     render(
