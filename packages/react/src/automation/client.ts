@@ -29,6 +29,35 @@ export interface AutomationBackend {
   close(): Promise<void>
 }
 
+abstract class ValidatedAutomationBackend implements AutomationBackend {
+  private closed = false
+
+  async call<M extends MethodName>(
+    method: M,
+    params: ParamsOf<M>
+  ): Promise<ResultOf<M>> {
+    if (this.closed) {
+      throw new AutomationError("Closed", "Automation session is closed")
+    }
+    const parsedParams = methods[method].params.parse(params) as ParamsOf<M>
+    const result = await this.request(method, parsedParams)
+    return methods[method].result.parse(result) as ResultOf<M>
+  }
+
+  protected closeSession(): boolean {
+    if (this.closed) return false
+    this.closed = true
+    return true
+  }
+
+  protected abstract request<M extends MethodName>(
+    method: M,
+    params: ParamsOf<M>
+  ): unknown | Promise<unknown>
+
+  abstract close(): Promise<void>
+}
+
 export interface TestAutomationRenderer {
   nativeSimulateClick(x: number, y: number): void
   nativeSimulateMouseDown(x: number, y: number, button?: number): void
@@ -69,19 +98,21 @@ type HandlerMap = {
   [M in MethodName]: (params: ParamsOf<M>) => ResultOf<M> | Promise<ResultOf<M>>
 }
 
-export class InProcessBackend implements AutomationBackend {
-  constructor(private readonly renderer: TestAutomationRenderer) {}
-
-  async call<M extends MethodName>(
-    method: M,
-    params: ParamsOf<M>
-  ): Promise<ResultOf<M>> {
-    methods[method].params.parse(params)
-    const result = await this.handlers[method](params as never)
-    return methods[method].result.parse(result) as ResultOf<M>
+export class InProcessBackend extends ValidatedAutomationBackend {
+  constructor(private readonly renderer: TestAutomationRenderer) {
+    super()
   }
 
-  async close(): Promise<void> {}
+  protected request<M extends MethodName>(
+    method: M,
+    params: ParamsOf<M>
+  ): unknown | Promise<unknown> {
+    return this.handlers[method](params as never)
+  }
+
+  async close(): Promise<void> {
+    this.closeSession()
+  }
 
   private readonly handlers: HandlerMap = {
     initialize: () => ({
@@ -186,21 +217,33 @@ export class InProcessBackend implements AutomationBackend {
   }
 }
 
-export class SseBackend implements AutomationBackend {
+class PendingAutomationResponse {
+  readonly promise: Promise<AutomationResponse>
+  readonly resolve: (response: AutomationResponse) => void
+  readonly reject: (error: unknown) => void
+
+  constructor() {
+    let resolveResponse!: (response: AutomationResponse) => void
+    let rejectResponse!: (error: unknown) => void
+    this.promise = new Promise<AutomationResponse>((resolve, reject) => {
+      resolveResponse = resolve
+      rejectResponse = reject
+    })
+    this.resolve = resolveResponse
+    this.reject = rejectResponse
+  }
+}
+
+export class SseBackend extends ValidatedAutomationBackend {
   private nextId = 1
-  private readonly pending = new Map<
-    number,
-    {
-      resolve: (response: AutomationResponse) => void
-      reject: (error: unknown) => void
-    }
-  >()
+  private readonly pending = new Map<number, PendingAutomationResponse>()
 
   constructor(
     private readonly write: (chunk: string) => void,
     feed: (listener: (chunk: string) => void) => void,
     private readonly onClose?: () => Promise<void>
   ) {
+    super()
     const decoder = createSseDecoder((message) => {
       if ("method" in message) return
       if ("event" in message) return
@@ -212,17 +255,22 @@ export class SseBackend implements AutomationBackend {
     feed((chunk) => decoder.feed(chunk))
   }
 
-  async call<M extends MethodName>(
+  protected async request<M extends MethodName>(
     method: M,
     params: ParamsOf<M>
-  ): Promise<ResultOf<M>> {
-    methods[method].params.parse(params)
+  ): Promise<unknown> {
     const id = this.nextId++
     const request = { id, method, params } as AutomationRequest
-    const response = await new Promise<AutomationResponse>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+    const pending = new PendingAutomationResponse()
+    this.pending.set(id, pending)
+    try {
       this.write(encodeSse(request))
-    })
+    } catch (error) {
+      this.pending.delete(id)
+      pending.reject(error)
+    }
+
+    const response = await pending.promise
     if ("error" in response) {
       throw new AutomationError(
         response.error.code,
@@ -230,10 +278,11 @@ export class SseBackend implements AutomationBackend {
         response.error.data
       )
     }
-    return methods[method].result.parse(response.result) as ResultOf<M>
+    return response.result
   }
 
   async close(): Promise<void> {
+    if (!this.closeSession()) return
     for (const [id, waiter] of this.pending) {
       waiter.reject(new AutomationError("Closed", `Request ${id} cancelled`))
     }

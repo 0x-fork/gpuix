@@ -9,6 +9,16 @@ pub enum FontWeightValue {
     Str(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoxShadowValue {
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub blur_radius: f64,
+    pub spread_radius: f64,
+    pub color: String,
+}
+
 /// A dimension value that can be a number (pixels) or a string (percentage, auto, etc.)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -151,12 +161,17 @@ pub struct StyleDesc {
 
     // Border
     pub border_width: Option<f64>,
+    pub border_top_width: Option<f64>,
+    pub border_right_width: Option<f64>,
+    pub border_bottom_width: Option<f64>,
+    pub border_left_width: Option<f64>,
     pub border_color: Option<String>,
     pub border_radius: Option<f64>,
     pub border_top_left_radius: Option<f64>,
     pub border_top_right_radius: Option<f64>,
     pub border_bottom_left_radius: Option<f64>,
     pub border_bottom_right_radius: Option<f64>,
+    pub box_shadow: Option<BoxShadowValue>,
 
     // Text
     pub font_size: Option<f64>,
@@ -193,77 +208,7 @@ pub struct StyleDesc {
     pub active: Option<Box<StyleDesc>>,
 }
 
-/// Parse a color string (hex, rgb, etc.) to GPUI Hsla
-pub fn parse_color(color: &str) -> Option<(f32, f32, f32, f32)> {
-    let color = color.trim();
-
-    // Handle hex colors
-    if color.starts_with('#') {
-        let hex = &color[1..];
-        match hex.len() {
-            3 => {
-                // #RGB -> #RRGGBB
-                let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()? as f32 / 255.0;
-                let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()? as f32 / 255.0;
-                let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()? as f32 / 255.0;
-                return Some((r, g, b, 1.0));
-            }
-            6 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
-                return Some((r, g, b, 1.0));
-            }
-            8 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
-                let a = u8::from_str_radix(&hex[6..8], 16).ok()? as f32 / 255.0;
-                return Some((r, g, b, a));
-            }
-            _ => return None,
-        }
-    }
-
-    // Handle rgb/rgba
-    if color.starts_with("rgb") {
-        let inner = color
-            .trim_start_matches("rgba(")
-            .trim_start_matches("rgb(")
-            .trim_end_matches(')');
-        let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
-
-        if parts.len() >= 3 {
-            let r = parts[0].parse::<f32>().ok()? / 255.0;
-            let g = parts[1].parse::<f32>().ok()? / 255.0;
-            let b = parts[2].parse::<f32>().ok()? / 255.0;
-            let a = if parts.len() == 4 {
-                parts[3].parse::<f32>().ok()?
-            } else {
-                1.0
-            };
-            return Some((r, g, b, a));
-        }
-    }
-
-    None
-}
-
-/// Convert RGBA floats (0.0-1.0) to a hex u32 for GPUI's rgba() function
-/// Format: 0xRRGGBBAA
-pub fn rgba_to_hex(r: f32, g: f32, b: f32, a: f32) -> u32 {
-    let r = (r.clamp(0.0, 1.0) * 255.0) as u32;
-    let g = (g.clamp(0.0, 1.0) * 255.0) as u32;
-    let b = (b.clamp(0.0, 1.0) * 255.0) as u32;
-    let a = (a.clamp(0.0, 1.0) * 255.0) as u32;
-    (r << 24) | (g << 16) | (b << 8) | a
-}
-
-/// Parse a color string and return a hex u32 for GPUI
-pub fn parse_color_hex(color: &str) -> Option<u32> {
-    let (r, g, b, a) = parse_color(color)?;
-    Some(rgba_to_hex(r, g, b, a))
-}
+pub use crate::color::{parse_color, parse_color_hex};
 
 /// Whether this style should insert a mouse hitbox.
 ///
@@ -290,8 +235,31 @@ pub fn should_occlude(style: &StyleDesc) -> bool {
     let Some(color) = fill else {
         return false;
     };
-    match parse_color_hex(color) {
-        Some(hex) => hex & 0xFF > 0,
+    match crate::color::parse_color_rgba(color) {
+        Some(color) => color.a > 0.0,
         None => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_fill(fill: &str) -> StyleDesc {
+        StyleDesc {
+            background_color: Some(fill.to_owned()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn transparent_function_does_not_occlude() {
+        assert!(!should_occlude(&with_fill("transparent")));
+        assert!(!should_occlude(&with_fill("oklch(50% 0.2 30 / 0%)")));
+    }
+
+    #[test]
+    fn invalid_fill_keeps_conservative_occlusion() {
+        assert!(should_occlude(&with_fill("not-a-color")));
     }
 }

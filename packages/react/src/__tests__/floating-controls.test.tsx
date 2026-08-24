@@ -204,6 +204,45 @@ describeNative("floating controls", () => {
     expect(testRoot.renderer.getAllText()).toContain("Behind: 1")
   })
 
+  it("lets a transparent overlapping element pass clicks through", () => {
+    function Demo() {
+      const [behind, setBehind] = useState(0)
+      return (
+        <div
+          style={{ width: 400, height: 260, position: "relative", color: "#ffffff" }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 20,
+              width: 200,
+              height: 80,
+              backgroundColor: "#1e3a5f",
+            }}
+            onClick={() => setBehind((count) => count + 1)}
+          >
+            <text>Behind</text>
+          </div>
+          <div
+            style={{
+              marginTop: 40,
+              marginLeft: 20,
+              width: 200,
+              height: 80,
+              backgroundColor: "transparent",
+            }}
+          />
+          <text>{`Behind: ${behind}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Demo />)
+    testRoot.renderer.nativeSimulateClick(80, 70)
+    expect(testRoot.renderer.getAllText()).toContain("Behind: 1")
+  })
+
   it("occludes controls behind SelectContent", () => {
     function Demo() {
       const [clicks, setClicks] = useState(0)

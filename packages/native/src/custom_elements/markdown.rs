@@ -132,18 +132,11 @@ impl CustomElement for MarkdownElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &["source", "theme"]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "source" => Some(serde_json::Value::String(self.source.clone())),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &["linkClick", "click", "mouseEnter", "mouseLeave"]
     }
 

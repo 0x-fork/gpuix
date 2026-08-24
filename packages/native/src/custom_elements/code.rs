@@ -207,7 +207,7 @@ impl CustomElement for CodeElement {
         }
     }
 
-    fn supported_props(&self) -> &[&str] {
+    fn supported_props(&self) -> &'static [&'static str] {
         &[
             "code",
             "language",
@@ -218,19 +218,7 @@ impl CustomElement for CodeElement {
         ]
     }
 
-    fn get_prop(&self, key: &str) -> Option<serde_json::Value> {
-        match key {
-            "code" => Some(serde_json::Value::String(self.code.clone())),
-            "language" => self
-                .language
-                .clone()
-                .map(serde_json::Value::String)
-                .or(Some(serde_json::Value::Null)),
-            _ => None,
-        }
-    }
-
-    fn supported_events(&self) -> &[&str] {
+    fn supported_events(&self) -> &'static [&'static str] {
         &["click", "mouseEnter", "mouseLeave"]
     }
 

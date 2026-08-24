@@ -32,7 +32,7 @@ use std::time::Duration;
 use crate::custom_elements::{CustomElementRegistry, CustomRenderContext};
 use crate::element_tree::EventPayload;
 use crate::retained_tree::RetainedTree;
-use crate::style::{parse_color_hex, StyleDesc};
+use crate::style::StyleDesc;
 use crate::text::{selectable_text, selection_frame_reset, selection_key, SharedSelection};
 use crate::theme::Theme;
 
@@ -138,15 +138,18 @@ pub(crate) fn debug_frame_overlay_stats_js(
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
-fn recv_debug_frame_overlay_mode(receiver: std::sync::mpsc::Receiver<String>) -> Result<String> {
+fn recv_ui_response<T>(
+    receiver: std::sync::mpsc::Receiver<T>,
+    operation: &str,
+) -> Result<T> {
     match receiver.recv_timeout(Duration::from_secs(2)) {
-        Ok(mode) => Ok(mode),
-        Err(RecvTimeoutError::Timeout) => Err(Error::from_reason(
-            "Timed out after 2 seconds waiting for the debug frame overlay query",
-        )),
-        Err(RecvTimeoutError::Disconnected) => Err(Error::from_reason(
-            "The GPUI UI thread stopped during the debug frame overlay query",
-        )),
+        Ok(response) => Ok(response),
+        Err(RecvTimeoutError::Timeout) => Err(Error::from_reason(format!(
+            "Timed out after 2 seconds waiting for {operation}"
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(Error::from_reason(format!(
+            "The GPUI UI thread stopped during {operation}"
+        ))),
     }
 }
 
@@ -180,6 +183,38 @@ fn invalidate_window() -> Result<()> {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+enum MouseInput {
+    Click {
+        x: f64,
+        y: f64,
+        button: u32,
+    },
+    Down {
+        x: f64,
+        y: f64,
+        button: u32,
+    },
+    Up {
+        x: f64,
+        y: f64,
+        button: u32,
+    },
+    Move {
+        x: f64,
+        y: f64,
+        pressed_button: Option<u32>,
+    },
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+enum ClockControl {
+    Pause,
+    Set(f64),
+    FastForward(f64),
+    Resume,
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
 enum UiCommand {
     Invalidate,
     SetWindowTitle(String),
@@ -207,7 +242,22 @@ enum UiCommand {
         id: u64,
         response: SyncSender<Option<[f64; 2]>>,
     },
+    GetAutomationBounds {
+        response: SyncSender<HashMap<u64, crate::automation::ElementBounds>>,
+    },
+    GetElementBounds {
+        id: u64,
+        response: SyncSender<Option<crate::automation::ElementBounds>>,
+    },
     FocusElement(u64),
+    ControlClock {
+        control: ClockControl,
+        response: SyncSender<f64>,
+    },
+    DispatchMouse {
+        input: MouseInput,
+        response: SyncSender<std::result::Result<(), String>>,
+    },
     Blur,
 }
 
@@ -334,6 +384,24 @@ async fn run_ui_commands(
                 response.send(offset).ok();
                 Ok(())
             }
+            UiCommand::GetAutomationBounds { response } => {
+                window.update(cx, move |_view, window, cx| {
+                    cx.notify();
+                    window.refresh();
+                    window.on_next_frame(move |_window, _cx| {
+                        response.send(crate::automation::all_bounds()).ok();
+                    });
+                })
+            }
+            UiCommand::GetElementBounds { id, response } => {
+                window.update(cx, move |_view, window, cx| {
+                    cx.notify();
+                    window.refresh();
+                    window.on_next_frame(move |_window, _cx| {
+                        response.send(crate::automation::get_bounds(id)).ok();
+                    });
+                })
+            }
             UiCommand::FocusElement(id) => window.update(cx, move |view, window, cx| {
                 view.reveal_virtual_list_ancestor(id);
                 if let Some(handle) = view.focus_handles.get(&id) {
@@ -342,6 +410,49 @@ async fn run_ui_commands(
                 cx.notify();
                 window.refresh();
             }),
+            UiCommand::ControlClock { control, response } => {
+                window.update(cx, move |view, _window, cx| {
+                    let now_ms = match control {
+                        ClockControl::Pause => view.clock.pause(),
+                        ClockControl::Set(now_ms) => view.clock.set_ms(now_ms),
+                        ClockControl::FastForward(delta_ms) => {
+                            view.clock.fast_forward_ms(delta_ms)
+                        }
+                        ClockControl::Resume => view.clock.resume(),
+                    };
+                    cx.notify();
+                    response.send(now_ms).ok();
+                })
+            }
+            UiCommand::DispatchMouse { input, response } => {
+                let result = window.update(cx, move |_view, window, cx| match input {
+                    MouseInput::Click { x, y, button } => {
+                        crate::automation::dispatch_click(window, cx, x, y, button);
+                    }
+                    MouseInput::Down { x, y, button } => {
+                        crate::automation::dispatch_mouse_down(window, cx, x, y, button);
+                    }
+                    MouseInput::Up { x, y, button } => {
+                        crate::automation::dispatch_mouse_up(window, cx, x, y, button);
+                    }
+                    MouseInput::Move {
+                        x,
+                        y,
+                        pressed_button,
+                    } => {
+                        crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
+                    }
+                });
+                response
+                    .send(
+                        result
+                            .as_ref()
+                            .map(|_| ())
+                            .map_err(|error| format!("{error:#}")),
+                    )
+                    .ok();
+                result
+            }
             UiCommand::Blur => window.update(cx, |_view, window, _cx| window.blur()),
         };
         if let Err(error) = result {
@@ -392,6 +503,72 @@ impl GpuixRenderer {
             .ok_or_else(|| Error::from_reason("GPUI application is not initialized"))?
             .unbounded_send(command)
             .map_err(|_| Error::from_reason("The GPUI UI thread is not running"))
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    fn dispatch_mouse_input(&self, input: MouseInput) -> Result<()> {
+        let (response_sender, response_receiver) = sync_channel(1);
+        self.send_ui_command(UiCommand::DispatchMouse {
+            input,
+            response: response_sender,
+        })?;
+        recv_ui_response(response_receiver, "the GPUI UI command")?
+            .map_err(Error::from_reason)
+    }
+
+    fn automation_bounds(
+        &self,
+    ) -> Result<HashMap<u64, crate::automation::ElementBounds>> {
+        #[cfg(target_os = "macos")]
+        return Ok(crate::automation::all_bounds());
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::GetAutomationBounds { response })?;
+            return recv_ui_response(receiver, "the automation bounds query");
+        }
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
+    }
+
+    fn element_bounds(
+        &self,
+        id: u64,
+    ) -> Result<Option<crate::automation::ElementBounds>> {
+        #[cfg(target_os = "macos")]
+        return Ok(crate::automation::get_bounds(id));
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::GetElementBounds { id, response })?;
+            return recv_ui_response(receiver, "the element bounds query");
+        }
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        {
+            let _ = id;
+            Err(Error::from_reason("Unsupported operating system"))
+        }
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+    fn control_clock(&self, control: ClockControl) -> Result<f64> {
+        let (response, receiver) = sync_channel(1);
+        self.send_ui_command(UiCommand::ControlClock { control, response })?;
+        recv_ui_response(receiver, "the automation clock command")
     }
 
     fn request_invalidate(&self) -> Result<()> {
@@ -864,7 +1041,7 @@ impl GpuixRenderer {
         {
             let (response, receiver) = sync_channel(1);
             self.send_ui_command(UiCommand::CycleDebugFrameOverlay { response })?;
-            return recv_debug_frame_overlay_mode(receiver);
+            return recv_ui_response(receiver, "the debug frame overlay query");
         }
 
         #[cfg(not(any(
@@ -891,7 +1068,7 @@ impl GpuixRenderer {
         {
             let (response, receiver) = sync_channel(1);
             self.send_ui_command(UiCommand::GetDebugFrameOverlay { response })?;
-            recv_debug_frame_overlay_mode(receiver)
+            recv_ui_response(receiver, "the debug frame overlay query")
         }
 
         #[cfg(not(any(
@@ -1150,15 +1327,10 @@ impl GpuixRenderer {
         {
             let (response, receiver) = sync_channel(1);
             self.send_ui_command(UiCommand::GetScrollOffset { id, response })?;
-            return match receiver.recv_timeout(Duration::from_secs(2)) {
-                Ok(offset) => Ok(offset.map(|[x, y]| vec![x, y])),
-                Err(RecvTimeoutError::Timeout) => Err(Error::from_reason(
-                    "Timed out after 2 seconds waiting for the GPUI scroll query",
-                )),
-                Err(RecvTimeoutError::Disconnected) => Err(Error::from_reason(
-                    "The GPUI UI thread stopped during the scroll query",
-                )),
-            };
+            return Ok(
+                recv_ui_response(receiver, "the GPUI scroll query")?
+                    .map(|[x, y]| vec![x, y]),
+            );
         }
 
         #[cfg(not(any(
@@ -1173,8 +1345,9 @@ impl GpuixRenderer {
     #[napi]
     pub fn get_automation_tree(&self) -> Result<String> {
         self.request_invalidate()?;
+        let bounds = self.automation_bounds()?;
         let tree = self.tree.lock().unwrap();
-        let json = tree.to_automation_json(&crate::automation::all_bounds());
+        let json = tree.to_automation_json(&bounds);
         serde_json::to_string(&json)
             .map_err(|e| Error::from_reason(format!("JSON serialization failed: {}", e)))
     }
@@ -1182,7 +1355,8 @@ impl GpuixRenderer {
     #[napi]
     pub fn get_element_bounds(&self, id: f64) -> Result<Option<Vec<f64>>> {
         let id = to_element_id(id)?;
-        Ok(crate::automation::get_bounds(id)
+        Ok(self
+            .element_bounds(id)?
             .map(|bounds| vec![bounds.x, bounds.y, bounds.width, bounds.height]))
     }
 
@@ -1203,48 +1377,78 @@ impl GpuixRenderer {
 
     #[napi]
     pub fn simulate_click(&self, x: f64, y: f64, button: Option<u32>) -> Result<()> {
+        let button = button.unwrap_or(0);
+
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_click(window, cx, x, y, button.unwrap_or(0));
+            crate::automation::dispatch_click(window, cx, x, y, button);
         });
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.dispatch_mouse_input(MouseInput::Click { x, y, button });
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
         {
             let _ = (x, y, button);
             Err(Error::from_reason(
-                "simulateClick is only implemented on macOS",
+                "The production GPUIX renderer does not support this operating system",
             ))
         }
     }
 
     #[napi]
     pub fn simulate_mouse_down(&self, x: f64, y: f64, button: Option<u32>) -> Result<()> {
+        let button = button.unwrap_or(0);
+
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_down(window, cx, x, y, button.unwrap_or(0));
+            crate::automation::dispatch_mouse_down(window, cx, x, y, button);
         });
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.dispatch_mouse_input(MouseInput::Down { x, y, button });
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
         {
             let _ = (x, y, button);
             Err(Error::from_reason(
-                "simulateMouseDown is only implemented on macOS",
+                "The production GPUIX renderer does not support this operating system",
             ))
         }
     }
 
     #[napi]
     pub fn simulate_mouse_up(&self, x: f64, y: f64, button: Option<u32>) -> Result<()> {
+        let button = button.unwrap_or(0);
+
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_up(window, cx, x, y, button.unwrap_or(0));
+            crate::automation::dispatch_mouse_up(window, cx, x, y, button);
         });
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.dispatch_mouse_input(MouseInput::Up { x, y, button });
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
         {
             let _ = (x, y, button);
             Err(Error::from_reason(
-                "simulateMouseUp is only implemented on macOS",
+                "The production GPUIX renderer does not support this operating system",
             ))
         }
     }
@@ -1256,11 +1460,23 @@ impl GpuixRenderer {
             crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
         });
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.dispatch_mouse_input(MouseInput::Move {
+            x,
+            y,
+            pressed_button,
+        });
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
         {
             let _ = (x, y, pressed_button);
             Err(Error::from_reason(
-                "simulateMouseMove is only implemented on macOS",
+                "The production GPUIX renderer does not support this operating system",
             ))
         }
     }
@@ -1274,10 +1490,16 @@ impl GpuixRenderer {
             now_ms
         });
 
-        #[cfg(not(target_os = "macos"))]
-        Err(Error::from_reason(
-            "clockPause is only implemented on macOS",
-        ))
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.control_clock(ClockControl::Pause);
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
     }
 
     #[napi]
@@ -1289,10 +1511,18 @@ impl GpuixRenderer {
             now_ms
         });
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.control_clock(ClockControl::Set(now_ms));
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
         {
             let _ = now_ms;
-            Err(Error::from_reason("clockSet is only implemented on macOS"))
+            Err(Error::from_reason("Unsupported operating system"))
         }
     }
 
@@ -1305,12 +1535,18 @@ impl GpuixRenderer {
             now_ms
         });
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.control_clock(ClockControl::FastForward(delta_ms));
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
         {
             let _ = delta_ms;
-            Err(Error::from_reason(
-                "clockFastForward is only implemented on macOS",
-            ))
+            Err(Error::from_reason("Unsupported operating system"))
         }
     }
 
@@ -1323,10 +1559,16 @@ impl GpuixRenderer {
             now_ms
         });
 
-        #[cfg(not(target_os = "macos"))]
-        Err(Error::from_reason(
-            "clockResume is only implemented on macOS",
-        ))
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.control_clock(ClockControl::Resume);
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
     }
 
     #[napi]
@@ -1613,12 +1855,12 @@ impl Inherited {
             Some("text") | Some("auto") => self.selectable = true,
             _ => {}
         }
-        if let Some(hex) = style
+        if let Some(color) = style
             .selection_color
             .as_deref()
-            .and_then(crate::style::parse_color_hex)
+            .and_then(crate::color::parse_color_rgba)
         {
-            self.selection_wash = gpui::rgba(hex).into();
+            self.selection_wash = color.into();
         }
         self
     }
@@ -2138,75 +2380,32 @@ pub(crate) fn build_element(
 
         // Polymorphic dispatch for all custom elements.
         custom_type => {
-            let child_ids: Vec<u64> = element
+            let custom_children: Vec<gpui::AnyElement> = element
                 .children
                 .iter()
                 .copied()
                 .filter(|child_id| ctx.tree.elements.contains_key(child_id))
-                .collect();
-            let custom_children: Vec<gpui::AnyElement> = child_ids
-                .into_iter()
                 .map(|child_id| build_element(child_id, ctx, window, cx))
                 .collect();
-
-            let selection = ctx.selection.clone();
             let inherited = ctx.inherited;
-            let custom_registry = &mut *ctx.custom_registry;
-            if let Some(instance) = custom_registry.get_or_create(id, custom_type) {
-                // Sync known props from RetainedElement to the CustomElement instance.
-                // Missing keys are explicitly reset with null to avoid stale state.
-                let supported_props: Vec<String> = instance
-                    .supported_props()
-                    .iter()
-                    .map(|key| (*key).to_string())
-                    .collect();
-
-                for key in &supported_props {
-                    let value = element
-                        .custom_props
-                        .get(key)
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null);
-                    instance.set_prop(key, value);
-                }
-
-                // Also pass through unknown props for forward compatibility.
-                for (key, value) in &element.custom_props {
-                    if !supported_props.iter().any(|known| known == key) {
-                        instance.set_prop(key, value.clone());
-                    }
-                }
-
-                // Only pass events the custom element declares support for.
-                let supported_events: Vec<String> = instance
-                    .supported_events()
-                    .iter()
-                    .map(|event| (*event).to_string())
-                    .collect();
-                let filtered_events: HashSet<String> = element
-                    .events
-                    .iter()
-                    .filter(|event| supported_events.iter().any(|supported| supported == *event))
-                    .cloned()
-                    .collect();
-
-                let render_ctx = CustomRenderContext {
-                    id,
-                    events: &filtered_events,
-                    event_callback: ctx.event_callback,
-                    focus_handle: ctx.focus_handles.get(&id),
-                    style,
-                    children: custom_children,
-                    selection,
-                    selectable: inherited.selectable,
-                    selection_wash: inherited.selection_wash,
-                };
-
-                instance.render(render_ctx, window, cx)
-            } else {
-                log::warn!("Unknown element type: {}", custom_type);
-                gpui::Empty.into_any_element()
-            }
+            let render_ctx = CustomRenderContext {
+                id,
+                events: &element.events,
+                event_callback: ctx.event_callback,
+                focus_handle: ctx.focus_handles.get(&id),
+                style,
+                children: custom_children,
+                selection: ctx.selection.clone(),
+                selectable: inherited.selectable,
+                selection_wash: inherited.selection_wash,
+            };
+            ctx.custom_registry.render(
+                custom_type,
+                &element.custom_props,
+                render_ctx,
+                window,
+                cx,
+            )
         }
     };
 
@@ -2809,10 +3008,24 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(shrink) = style.flex_shrink {
         el.style().flex_shrink = Some(shrink as f32);
     }
+    if let Some(basis) = style.flex_basis {
+        el = el.flex_basis(gpui::px(basis as f32));
+    }
     match style.align_items.as_deref() {
         Some("center") => el = el.items_center(),
         Some("start") | Some("flex-start") => el = el.items_start(),
         Some("end") | Some("flex-end") => el = el.items_end(),
+        _ => {}
+    }
+    match style.align_content.as_deref() {
+        Some("center") => el = el.content_center(),
+        Some("start") | Some("flex-start") => el = el.content_start(),
+        Some("end") | Some("flex-end") => el = el.content_end(),
+        Some("between") | Some("space-between") => el = el.content_between(),
+        Some("around") | Some("space-around") => el = el.content_around(),
+        Some("evenly") | Some("space-evenly") => el = el.content_evenly(),
+        Some("stretch") => el = el.content_stretch(),
+        Some("normal") => el = el.content_normal(),
         _ => {}
     }
     match style.justify_content.as_deref() {
@@ -2938,13 +3151,13 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
         .as_ref()
         .or(style.background.as_ref())
     {
-        if let Some(hex) = parse_color_hex(bg) {
-            el = el.bg(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(bg) {
+            el = el.bg(color);
         }
     }
     if let Some(ref color) = style.color {
-        if let Some(hex) = parse_color_hex(color) {
-            el = el.text_color(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(color) {
+            el = el.text_color(color);
         }
     }
     if let Some(size) = style.font_size {
@@ -2988,14 +3201,51 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(radius) = style.border_radius {
         el = el.rounded(gpui::px(radius as f32));
     }
+    // Apply corner longhands after the shorthand so the explicit corner wins.
+    if let Some(radius) = style.border_top_left_radius {
+        el = el.rounded_tl(gpui::px(radius as f32));
+    }
+    if let Some(radius) = style.border_top_right_radius {
+        el = el.rounded_tr(gpui::px(radius as f32));
+    }
+    if let Some(radius) = style.border_bottom_left_radius {
+        el = el.rounded_bl(gpui::px(radius as f32));
+    }
+    if let Some(radius) = style.border_bottom_right_radius {
+        el = el.rounded_br(gpui::px(radius as f32));
+    }
     // `borderWidth: 0` must clear a border, not be ignored: an element that
     // draws its own border needs a way for the caller to remove it.
     if let Some(width) = style.border_width {
         el = el.border(gpui::px(width.max(0.0) as f32));
     }
+    if let Some(width) = style.border_top_width {
+        el = el.border_t(gpui::px(width.max(0.0) as f32));
+    }
+    if let Some(width) = style.border_right_width {
+        el = el.border_r(gpui::px(width.max(0.0) as f32));
+    }
+    if let Some(width) = style.border_bottom_width {
+        el = el.border_b(gpui::px(width.max(0.0) as f32));
+    }
+    if let Some(width) = style.border_left_width {
+        el = el.border_l(gpui::px(width.max(0.0) as f32));
+    }
     if let Some(ref color) = style.border_color {
-        if let Some(hex) = parse_color_hex(color) {
-            el = el.border_color(gpui::rgba(hex));
+        if let Some(color) = crate::color::parse_color_rgba(color) {
+            el = el.border_color(color);
+        }
+    }
+    if let Some(ref shadow) = style.box_shadow {
+        if let Some(color) = crate::color::parse_color_rgba(&shadow.color) {
+            let shadow = gpui::BoxShadow::new(
+                gpui::px(shadow.offset_x as f32),
+                gpui::px(shadow.offset_y as f32),
+                color.into(),
+            )
+            .blur_radius(gpui::px(shadow.blur_radius.max(0.0) as f32))
+            .spread_radius(gpui::px(shadow.spread_radius as f32));
+            el = el.shadow(vec![shadow]);
         }
     }
     if let Some(opacity) = style.opacity {
