@@ -75,7 +75,6 @@ export type {
   NativeRenderer,
   StyleDesc,
 } from "./types/host.js"
-export { resetIdCounter } from "./reconciler/host-config.js"
 export { handleGpuixEvent } from "./reconciler/event-registry.js"
 export {
   applyMacCpuThrottleFromEnv,

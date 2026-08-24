@@ -1,21 +1,18 @@
-import React from "react"
 import type { ReactNode } from "react"
-import type { OpaqueRoot } from "react-reconciler"
-import { ConcurrentRoot } from "react-reconciler/constants.js"
 import { GpuixRenderer } from "@gpuix/native"
 import type { EventPayload, WindowOptions } from "@gpuix/native"
-import { reconciler } from "./reconciler.js"
-import type { Container, DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
-import { clearEventHandlers, handleGpuixEvent } from "./event-registry.js"
-import { resetIdCounter, setNativeRenderer } from "./host-config.js"
-import { wrapWithBatching } from "./batch-renderer.js"
-import { GpuixContext } from "../hooks/use-gpuix.js"
+import { createRoot, flushSync, type Root } from "./reconciler.js"
+import type { DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
+import { handleGpuixEvent } from "./event-registry.js"
 import {
   InProcessBackend,
   liveRendererAsTest,
   serveAutomationStdio,
   type LiveAutomationRenderer,
 } from "../automation/client.js"
+
+export { createRoot, flushSync, reconciler } from "./reconciler.js"
+export type { Root } from "./reconciler.js"
 
 export function createRenderer(
   onEvent?: (event: import("@gpuix/native").EventPayload) => void
@@ -26,7 +23,7 @@ export function createRenderer(
       return
     }
     if (event) {
-      handleGpuixEvent(event)
+      handleGpuixEvent(event, renderer)
       if (onEvent) {
         onEvent(event)
       }
@@ -41,11 +38,6 @@ export function createRenderer(
     }
   }
   return renderer
-}
-
-export interface Root {
-  render: (node: ReactNode) => void
-  unmount: () => void
 }
 
 /** ~125fps. Above any common display refresh rate, so frames are never the
@@ -119,81 +111,6 @@ export function startFrameLoop(
   return { stop }
 }
 
-/**
- * Create a root for rendering React to GPUI (or a TestRenderer for tests).
- * Mutations go directly to the renderer — no JSON tree serialization.
- *
- * If the renderer supports applyBatch(), mutations are automatically batched
- * into a single FFI call per commit (N individual calls → 1 applyBatch call).
- */
-export function createRoot(renderer: NativeRenderer): Root {
-  let container: OpaqueRoot | null = null
-
-  // Wrap with batching if the renderer supports applyBatch().
-  // This reduces N FFI boundary crossings to 1 per React commit.
-  const batchedRenderer = wrapWithBatching(renderer)
-
-  // Wire up the batched renderer for host-config to use
-  setNativeRenderer(batchedRenderer)
-
-  const gpuixContainer: Container = {
-    renderer: batchedRenderer,
-  }
-
-  const cleanup = (): void => {
-    if (container) {
-      // Must be sync. A late unmount destroy()s remounted ids and the window goes black.
-      flushSync(() => {
-        reconciler.updateContainer(null, container, null, () => {})
-      })
-      container = null
-    }
-    clearEventHandlers()
-  }
-
-  // Create container once — reuse on subsequent render() calls
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  container = (reconciler.createContainer as any)(
-    gpuixContainer,
-    ConcurrentRoot,
-    null,
-    false,
-    null,
-    "",
-    console.error,
-    console.error,
-    console.error,
-    null
-  )
-
-  return {
-    render: (node): void => {
-      setNativeRenderer(batchedRenderer)
-      clearEventHandlers()
-
-      reconciler.updateContainer(
-        React.createElement(
-          GpuixContext.Provider,
-          { value: { renderer: batchedRenderer } },
-          node
-        ),
-        container,
-        null,
-        () => {}
-      )
-    },
-
-    unmount: cleanup,
-  }
-}
-
-export { reconciler }
-
-const _r = reconciler as typeof reconciler & {
-  flushSyncFromReconciler?: typeof reconciler.flushSync
-}
-export const flushSync = _r.flushSyncFromReconciler ?? _r.flushSync
-
 const RENDER_HOST_KEY = "__gpuixRenderHost"
 
 type RenderSlot = {
@@ -220,6 +137,9 @@ export interface RenderOptions extends WindowOptions {
 }
 
 export function resetRender(): void {
+  const slot = Reflect.get(globalThis, RENDER_HOST_KEY) as RenderSlot | undefined
+  slot?.loop?.stop()
+  slot?.root?.unmount()
   Reflect.deleteProperty(globalThis, RENDER_HOST_KEY)
 }
 
@@ -248,7 +168,6 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   if (slot.root) {
     console.log("[gpuix] remount: unmount previous tree")
     slot.root.unmount()
-    resetIdCounter()
   }
   const root = createRoot(host)
   slot.root = root
