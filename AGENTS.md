@@ -168,6 +168,14 @@ rebuilds, and re-renders the screenshot tests. **A Rust edit reaches fresh PNGs
 in about 4 seconds.** Prefer screenshot mode over `--app`: PNGs in
 `packages/react/screenshots/` can be read by an agent, a live window cannot.
 
+**Never ship or start the app on a debug native build.** `bun run build:debug`
+and `cargo build` without `--release` produce an unoptimized `.node`. GPUI
+paint is then many times slower, and that looks like an app bug. Always use
+`bun run build` in `packages/native` (release). Use `build:debug` only when
+the user asks, or when a debug-only tool (lldb, sanitizers) cannot run on
+release. After any debug build, rebuild release before starting `chat.tsx`
+or judging frame time.
+
 ## Virtualized React children re-enter through `cx.processor`
 
 `<virtual-list>` does not build its retained children during `GpuixView::render`.
@@ -388,7 +396,9 @@ To update the TypeScript API surface, edit the Rust source files in `packages/na
 
 ## Changesets
 
-After completing a fix or feature, add a `.changeset/*.md` file at the repo root instead of editing CHANGELOG.md. Never edit CHANGELOG.md directly; it is generated at publish time. Never bump `package.json` version manually. Load the `changesets` skill for format and rules.
+**Always** add a `.changeset/*.md` file after a user-facing fix or feature. Do this before you consider the work done. Never skip it. Never edit CHANGELOG.md. Never bump `package.json` version by hand.
+
+Load the `changesets` skill for format and rules. If the change fixes a GitHub issue or should close a PR, put `Fixes #N` / `Closes #N` on its own line. changepub copies those onto the release commit.
 
 ## Publishing
 
@@ -548,6 +558,63 @@ xcodebuild -downloadComponent MetalToolchain
 3. Fast-forward the `zed/` submodule to the updated `gpui-macos-embedded` branch.
 4. Match `rust-toolchain.toml` to `zed/rust-toolchain.toml`.
 5. Run `cargo check --all-targets`, `bun run build`, and the test suites.
+
+### PRs to Zed
+
+A "PR to Zed" means **upstream** [`zed-industries/zed`](https://github.com/zed-industries/zed)
+`main`. Never open that PR from this checkout. Never point it at `remorses/zed`.
+
+Do **not** branch, commit review markers, or reset `zed/` inside this checkout.
+That submodule is what GPUIX builds against. A dirty or switched `zed/` breaks
+the native addon and the test renderer.
+
+```bash
+# from gpuixlocal/zed. leaves this submodule on its current commit
+git remote add upstream https://github.com/zed-industries/zed.git  # once
+git fetch upstream
+git worktree add /Users/morse/Documents/GitHub/zed-<branch-name> -b <branch-name> upstream/main
+```
+
+Commit only in that worktree. Do not add comments to Zed source. Push the branch
+to `remorses/zed`, then open the PR with `--repo zed-industries/zed --base main`.
+After merge, cherry-pick onto `gpui-macos-embedded` and fast-forward the submodule
+here. Never run `git reset` in `zed/` to "undo" PR work.
+
+### PRs to GPUIX
+
+When you open a PR with `gh pr create` against **this repo** (`remorses/gpuix`),
+the body must name the **harness**, **agent**, and **model** that wrote the
+change. Then put **every user prompt** from the session in a collapsed
+`<details>` block. Reviewers use that to judge prompt quality and how much
+the agent invented.
+
+Do this for `gh pr create` and for later `gh pr edit` if the first body missed
+it. Do not add this block to Zed PRs.
+
+```md
+**Harness:** OpenCode / Kimaki
+**Agent:** build
+**Model:** xai/grok-4.6
+
+<details>
+<summary>User prompts</summary>
+
+1. first user message, verbatim
+
+2. second user message, verbatim
+
+</details>
+```
+
+- **Harness:** the product that ran the agent. Examples: OpenCode, Kimaki,
+  Claude Code, Cursor, Codex.
+- **Agent:** the named agent if the harness has one (`build`, `plan`, `opus`).
+  Write `none` if there is no named agent.
+- **Model:** the exact model id from the session (`xai/grok-4.6`,
+  `anthropic/claude-opus-4.6`). Do not guess a shorter marketing name.
+- **User prompts:** every user message that drove the PR, in order, verbatim.
+  Skip system reminders, tool output, and your own replies. If a prompt is
+  huge, keep the full text inside the details block; do not summarize it.
 
 ## Current Status
 
