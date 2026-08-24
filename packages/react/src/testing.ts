@@ -12,7 +12,7 @@
 import type { ReactNode } from "react"
 import type { EventPayload } from "@gpuix/native"
 import type { DebugFrameOverlayMode, NativeRenderer } from "./types/host.js"
-import { createRoot, flushSync, type Root } from "./reconciler/renderer.js"
+import { createRoot, flushSync, type Root } from "./reconciler/reconciler.js"
 import { handleGpuixEvent } from "./reconciler/event-registry.js"
 import { resetIdCounter } from "./reconciler/host-config.js"
 

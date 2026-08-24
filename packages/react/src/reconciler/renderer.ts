@@ -1,21 +1,19 @@
-import React from "react"
 import type { ReactNode } from "react"
-import type { OpaqueRoot } from "react-reconciler"
-import { ConcurrentRoot } from "react-reconciler/constants.js"
 import { GpuixRenderer } from "@gpuix/native"
 import type { EventPayload, WindowOptions } from "@gpuix/native"
-import { reconciler } from "./reconciler.js"
-import type { Container, DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
+import { createRoot, flushSync, type Root } from "./reconciler.js"
+import type { DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
 import { handleGpuixEvent } from "./event-registry.js"
 import { resetIdCounter } from "./host-config.js"
-import { wrapWithBatching } from "./batch-renderer.js"
-import { GpuixContext } from "../hooks/use-gpuix.js"
 import {
   InProcessBackend,
   liveRendererAsTest,
   serveAutomationStdio,
   type LiveAutomationRenderer,
 } from "../automation/client.js"
+
+export { createRoot, flushSync, reconciler } from "./reconciler.js"
+export type { Root } from "./reconciler.js"
 
 export function createRenderer(
   onEvent?: (event: import("@gpuix/native").EventPayload) => void
@@ -41,11 +39,6 @@ export function createRenderer(
     }
   }
   return renderer
-}
-
-export interface Root {
-  render: (node: ReactNode) => void
-  unmount: () => void
 }
 
 /** ~125fps. Above any common display refresh rate, so frames are never the
@@ -118,79 +111,6 @@ export function startFrameLoop(
 
   return { stop }
 }
-
-/**
- * Create a root for rendering React to GPUI (or a TestRenderer for tests).
- * Mutations go directly to the renderer — no JSON tree serialization.
- *
- * If the renderer supports applyBatch(), mutations are automatically batched
- * into a single FFI call per commit (N individual calls → 1 applyBatch call).
- */
-export function createRoot(renderer: NativeRenderer): Root {
-  let container: OpaqueRoot | null = null
-
-  // Wrap with batching if the renderer supports applyBatch().
-  // This reduces N FFI boundary crossings to 1 per React commit.
-  const batchedRenderer = wrapWithBatching(renderer)
-
-
-  const gpuixContainer: Container = {
-    renderer: batchedRenderer,
-  }
-
-  const cleanup = (): void => {
-    if (container) {
-      // Must be sync. A late unmount destroy()s remounted ids and the window goes black.
-      flushSync(() => {
-        reconciler.updateContainer(null, container, null, () => {})
-      })
-      container = null
-    }
-  }
-
-  // Create container once — reuse on subsequent render() calls
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  container = (reconciler.createContainer as any)(
-    gpuixContainer,
-    ConcurrentRoot,
-    null,
-    false,
-    null,
-    "",
-    console.error,
-    console.error,
-    console.error,
-    null
-  )
-
-  return {
-    render: (node): void => {
-      const activeContainer = container
-      if (!activeContainer) {
-        throw new Error("Cannot render an unmounted GPUIX root")
-      }
-      reconciler.updateContainer(
-        React.createElement(
-          GpuixContext.Provider,
-          { value: { renderer: batchedRenderer } },
-          node
-        ),
-        activeContainer,
-        null,
-        () => {}
-      )
-    },
-
-    unmount: cleanup,
-  }
-}
-
-export { reconciler }
-
-const _r = reconciler as typeof reconciler & {
-  flushSyncFromReconciler?: typeof reconciler.flushSync
-}
-export const flushSync = _r.flushSyncFromReconciler ?? _r.flushSync
 
 const RENDER_HOST_KEY = "__gpuixRenderHost"
 

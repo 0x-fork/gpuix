@@ -210,11 +210,6 @@ function materialize(node: HostNode): HostNodeState {
   if (state.mounted) return state
 
   const renderer = state.renderer
-  for (const child of state.initialChildren) {
-    if (stateFor(child).renderer !== renderer) {
-      throw new Error("Cannot attach GPUIX host nodes from different roots")
-    }
-  }
   if ("type" in node) {
     renderer.createElement(node.id, node.type)
     sendStyle(renderer, node.id, node.props)
@@ -260,12 +255,7 @@ export const hostConfig = {
   },
 
   appendChild(parent: Instance, child: Instance | TextInstance): void {
-    const parentState = stateFor(parent)
-    const childState = stateFor(child)
-    if (childState.renderer !== parentState.renderer) {
-      throw new Error("Cannot attach GPUIX host nodes from different roots")
-    }
-    materialize(parent)
+    const parentState = materialize(parent)
     materialize(child)
     parentState.renderer.appendChild(parent.id, child.id)
   },
@@ -279,15 +269,7 @@ export const hostConfig = {
     child: Instance | TextInstance,
     beforeChild: Instance | TextInstance
   ): void {
-    const parentState = stateFor(parent)
-    const childState = stateFor(child)
-    if (
-      childState.renderer !== parentState.renderer ||
-      rendererFor(beforeChild) !== parentState.renderer
-    ) {
-      throw new Error("Cannot attach GPUIX host nodes from different roots")
-    }
-    materialize(parent)
+    const parentState = materialize(parent)
     materialize(child)
     parentState.renderer.insertBefore(parent.id, child.id, beforeChild.id)
   },
@@ -299,9 +281,6 @@ export const hostConfig = {
   ): void {},
 
   removeChildFromContainer(parent: Container, child: Instance): void {
-    if (rendererFor(child) !== parent.renderer) {
-      throw new Error("Cannot detach a GPUIX host node from a different root")
-    }
     const destroyed = parent.renderer.destroyElement(child.id)
     for (const id of destroyed) {
       unregisterEventHandlers(id)
@@ -403,20 +382,12 @@ export const hostConfig = {
   },
 
   appendChildToContainer(container: Container, child: Instance): void {
-    const childState = stateFor(child)
-    if (childState.renderer !== container.renderer) {
-      throw new Error("Cannot attach a GPUIX host node to a different root")
-    }
     materialize(child)
     container.renderer.setRoot(child.id)
   },
 
   appendInitialChild(parent: Instance, child: Instance | TextInstance): void {
-    const parentState = stateFor(parent)
-    if (rendererFor(child) !== parentState.renderer) {
-      throw new Error("Cannot attach GPUIX host nodes from different roots")
-    }
-    parentState.initialChildren.push(child)
+    stateFor(parent).initialChildren.push(child)
   },
 
   hideInstance(instance: Instance): void {
