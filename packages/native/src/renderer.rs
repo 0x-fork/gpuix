@@ -2532,7 +2532,7 @@ fn build_virtual_list(
     });
     let mut list =
         gpui::list(list_state, render_item).with_sizing_behavior(gpui::ListSizingBehavior::Auto);
-    if let Some(style) = element.style.as_deref() {
+    if let Some(style) = element.style.as_ref() {
         list = apply_styles(list, style);
     }
     list.into_any_element()
