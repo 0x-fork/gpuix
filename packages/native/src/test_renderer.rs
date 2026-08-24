@@ -214,29 +214,6 @@ impl TestGpuixRenderer {
     }
 
     #[napi]
-    pub fn intern_style(&self, style_id: f64, style_json: String) -> Result<()> {
-        let style: StyleDesc = serde_json::from_str(&style_json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse style: {}", e)))?;
-        self.tree
-            .lock()
-            .unwrap()
-            .intern_style(style_id as u32, style)
-            .map_err(Error::from_reason)?;
-        Ok(())
-    }
-
-    #[napi]
-    pub fn set_style_id(&self, id: f64, style_id: f64) -> Result<()> {
-        let id = to_element_id(id)?;
-        self.tree
-            .lock()
-            .unwrap()
-            .set_style_id(id, style_id as u32)
-            .map_err(Error::from_reason)?;
-        Ok(())
-    }
-
-    #[napi]
     pub fn set_text(&self, id: f64, content: String) -> Result<()> {
         let id = to_element_id(id)?;
         self.tree.lock().unwrap().set_text(id, content);

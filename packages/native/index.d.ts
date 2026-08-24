@@ -15,8 +15,6 @@ export declare class GpuixRenderer {
   removeChild(parentId: number, childId: number): void
   insertBefore(parentId: number, childId: number, beforeId: number): void
   setStyle(id: number, styleJson: string): void
-  internStyle(styleId: number, styleJson: string): void
-  setStyleId(id: number, styleId: number): void
   setText(id: number, content: string): void
   setEventListener(id: number, eventType: string, hasHandler: boolean): void
   /** Set the root element (called from appendChildToContainer). */
@@ -43,8 +41,6 @@ export declare class GpuixRenderer {
    *   ["removeChild",      parentId, childId]
    *   ["insertBefore",     parentId, childId, beforeId]
    *   ["setStyle",         id, { ...style } | "{styleJson}"]
-   *   ["internStyle",      styleId, { ...style }]
-   *   ["setStyleId",       id, styleId]
    *   ["setText",          id, "content"]
    *   ["setEventListener", id, "eventType", true|false]
    *   ["setRoot",          id]
@@ -129,8 +125,6 @@ export declare class TestGpuixRenderer {
   removeChild(parentId: number, childId: number): void
   insertBefore(parentId: number, childId: number, beforeId: number): void
   setStyle(id: number, styleJson: string): void
-  internStyle(styleId: number, styleJson: string): void
-  setStyleId(id: number, styleId: number): void
   setText(id: number, content: string): void
   setEventListener(id: number, eventType: string, hasHandler: boolean): void
   /** Set the root element (called from appendChildToContainer). */

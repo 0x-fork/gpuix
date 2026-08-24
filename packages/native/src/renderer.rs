@@ -660,29 +660,6 @@ impl GpuixRenderer {
     }
 
     #[napi]
-    pub fn intern_style(&self, style_id: f64, style_json: String) -> Result<()> {
-        let style: StyleDesc = serde_json::from_str(&style_json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse style: {}", e)))?;
-        self.tree
-            .lock()
-            .unwrap()
-            .intern_style(style_id as u32, style)
-            .map_err(Error::from_reason)?;
-        Ok(())
-    }
-
-    #[napi]
-    pub fn set_style_id(&self, id: f64, style_id: f64) -> Result<()> {
-        let id = to_element_id(id)?;
-        self.tree
-            .lock()
-            .unwrap()
-            .set_style_id(id, style_id as u32)
-            .map_err(Error::from_reason)?;
-        Ok(())
-    }
-
-    #[napi]
     pub fn set_text(&self, id: f64, content: String) -> Result<()> {
         let id = to_element_id(id)?;
         let mut tree = self.tree.lock().unwrap();
@@ -747,8 +724,6 @@ impl GpuixRenderer {
     ///   ["removeChild",      parentId, childId]
     ///   ["insertBefore",     parentId, childId, beforeId]
     ///   ["setStyle",         id, { ...style } | "{styleJson}"]
-    ///   ["internStyle",      styleId, { ...style }]
-    ///   ["setStyleId",       id, styleId]
     ///   ["setText",          id, "content"]
     ///   ["setEventListener", id, "eventType", true|false]
     ///   ["setRoot",          id]
@@ -1980,7 +1955,7 @@ pub(crate) fn build_element(
         state.is_valid().then(|| {
             let frame = state.frame(ctx.now);
             *ctx.motion_active |= frame.active;
-            let mut resolved = element.style.as_deref().cloned().unwrap_or_default();
+            let mut resolved = element.style.clone().unwrap_or_default();
             frame.style.apply_to(&mut resolved);
             resolved
         })
@@ -1988,7 +1963,7 @@ pub(crate) fn build_element(
         ctx.motion_states.remove(&id);
         None
     };
-    let style = animated_style.as_ref().or(element.style.as_deref());
+    let style = animated_style.as_ref().or(element.style.as_ref());
 
     // Inheritable style resolves once here so both built-ins and custom
     // elements see the same cascade.
@@ -2932,14 +2907,6 @@ enum BatchOp {
         id: u64,
         style: StyleDesc,
     },
-    InternStyle {
-        style_id: u32,
-        style: StyleDesc,
-    },
-    SetStyleId {
-        id: u64,
-        style_id: u32,
-    },
     SetText {
         id: u64,
         content: String,
@@ -3003,19 +2970,6 @@ fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
                     style,
                 }
             }
-            "internStyle" => {
-                let style: StyleDesc = batch_decode(arr, 2, i).map_err(|e| {
-                    Error::from_reason(format!("Batch op {} internStyle parse error: {}", i, e))
-                })?;
-                BatchOp::InternStyle {
-                    style_id: batch_id(arr, 1, i)? as u32,
-                    style,
-                }
-            }
-            "setStyleId" => BatchOp::SetStyleId {
-                id: batch_id(arr, 1, i)?,
-                style_id: batch_id(arr, 2, i)? as u32,
-            },
             "setText" => BatchOp::SetText {
                 id: batch_id(arr, 1, i)?,
                 content: batch_str(arr, 2, i)?,
@@ -3064,43 +3018,6 @@ fn parse_batch_ops(ops: &[serde_json::Value]) -> Result<Vec<BatchOp>> {
     Ok(parsed)
 }
 
-fn validate_style_ops(tree: &RetainedTree, ops: &[BatchOp]) -> Result<()> {
-    let mut incoming: HashMap<u32, &StyleDesc> = HashMap::new();
-    let mut available: HashSet<u32> = HashSet::new();
-    for op in ops {
-        match op {
-            BatchOp::InternStyle { style_id, style } => {
-                if let Some(existing) = tree.interned_style(*style_id) {
-                    if existing != style {
-                        return Err(Error::from_reason(format!(
-                            "Interned style id {style_id} already has a different style"
-                        )));
-                    }
-                }
-                if let Some(previous) = incoming.get(style_id) {
-                    if *previous != style {
-                        return Err(Error::from_reason(format!(
-                            "Interned style id {style_id} already has a different style"
-                        )));
-                    }
-                } else {
-                    incoming.insert(*style_id, style);
-                }
-                available.insert(*style_id);
-            }
-            BatchOp::SetStyleId { style_id, .. } => {
-                if !available.contains(style_id) && !tree.has_interned_style(*style_id) {
-                    return Err(Error::from_reason(format!(
-                        "Unknown interned style id {style_id}"
-                    )));
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
 /// Apply a batch of mutation tuples to a RetainedTree.
 /// Shared between GpuixRenderer::apply_batch and TestGpuixRenderer::apply_batch.
 /// Returns accumulated destroyed IDs (as f64) from all destroyElement ops.
@@ -3117,7 +3034,6 @@ pub(crate) fn apply_batch_to_tree(
 ) -> Result<Vec<f64>> {
     // Phase 1: parse and validate all ops (no mutation).
     let parsed = parse_batch_ops(ops)?;
-    validate_style_ops(tree, &parsed)?;
 
     // Phase 2: apply all validated ops to the tree.
     let mut destroyed_ids: Vec<f64> = Vec::new();
@@ -3151,14 +3067,6 @@ pub(crate) fn apply_batch_to_tree(
             }
             BatchOp::SetStyle { id, style } => {
                 tree.set_style(id, style);
-            }
-            BatchOp::InternStyle { style_id, style } => {
-                tree.intern_style(style_id, style)
-                    .map_err(Error::from_reason)?;
-            }
-            BatchOp::SetStyleId { id, style_id } => {
-                tree.set_style_id(id, style_id)
-                    .map_err(Error::from_reason)?;
             }
             BatchOp::SetText { id, content } => {
                 tree.set_text(id, content);
