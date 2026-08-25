@@ -258,6 +258,34 @@ describe("<virtual-list>", () => {
     expect(renderer.getPaintedText()).not.toContain("row-0")
   })
 
+  it("ignores itemCount when estimatedItemHeight is missing", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <virtual-list itemCount={1000} windowStart={0} style={{ width: 400, height: 160 }}>
+        {Array.from({ length: 8 }, (_, index) => (
+          <div
+            key={index}
+            style={{
+              display: "flex",
+              height: 40,
+              flexShrink: 0,
+              alignItems: "center",
+            }}
+          >
+            <text>{`row-${index}`}</text>
+          </div>
+        ))}
+      </virtual-list>,
+    )
+
+    const list = renderer.findByType("virtual-list")[0]
+    renderer.scrollToItem(list.id, 80)
+
+    const painted = renderer.getPaintedText()
+    expect(painted.some((line) => line.startsWith("row-"))).toBe(true)
+    expect(renderer.getAllText()).toHaveLength(8)
+  })
+
   it("keeps estimated height for logical rows React has not mounted", () => {
     const { render, renderer } = createTestRoot()
     const windowed = (start: number) => (

@@ -64,8 +64,7 @@ export const motion = {
   div: MotionDiv,
 } as const
 
-export interface WindowedVirtualListProps extends VirtualListProps {
-  itemCount: number
+export type WindowedVirtualListProps = Extract<VirtualListProps, { itemCount: number }> & {
   renderItem: (index: number) => ReactNode
 }
 

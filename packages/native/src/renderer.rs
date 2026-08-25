@@ -2509,7 +2509,7 @@ impl VirtualListConfig {
             .and_then(serde_json::Value::as_f64)
             .filter(|height| *height > 0.0)
             .map(|height| height as f32);
-        let item_count = prop("itemCount").and_then(json_usize);
+        let item_count = estimated_item_height.and_then(|_| prop("itemCount").and_then(json_usize));
         Self {
             alignment,
             follow_tail,
@@ -3086,7 +3086,11 @@ fn build_virtual_list(
             })
         });
     let config = VirtualListConfig::from_element(element);
-    let window_start = window_start_from_element(element);
+    let window_start = if config.item_count.is_some() {
+        window_start_from_element(element)
+    } else {
+        0
+    };
     let list_state = match ctx.virtual_lists.entry(element.id) {
         std::collections::hash_map::Entry::Occupied(mut entry) => {
             entry.get_mut().sync(

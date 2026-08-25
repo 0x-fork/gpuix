@@ -603,7 +603,7 @@ The list needs a **bounded height** or bounded flex space. Its direct children a
 | `alignment` | `"top"` | Use `"bottom"` for chat-style initial positioning |
 | `followTail` | `false` | Follow appended rows until the user scrolls away |
 | `overdraw` | `512` | Extra pixels built outside the viewport |
-| `estimatedItemHeight` | none | Gives unmeasured rows an initial height estimate |
+| `estimatedItemHeight` | none | Height hint for unmeasured rows. **Required** with `itemCount` |
 
 ### How virtualization works
 
@@ -717,7 +717,9 @@ viewport. Put fat content in one native node (`<markdown>`, `<code>`, `<diff>`),
 not a tree of React spans.
 
 The host `<virtual-list>` still retains every React child. Pass `itemCount`
-and `renderItem` through `VirtualList` so mount only creates the window.
+and `estimatedItemHeight` with `renderItem` through `VirtualList` so mount
+only creates the window. Native ignores `itemCount` when the estimate is
+missing, so a jump cannot collapse unmounted rows to height 0.
 
 ```tsx
 import { VirtualList } from '@gpuix/react'

@@ -315,21 +315,28 @@ export interface TextareaProps extends InputProps {
   maxRows?: number
 }
 
-/** A variable-height list that builds only rows near its viewport. */
-export interface VirtualListProps {
+type VirtualListShared = {
   style?: StyleDesc
   children?: React.ReactNode
   ref?: React.Ref<PublicInstance>
   alignment?: "top" | "bottom"
   followTail?: boolean
   overdraw?: number
-  estimatedItemHeight?: number
-  /** Logical row count. When set, `children` is only the mounted window. */
-  itemCount?: number
-  /** Logical index of `children[0]`. Ignored when `itemCount` is unset. */
-  windowStart?: number
   onVisibleRange?: (event: EventPayload) => void
 }
+
+/** A variable-height list that builds only rows near its viewport. */
+export type VirtualListProps =
+  | (VirtualListShared & {
+      estimatedItemHeight?: number
+      itemCount?: never
+      windowStart?: never
+    })
+  | (VirtualListShared & {
+      itemCount: number
+      estimatedItemHeight: number
+      windowStart?: number
+    })
 
 // Props for native <img> rendering.
 export interface ImgProps extends Props {
