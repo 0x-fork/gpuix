@@ -2296,7 +2296,12 @@ impl GpuixView {
                 .and_then(|offset| list.children.get(offset))
         }) == Some(&expected_child_id);
         if !child_matches {
-            return gpui::Empty.into_any_element();
+            let height = self
+                .virtual_lists
+                .get(&list_id)
+                .and_then(|entry| entry.config.estimated_item_height)
+                .unwrap_or(1.0);
+            return unmounted_virtual_row(height);
         }
 
         let callback = self.event_callback.clone();
@@ -2724,11 +2729,37 @@ impl VirtualListEntry {
             self.state
                 .remeasure_items(start..window_start + child_ids.len());
         }
+        self.remeasure_unknown_rows(window_start, &child_ids, &old_rows);
 
         self.window_start = window_start;
         self.child_ids = child_ids;
         self.child_revisions = child_revisions;
         self.row_focus_handles = row_focus_handles;
+    }
+
+    fn remeasure_unknown_rows(
+        &mut self,
+        window_start: usize,
+        child_ids: &[u64],
+        known: &HashMap<u64, (u64, Option<gpui::FocusHandle>)>,
+    ) {
+        let mut range_start = None;
+        for (offset, id) in child_ids.iter().enumerate() {
+            let logical = window_start + offset;
+            let is_new = !known.contains_key(id);
+            match (range_start, is_new) {
+                (None, true) => range_start = Some(logical),
+                (Some(start), false) => {
+                    self.state.remeasure_items(start..logical);
+                    range_start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(start) = range_start {
+            self.state
+                .remeasure_items(start..window_start + child_ids.len());
+        }
     }
 }
 
@@ -3120,12 +3151,12 @@ fn build_virtual_list(
     let list_id = element.id;
     let inherited = ctx.inherited;
     let render_item = cx.processor(move |view, index: usize, window, cx| {
-        let Some(child_id) = view
-            .virtual_lists
-            .get(&list_id)
-            .and_then(|entry| entry.child_at(index))
-        else {
-            return gpui::Empty.into_any_element();
+        let Some(entry) = view.virtual_lists.get(&list_id) else {
+            return unmounted_virtual_row(1.0);
+        };
+        let Some(child_id) = entry.child_at(index) else {
+            // Empty measures as 0 and poisons ListState. Keep the estimate.
+            return unmounted_virtual_row(entry.config.estimated_item_height.unwrap_or(1.0));
         };
         view.build_virtual_child(list_id, index, child_id, inherited, window, cx)
     });
@@ -3135,6 +3166,14 @@ fn build_virtual_list(
         list = apply_styles(list, style);
     }
     list.into_any_element()
+}
+
+fn unmounted_virtual_row(height: f32) -> gpui::AnyElement {
+    use gpui::prelude::*;
+    gpui::div()
+        .h(gpui::px(height.max(1.0)))
+        .w_full()
+        .into_any()
 }
 
 fn virtual_row_ancestor(tree: &RetainedTree, list_id: u64, element_id: u64) -> Option<u64> {
