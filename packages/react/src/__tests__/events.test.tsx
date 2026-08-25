@@ -1096,6 +1096,81 @@ describeNative("events", () => {
 
       expect(received).toEqual(["handle-down", "handle-move", "handle-up"])
     })
+
+    it("releases capture when the captured node is removed", () => {
+      const received: string[] = []
+
+      function Drag() {
+        const [gone, setGone] = useState(false)
+        if (gone) {
+          return (
+            <div
+              style={{ width: 400, height: 80, backgroundColor: "#22aa66" }}
+              onMouseMove={() => received.push("replacement-move")}
+              onMouseUp={() => received.push("replacement-up")}
+            >
+              <text>replacement</text>
+            </div>
+          )
+        }
+        return (
+          <div
+            style={{ width: 80, height: 40, backgroundColor: "#3366ff" }}
+            onMouseDown={() => {
+              received.push("down")
+              setGone(true)
+            }}
+            onMouseMove={() => received.push("handle-move")}
+            onMouseUp={() => received.push("handle-up")}
+          >
+            <text>handle</text>
+          </div>
+        )
+      }
+
+      testRoot.render(<Drag />)
+      testRoot.renderer.nativeSimulateMouseDown(20, 20)
+      testRoot.renderer.nativeSimulateMouseMove(20, 20, 0)
+      testRoot.renderer.nativeSimulateMouseUp(20, 20, 0)
+
+      expect(received).toEqual(["down", "replacement-move", "replacement-up"])
+    })
+
+    it("does not hover a sibling while the pointer is captured", () => {
+      const received: string[] = []
+
+      function Pair() {
+        return (
+          <div style={{ width: 400, height: 80, display: "flex" }}>
+            <div
+              style={{ width: 80, height: 40, backgroundColor: "#3366ff" }}
+              onMouseDown={() => received.push("handle-down")}
+              onMouseMove={() => received.push("handle-move")}
+              onMouseUp={() => received.push("handle-up")}
+            >
+              <text>handle</text>
+            </div>
+            <div
+              style={{ width: 200, height: 40, backgroundColor: "#22aa66" }}
+              onMouseEnter={() => received.push("sibling-enter")}
+            >
+              <text>sibling</text>
+            </div>
+          </div>
+        )
+      }
+
+      testRoot.render(<Pair />)
+      testRoot.renderer.nativeSimulateMouseDown(20, 20)
+      testRoot.renderer.nativeSimulateMouseMove(160, 20, 0)
+      expect(received).toEqual(["handle-down", "handle-move"])
+      testRoot.renderer.nativeSimulateMouseUp(160, 20, 0)
+      expect(received.slice(0, 3)).toEqual([
+        "handle-down",
+        "handle-move",
+        "handle-up",
+      ])
+    })
   })
 
   describe("combined event interactions", () => {

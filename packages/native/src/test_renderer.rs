@@ -101,7 +101,6 @@ pub struct TestGpuixRenderer {
 impl TestGpuixRenderer {
     #[napi(constructor)]
     pub fn new() -> Result<Self> {
-        crate::renderer::release_pointer_capture();
         let tree = Arc::new(Mutex::new(RetainedTree::new()));
         let events: Arc<Mutex<Vec<EventPayload>>> = Arc::new(Mutex::new(Vec::new()));
 
