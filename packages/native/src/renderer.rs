@@ -23,7 +23,7 @@ use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi_derive::napi;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
@@ -118,6 +118,9 @@ thread_local! {
     /// TODO: Scope by renderer/window ID when multi-window support is added.
     static SCROLL_HANDLES: RefCell<HashMap<u64, gpui::ScrollHandle>> = RefCell::new(HashMap::new());
     static VIRTUAL_LIST_STATES: RefCell<HashMap<u64, gpui::ListState>> = RefCell::new(HashMap::new());
+    /// HTML setPointerCapture: the element that received mouseDown while also
+    /// listening for mouseMove keeps move/up after the pointer leaves its box.
+    static POINTER_CAPTURE: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -2241,6 +2244,7 @@ impl GpuixView {
         window_title: String,
         selection: SharedSelection,
     ) -> Self {
+        release_pointer_capture();
         Self {
             tree,
             event_callback,
@@ -2886,6 +2890,7 @@ impl gpui::Render for GpuixView {
                 .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
                 .child(selection_frame_reset(self.selection.clone()))
                 .child(crate::automation::bounds_frame_reset())
+                .child(pointer_capture_release())
                 .child(result)
                 .into_any_element()
         };
@@ -3283,6 +3288,7 @@ pub(crate) fn build_div(
 
             // ── Mouse down (all buttons) ─────────────────────────
             "mouseDown" => {
+                let captures = element.events.contains("mouseMove");
                 // Wire all three buttons so JS gets right-click, middle-click, etc.
                 for &button in &[
                     gpui::MouseButton::Left,
@@ -3299,6 +3305,9 @@ pub(crate) fn build_div(
                             p.click_count = Some(mouse_event.click_count as u32);
                             p.modifiers = Some(mouse_event.modifiers.into());
                         });
+                        if captures {
+                            set_pointer_capture(id);
+                        }
                     });
                 }
             }
@@ -3312,6 +3321,9 @@ pub(crate) fn build_div(
                 ] {
                     let callback = callback.clone();
                     el = el.on_mouse_up(button, move |mouse_event, _window, _cx| {
+                        if pointer_capture().is_some() {
+                            return;
+                        }
                         emit_event_full(&callback, id, "mouseUp", |p| {
                             let (x, y) = point_to_xy(mouse_event.position);
                             p.x = Some(x);
@@ -3327,6 +3339,9 @@ pub(crate) fn build_div(
             // ── Mouse move ───────────────────────────────────────
             "mouseMove" => {
                 el = el.on_mouse_move(move |mouse_event, _window, _cx| {
+                    if pointer_capture().is_some() {
+                        return;
+                    }
                     emit_event_full(&callback, id, "mouseMove", |p| {
                         let (x, y) = point_to_xy(mouse_event.position);
                         p.x = Some(x);
@@ -3446,6 +3461,14 @@ pub(crate) fn build_div(
 
             _ => {}
         }
+    }
+
+    if element.events.contains("mouseDown") && element.events.contains("mouseMove") {
+        el = el.child(pointer_capture_continuation(
+            element.id,
+            ctx.event_callback.clone(),
+            element.events.contains("mouseUp"),
+        ));
     }
 
     // Text content — selectable, same as a <text> leaf.
@@ -3870,6 +3893,84 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
 }
 
 // ── Event emission ───────────────────────────────────────────────────
+
+// GPUI capture_pointer stores a per-frame HitboxId. A remount after mouseDown
+// allocates a new id, so we track the stable GPUIX element id instead and
+// re-register window listeners each paint, like HTML setPointerCapture.
+fn set_pointer_capture(id: u64) {
+    POINTER_CAPTURE.with(|cell| cell.set(Some(id)));
+}
+
+fn pointer_capture() -> Option<u64> {
+    POINTER_CAPTURE.with(|cell| cell.get())
+}
+
+pub(crate) fn release_pointer_capture() {
+    POINTER_CAPTURE.with(|cell| cell.set(None));
+}
+
+fn pointer_capture_release() -> impl gpui::IntoElement {
+    use gpui::prelude::*;
+
+    gpui::canvas(
+        |_, _, _| (),
+        move |_, _, window, _| {
+            window.on_mouse_event(move |_: &gpui::MouseUpEvent, phase, _, _| {
+                if phase == gpui::DispatchPhase::Bubble {
+                    release_pointer_capture();
+                }
+            });
+        },
+    )
+    .absolute()
+    .w(gpui::px(0.0))
+    .h(gpui::px(0.0))
+}
+
+fn pointer_capture_continuation(
+    id: u64,
+    callback: Option<EventCallback>,
+    emit_up: bool,
+) -> impl gpui::IntoElement {
+    use gpui::prelude::*;
+
+    gpui::canvas(
+        |_, _, _| (),
+        move |_, _, window, _| {
+            let callback_move = callback.clone();
+            window.on_mouse_event(move |mouse_event: &gpui::MouseMoveEvent, phase, _, _| {
+                if phase != gpui::DispatchPhase::Bubble || pointer_capture() != Some(id) {
+                    return;
+                }
+                emit_event_full(&callback_move, id, "mouseMove", |p| {
+                    let (x, y) = point_to_xy(mouse_event.position);
+                    p.x = Some(x);
+                    p.y = Some(y);
+                    p.modifiers = Some(mouse_event.modifiers.into());
+                    p.pressed_button = mouse_event.pressed_button.map(mouse_button_to_u32);
+                });
+            });
+            let callback_up = callback.clone();
+            window.on_mouse_event(move |mouse_event: &gpui::MouseUpEvent, phase, _, _| {
+                if phase != gpui::DispatchPhase::Bubble || pointer_capture() != Some(id) {
+                    return;
+                }
+                if emit_up {
+                    emit_event_full(&callback_up, id, "mouseUp", |p| {
+                        let (x, y) = point_to_xy(mouse_event.position);
+                        p.x = Some(x);
+                        p.y = Some(y);
+                        p.button = Some(mouse_button_to_u32(mouse_event.button));
+                        p.click_count = Some(mouse_event.click_count as u32);
+                        p.modifiers = Some(mouse_event.modifiers.into());
+                    });
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_full()
+}
 
 /// Helper to convert a GPUI Point<Pixels> to (f64, f64).
 pub(crate) fn point_to_xy(p: gpui::Point<gpui::Pixels>) -> (f64, f64) {

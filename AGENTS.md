@@ -10,6 +10,14 @@ GPUIX enables building **native GPU-accelerated desktop applications** using **R
 
 Instead of Electron/web rendering, your React components render directly to the GPU via Metal/Vulkan.
 
+## Stay close to HTML
+
+GPUIX should feel like **HTML and the DOM**. Agents already know `onMouseDown` / `onMouseMove` / `onMouseUp`, flexbox, and `setPointerCapture`. Prefer that model over a GPUI-only primitive.
+
+Keep the native path **faster and simpler** when HTML would add machinery we do not need. Do not invent a new event name if the DOM name works. Do not ask the app to mount a full-window overlay to continue a drag.
+
+A `div` with `onMouseDown`, `onMouseMove`, and `onMouseUp` keeps move and up after the pointer leaves the hitbox. That is HTML `setPointerCapture`, applied automatically when the same node listens for down and move. Overlay-as-document-listener still works. It is not required.
+
 ```
 React (TypeScript)  →  napi-rs  →  GPUI (Rust)  →  GPU
      Your code         Bridge      Native render    Metal/Vulkan

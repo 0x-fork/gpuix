@@ -1317,6 +1317,13 @@ Keyboard and focus listeners create a persistent GPUI `FocusHandle`
 automatically. A listener alone does not put a `div` in the Tab order; add
 `tabIndex={0}` for that. Inputs and textareas already use tab index `0`.
 
+A node that listens for both `onMouseDown` and `onMouseMove` **captures the
+pointer**, like HTML [`setPointerCapture`](https://developer.mozilla.org/en-US/docs/Web/API/Element/setPointerCapture).
+`onMouseMove` and `onMouseUp` keep firing after the pointer leaves the hitbox.
+You do not need a full-window overlay or `window` listeners to drag a clip or
+resize a pane. A node with only `onMouseDown` / `onMouseUp` does not capture,
+so a click still ends if you release outside.
+
 ## Supported Styles
 
 CSS-like styling via the `style` prop:
