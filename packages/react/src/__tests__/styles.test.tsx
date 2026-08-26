@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach } from "vitest"
 import React from "react"
 import { createTestRoot, hasNativeTestRenderer } from "../testing"
 import { motion } from "../index"
-import { bufferSimilarity, isCI, SHOTS_DIR } from "./test-utils"
+import { bufferSimilarity, isCI, MONO_FAMILY, SHOTS_DIR } from "./test-utils"
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
 
@@ -340,7 +340,7 @@ describeNative("style properties", () => {
                 borderRadius: 8,
               }}
             >
-              <text style={{ color: "#cdd6f4", fontSize: 16, fontFamily: "Menlo" }}>
+              <text style={{ color: "#cdd6f4", fontSize: 16, fontFamily: MONO_FAMILY }}>
                 MMMWWW iiiiii
               </text>
             </div>

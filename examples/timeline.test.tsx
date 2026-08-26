@@ -6,7 +6,13 @@
  * Screenshots are still written into `examples/screenshots/` for inspection.
  *
  * Geometry is fixed by passing an explicit viewport size, so a window resize
- * or a different display cannot move a hit point.
+ * cannot move a hit point.
+ *
+ * That size is the one the platform GRANTED, never the one requested. The
+ * offscreen test window is a real window, so a smaller display clamps it: a
+ * 1024x768 CI runner handed back 1024x642 and every hit point derived from
+ * 800 landed below the window, which reads as a broken drag rather than a
+ * clamped window.
  */
 
 import fs from 'fs'
@@ -22,8 +28,14 @@ import { createProject, type Clip } from './timeline-data'
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
 const SHOTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'screenshots')
 
-const WIDTH = 1280
-const HEIGHT = 800
+const REQUESTED = { width: 1280, height: 800 }
+
+// One probe window, so every constant below is in the coordinate space the
+// tests actually click in.
+const { width: WIDTH, height: HEIGHT } = hasNativeTestRenderer
+  ? createTestRoot(REQUESTED).renderer.getWindowSize()
+  : REQUESTED
+
 // Enough tracks that the content is taller than the body, so a vertical pan
 // has somewhere to go.
 const TRACK_COUNT = 12

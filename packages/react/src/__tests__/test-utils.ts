@@ -21,6 +21,19 @@ export const SHOTS_DIR = path.resolve(
 
 fs.mkdirSync(SHOTS_DIR, { recursive: true })
 
+/** A monospace family the host actually has installed.
+ *
+ *  A test that asserts a font *changes* the picture must name a real family:
+ *  an unknown one falls back to the default and paints byte-identical output.
+ *  `Menlo` is macOS only, which is what failed once Windows started running
+ *  the full suite. */
+export const MONO_FAMILY =
+  process.platform === "win32"
+    ? "Consolas"
+    : process.platform === "darwin"
+      ? "Menlo"
+      : "DejaVu Sans Mono"
+
 /** Compute byte-level similarity between two buffers (0..1).
  *  For PNGs from the same renderer, identical pixels → identical bytes
  *  (same encoder settings). Any pixel change cascades through compression,
