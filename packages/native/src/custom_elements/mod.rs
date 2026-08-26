@@ -132,12 +132,13 @@ pub(crate) fn custom_surface(
 /// Declaring an event and never installing a handler is worse than not
 /// supporting it: the prop type-checks, the listener is registered on the JS
 /// side, and nothing ever fires.
-pub(crate) fn wire_standard_events(
-    mut el: gpui::Stateful<gpui::Div>,
+/// Generic over the element, not just `Stateful<Div>`, because `<img>` and
+/// `<svg>` are gpui leaves and cannot hold a child. They declare the same props
+/// as everything else, so they have to wire the same events.
+pub(crate) fn wire_standard_events<E: gpui::StatefulInteractiveElement>(
+    mut el: E,
     ctx: &CustomRenderContext,
-) -> gpui::Stateful<gpui::Div> {
-    use gpui::prelude::*;
-
+) -> E {
     let id = ctx.id;
     for event in ctx.events {
         let callback = ctx.event_callback.clone();

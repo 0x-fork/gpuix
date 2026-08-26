@@ -93,7 +93,12 @@ impl CustomElement for ImgElement {
                     .text_color(gpui::rgba(0xa4accdff)),
                 &ctx,
             );
-            return fallback.child("img: no src").into_any_element();
+            // `chrome_text`, not a raw string: a raw child is invisible to
+            // `getPaintedText()`, so this state could only be tested by
+            // screenshot.
+            return fallback
+                .child(ctx.chrome_text("img: no src", None))
+                .into_any_element();
         }
 
         let src_path = std::path::PathBuf::from(self.src.clone());
@@ -121,6 +126,7 @@ impl CustomElement for ImgElement {
             el = crate::renderer::apply_interactive_styles(el, style);
         }
 
+        let el = super::wire_standard_events(el, &ctx);
         crate::automation::track_own_bounds(el, ctx.id).into_any_element()
     }
 
@@ -142,7 +148,7 @@ impl CustomElement for ImgElement {
     }
 
     fn supported_events(&self) -> &'static [&'static str] {
-        &[]
+        &["click", "mouseEnter", "mouseLeave"]
     }
 
     fn destroy(&mut self) {}
@@ -230,6 +236,7 @@ impl CustomElement for SvgElement {
         if let Some(style) = ctx.style {
             icon = crate::renderer::apply_interactive_styles(icon, style);
         }
+        let icon = super::wire_standard_events(icon, &ctx);
         crate::automation::track_own_bounds(icon, ctx.id).into_any_element()
     }
 
@@ -246,7 +253,7 @@ impl CustomElement for SvgElement {
     }
 
     fn supported_events(&self) -> &'static [&'static str] {
-        &[]
+        &["click", "mouseEnter", "mouseLeave"]
     }
 
     fn destroy(&mut self) {}

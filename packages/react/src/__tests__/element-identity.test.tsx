@@ -10,7 +10,7 @@
 import fs from "fs"
 import path from "path"
 import React, { useState } from "react"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createTestRoot, hasNativeTestRenderer, type TestRoot } from "../testing.js"
 import { expectScreenshotsDiffer, SHOTS_DIR } from "./test-utils.js"
 
@@ -80,6 +80,36 @@ describeNative("text element identity", () => {
 
     testRoot.renderer.nativeSimulateMouseMove(600, 600)
     expect(testRoot.renderer.getAllText()).toEqual(["idle"])
+  })
+
+  // Now that `<text>` runs through the same builder as `<div>`, a filled text
+  // node inserts a hitbox and stops clicks behind it, exactly like an HTML
+  // element with a background. The old text builder inserted none.
+  it("blocks a click behind a filled <text>", () => {
+    const behind = vi.fn()
+    testRoot.render(
+      <div style={{ width: 600, height: 400 }} onClick={behind}>
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: 200,
+            height: 100,
+          }}
+        >
+          <text style={{ width: 200, height: 100, backgroundColor: "#f38ba8" }}>
+            label
+          </text>
+        </div>
+      </div>,
+    )
+
+    testRoot.renderer.nativeSimulateClick(100, 50)
+    expect(behind).not.toHaveBeenCalled()
+
+    testRoot.renderer.nativeSimulateClick(400, 300)
+    expect(behind).toHaveBeenCalledTimes(1)
   })
 
   it("paints the hover style declared on a <text> node", () => {
@@ -175,6 +205,94 @@ describeNative("pseudo styles on native surfaces", () => {
   })
 })
 
+describeNative("events on native surfaces", () => {
+  let testRoot: TestRoot
+
+  beforeEach(() => {
+    testRoot = createTestRoot()
+  })
+
+  const ICON =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#000"/></svg>'
+
+  it("fires onClick on an <svg>", () => {
+    function Clickable() {
+      const [count, setCount] = useState(0)
+      return (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <svg
+            source={ICON}
+            style={{ width: 120, height: 80, color: "#5ca9ff" }}
+            onClick={() => setCount((value) => value + 1)}
+          />
+          <text>{`clicks: ${count}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Clickable />)
+    expect(testRoot.renderer.getAllText()).toEqual(["clicks: 0"])
+
+    testRoot.renderer.nativeSimulateClick(60, 40)
+    expect(testRoot.renderer.getAllText()).toEqual(["clicks: 1"])
+  })
+
+  it("fires onMouseEnter and onMouseLeave on an <img>", () => {
+    const fixture = path.join(SHOTS_DIR, "identity-img-events.svg")
+    fs.mkdirSync(SHOTS_DIR, { recursive: true })
+    fs.writeFileSync(fixture, ICON, "utf8")
+
+    function Hoverable() {
+      const [hovered, setHovered] = useState(false)
+      return (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <img
+            src={fixture}
+            objectFit="fill"
+            style={{ width: 200, height: 120 }}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+          />
+          <text>{hovered ? "hovered" : "idle"}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Hoverable />)
+    expect(testRoot.renderer.getAllText()).toEqual(["idle"])
+
+    testRoot.renderer.nativeSimulateMouseMove(100, 60)
+    expect(testRoot.renderer.getAllText()).toEqual(["hovered"])
+
+    testRoot.renderer.nativeSimulateMouseMove(900, 700)
+    expect(testRoot.renderer.getAllText()).toEqual(["idle"])
+  })
+
+  it("fires onClick on an <anchored> overlay", () => {
+    function Menu() {
+      const [count, setCount] = useState(0)
+      return (
+        <div style={{ width: 800, height: 500 }}>
+          <text>{`picked: ${count}`}</text>
+          <anchored
+            position={{ x: 300, y: 200 }}
+            style={{ width: 240, height: 100, backgroundColor: "#1e1e2e" }}
+            onClick={() => setCount((value) => value + 1)}
+          >
+            <text>item</text>
+          </anchored>
+        </div>
+      )
+    }
+
+    testRoot.render(<Menu />)
+    expect(testRoot.renderer.getAllText()).toEqual(["picked: 0", "item"])
+
+    testRoot.renderer.nativeSimulateClick(420, 250)
+    expect(testRoot.renderer.getAllText()).toEqual(["picked: 1", "item"])
+  })
+})
+
 describeNative("painted bounds for leaf surfaces", () => {
   let testRoot: TestRoot
 
@@ -254,10 +372,11 @@ describeNative("gpui image state", () => {
   // element has a `GlobalElementId`.
   //
   // The animation itself cannot be asserted here: `Img::request_layout` only
-  // advances a frame while `window.is_window_active()`, and the test renderer's
-  // window is opened offscreen with `focus: false`, so it never becomes active.
-  // `active` styling reads the same element state through the same id, so it
-  // proves the id is there without depending on the animation clock.
+  // advances a frame while `window.is_window_active()`, and the test renderer
+  // builds its window through gpui's `VisualTestContext::open_offscreen_window`,
+  // which passes `focus: false`, so the window never becomes active. `active`
+  // styling reads the same element state through the same id, so it proves the
+  // id is there without depending on the animation clock.
   it("gives <img> element state that only a GPUI id can provide", () => {
     const testRoot = createTestRoot()
     const fixture = path.join(SHOTS_DIR, "identity-img-state.svg")
