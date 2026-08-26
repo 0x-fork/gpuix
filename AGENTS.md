@@ -206,6 +206,13 @@ build-time index so a match split over several interpolated runs takes exactly
 one ordinal. The `assigned` memo makes a row gpui paints twice keep its numbers
 rather than advance the cursor again.
 
+Paint only sees what is mounted, so a **virtualized subtree must say where it
+starts**. `indexOffset` is the number of matches above the window, and the
+sequence begins there. Without it `activeIndex` silently means "the nth visible
+match" and a find cursor lands on the wrong row. `<virtual-list>` already takes
+`windowStart` and `itemCount` from the app for the same reason. It is excluded
+from `matcher_hash`, like `activeIndex`, so scrolling never rescans text.
+
 `onHighlight` is queued during build and flushed **after** the root build
 returns, keyed on `MatchSet::identity()` rather than the count. Emitting inline
 lets a `setState` in the handler re-enter the build; keying on the count alone

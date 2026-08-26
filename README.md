@@ -1427,6 +1427,7 @@ for those.
 | `ranges` | explicit `[start, end)` UTF-16 pairs |
 | `color` / `activeColor` | any CSS colour; defaults come from the theme |
 | `activeIndex` | which match gets `activeColor`, for a find cursor |
+| `indexOffset` | matches before this subtree; only for virtualized content |
 | `radius` | corner radius of the wash, default 2 |
 
 Pass an **array** to paint several at once, for example search matches plus a
@@ -1458,30 +1459,41 @@ text, so GPUIX still highlights it. Only element chrome, a code gutter or a diff
 file header, is excluded.
 
 <details>
-<summary>Counting matches in a virtual list</summary>
+<summary>Searching a virtual list</summary>
 
-`<virtual-list>` never builds off-screen rows, so native cannot count or scroll
-to a match that was never painted. The `onHighlight` count covers retained text
-only. Your app owns the row data, so count there and pass the result in:
+`<virtual-list>` never builds off-screen rows, so native can only see the
+mounted window. Two things follow, and both are the app's job because the app
+owns the row data.
+
+**Count the matches yourself** with `findRanges`, which follows the same
+contract as the native matcher. Pass the result as `total`.
+
+**Say where your window starts** with `indexOffset`, the number of matches above
+it. Without it native numbers the mounted rows from zero, `activeIndex` means
+"the nth visible match", and the find cursor lands on the wrong row.
 
 ```tsx
 import { findRanges, useTextSearch } from '@gpuix/react'
 
-const hits = useMemo(
-  () =>
-    rows.flatMap((row, i) =>
-      findRanges({ text: row.text, query }).length > 0 ? [i] : [],
-    ),
+// One entry per row, so a prefix sum gives both numbers.
+const perRow = useMemo(
+  () => rows.map((row) => findRanges({ text: row.text, query }).length),
   [rows, query],
 )
-const search = useTextSearch({ query, total: hits.length })
+const above = useMemo(
+  () => perRow.slice(0, windowStart).reduce((n, count) => n + count, 0),
+  [perRow, windowStart],
+)
+
+const search = useTextSearch({
+  query,
+  total: perRow.reduce((n, count) => n + count, 0),
+  indexOffset: above,
+})
 
 // search.next() moves the cursor; you do the scrolling
-listRef.current.scrollToItem(hits[search.active])
+listRef.current.scrollToItem(rowOfMatch(search.active))
 ```
-
-`findRanges` follows the same contract as the native matcher, so the two agree
-about what counts.
 </details>
 
 <details>

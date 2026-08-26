@@ -47,26 +47,32 @@ const search = useTextSearch({ query })
 | `ranges` | explicit `[start, end)` UTF-16 pairs |
 | `color` / `activeColor` | any CSS colour; defaults come from the theme |
 | `activeIndex` | which match gets `activeColor`, for a find cursor |
+| `indexOffset` | matches before this subtree; only for virtualized content |
 | `radius` | corner radius of the wash, default 2 |
 
 Pass an array to paint several at once. Later entries draw on top.
 
 **Matching rules.** Matches are non-overlapping and leftmost-first. A match never crosses a line, exactly like browser find. It does cross the several host nodes React creates for one interpolated line, which matters more than it sounds: `<text>Hello {name}!</text>` is three separate host text nodes, and `Hello Tommy` still matches. The nearest declaration wins, so a nested `highlight` replaces its ancestor's for that subtree.
 
-**Counting in a virtual list.** `<virtual-list>` never builds off-screen rows, so native cannot count or scroll to a match that was never painted. `onHighlight` counts retained text only. The new `findRanges` export is the same matcher in JS, so you can count your own row data without the two ever disagreeing:
+**Searching a virtual list.** `<virtual-list>` never builds off-screen rows, so native only ever sees the mounted window. Two things follow, and both are the app's job because the app owns the row data.
+
+Count the matches yourself with the new `findRanges` export, which is the same matcher in JS, so the two can never disagree. Then say where your window starts with `indexOffset`, the number of matches above it. Without that, native numbers the mounted rows from zero, `activeIndex` means "the nth visible match", and the find cursor lands on the wrong row.
 
 ```tsx
 import { findRanges, useTextSearch } from '@gpuix/react'
 
-const hits = useMemo(
-  () =>
-    rows.flatMap((row, i) =>
-      findRanges({ text: row.text, query }).length > 0 ? [i] : [],
-    ),
+// One entry per row, so a prefix sum gives both numbers.
+const perRow = useMemo(
+  () => rows.map((row) => findRanges({ text: row.text, query }).length),
   [rows, query],
 )
-const search = useTextSearch({ query, total: hits.length })
-listRef.current.scrollToItem(hits[search.active])
+
+const search = useTextSearch({
+  query,
+  total: perRow.reduce((n, count) => n + count, 0),
+  indexOffset: perRow.slice(0, windowStart).reduce((n, count) => n + count, 0),
+})
+listRef.current.scrollToItem(rowOfMatch(search.active))
 ```
 
 **Testing.** A highlight is a quad, so `getPaintedText()` cannot see it. The new `renderer.getPaintedHighlights()` reports the matched range in UTF-16 units plus the boxes it drew, one per visual row:
@@ -81,4 +87,4 @@ expect(hit.rects).toHaveLength(1)
 
 **Matching contract.** Unicode default lowercasing, not full case folding, so `ﬀ` does not match `ff`. A word boundary is any code point that is not Unicode Alphabetic, a digit, or `_`. Both the native matcher and `findRanges` follow the same rules.
 
-`activeIndex` counts matches in document order, in the order they paint, so it means the same thing whether a match sits in a `<text>` or inside a `<code>` block.
+`activeIndex` counts matches in document order, in the order they paint, so it means the same thing whether a match sits in a `<text>` or inside a `<code>` block. Virtualized content is the one case paint cannot see on its own, which is what `indexOffset` is for.

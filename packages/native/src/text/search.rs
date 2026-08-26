@@ -34,6 +34,15 @@ pub struct HighlightSpec {
     pub color: Hsla,
     pub active_color: Hsla,
     pub active_index: Option<usize>,
+    /// Matches that come before this subtree in the caller's document, so the
+    /// nth match here is numbered `index_offset + n`.
+    ///
+    /// A `<virtual-list>` mounts a window of its rows, so nothing native can
+    /// see the matches above it. Without this, `activeIndex` would silently
+    /// mean "the nth match in the window" and a find cursor would land on the
+    /// wrong row. `<virtual-list>` already takes `windowStart` and `itemCount`
+    /// from the app for the same reason.
+    pub index_offset: usize,
     pub radius: f32,
 }
 
@@ -58,8 +67,9 @@ impl HighlightSet {
         (!specs.is_empty()).then_some(Self { specs })
     }
 
-    /// Key for the match cache. Deliberately excludes `active_index`, `color`
-    /// and `active_color`: moving a find-bar cursor must not rescan any text.
+    /// Key for the match cache. Deliberately excludes `active_index`,
+    /// `index_offset`, `color` and `active_color`: moving a find-bar cursor
+    /// must not rescan any text.
     pub fn matcher_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -126,6 +136,10 @@ impl HighlightSpec {
                 .get("activeIndex")
                 .and_then(serde_json::Value::as_u64)
                 .map(|n| n as usize),
+            index_offset: object
+                .get("indexOffset")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0) as usize,
             radius: object
                 .get("radius")
                 .and_then(serde_json::Value::as_f64)
@@ -279,7 +293,10 @@ fn wash(
         if let Some(assigned) = state.assigned.get(&slot) {
             return *assigned;
         }
-        let next = state.cursor.entry((slot.0, slot.1)).or_insert(0);
+        let next = state
+            .cursor
+            .entry((slot.0, slot.1))
+            .or_insert(spec.index_offset);
         let ordinal = *next;
         *next += 1;
         state.assigned.insert(slot, ordinal);
@@ -673,6 +690,7 @@ mod tests {
             color: gpui::rgba(0xff000080).into(),
             active_color: gpui::rgba(0x00ff0080).into(),
             active_index: None,
+            index_offset: 0,
             radius: 2.0,
         }
     }
@@ -1030,6 +1048,50 @@ mod tests {
         assert_eq!(first.len(), 1);
         assert_eq!(second.len(), 1);
         assert!(first[0].active && second[0].active, "one match, one ordinal");
+    }
+
+    /// A virtualized subtree holds a window of the document, so the app says
+    /// how many matches came before it and `activeIndex` keeps meaning "the
+    /// nth match in the document".
+    #[test]
+    fn index_offset_shifts_the_whole_sequence() {
+        let groups = GroupList::collect(&interpolated_tree(), 1);
+        let mut s = spec("l");
+        s.index_offset = 50;
+        s.active_index = Some(51);
+        let ctx = context(&groups, HighlightSet { specs: vec![s] });
+
+        let painted = paint(&ctx, &groups);
+        let washes = &painted[&Arc::<str>::from("3:0")];
+        assert_eq!(washes.len(), 2);
+        assert!(!washes[0].active, "ordinal 50");
+        assert!(washes[1].active, "ordinal 51");
+    }
+
+    /// A cursor outside the mounted window paints no active wash at all,
+    /// rather than marking an arbitrary visible match.
+    #[test]
+    fn a_cursor_above_the_window_marks_nothing() {
+        let groups = GroupList::collect(&interpolated_tree(), 1);
+        let mut s = spec("l");
+        s.index_offset = 50;
+        s.active_index = Some(9);
+        let ctx = context(&groups, HighlightSet { specs: vec![s] });
+        assert!(paint(&ctx, &groups)
+            .values()
+            .flatten()
+            .all(|wash| !wash.active));
+    }
+
+    #[test]
+    fn matcher_hash_ignores_the_index_offset() {
+        let a = spec("foo");
+        let mut b = spec("foo");
+        b.index_offset = 400;
+        assert_eq!(
+            HighlightSet { specs: vec![a] }.matcher_hash(),
+            HighlightSet { specs: vec![b] }.matcher_hash()
+        );
     }
 
     #[test]

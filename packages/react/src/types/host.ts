@@ -318,6 +318,16 @@ export interface HighlightSpec {
   activeColor?: string
   /** Index of the match to highlight differently, for a find-bar cursor. */
   activeIndex?: number
+  /**
+   * Number of matches that come before this subtree in your document.
+   * `activeIndex` is compared against `indexOffset + n` for the nth match here.
+   *
+   * Only needed for virtualized content: a `<virtual-list>` mounts a window of
+   * its rows, so native can only number what that window contains. Count the
+   * matches in the rows before `windowStart` with `findRanges` and pass the
+   * total. Defaults to 0.
+   */
+  indexOffset?: number
   /** Corner radius of the wash. Defaults to 2. */
   radius?: number
 }

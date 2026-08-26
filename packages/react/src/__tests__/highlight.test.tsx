@@ -318,6 +318,61 @@ describe("highlight", () => {
     )
     expect(matched(renderer)).toEqual(["needle"])
   })
+
+  // A `<virtual-list>` mounts a window of its rows, so native can only number
+  // the matches inside that window. `indexOffset` is how the app says how many
+  // matches came before it, which is what keeps `activeIndex` meaning "the nth
+  // match in the document".
+  it("numbers matches from indexOffset in a windowed virtual list", () => {
+    const { render, renderer } = createTestRoot()
+    const windowed = (start: number, activeIndex: number) => (
+      <div
+        style={{ width: 400, height: 160 }}
+        highlight={{ query: "fox", activeIndex, indexOffset: start }}
+      >
+        <virtual-list
+          itemCount={1000}
+          windowStart={start}
+          overdraw={0}
+          estimatedItemHeight={40}
+          style={{ width: 400, height: 160 }}
+        >
+          {Array.from({ length: 4 }, (_, offset) => (
+            <div key={start + offset} style={{ height: 40, flexShrink: 0 }}>
+              <text>{`fox ${start + offset}`}</text>
+            </div>
+          ))}
+        </virtual-list>
+      </div>
+    )
+
+    // One match per row, so the row index is also the document match index.
+    render(windowed(50, 52))
+    renderer.scrollToItem(renderer.findByType("virtual-list")[0].id, 50)
+    expect(renderer.getPaintedText()).toContain("fox 50")
+
+    const active = renderer.getPaintedHighlights().filter((hit) => hit.active)
+    expect(active).toHaveLength(1)
+    expect(active[0].text).toBe("fox 52")
+
+    // A cursor outside the mounted window paints no active wash at all.
+    render(windowed(50, 900))
+    expect(renderer.getPaintedHighlights().filter((hit) => hit.active)).toEqual([])
+  })
+
+  it("leaves activeIndex zero-based when there is no indexOffset", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div highlight={{ query: "fox", activeIndex: 1, indexOffset: 0 }}>
+        <text>fox fox fox</text>
+      </div>
+    )
+    expect(renderer.getPaintedHighlights().map((hit) => hit.active)).toEqual([
+      false,
+      true,
+      false,
+    ])
+  })
 })
 
 describe("useTextSearch", () => {

@@ -22,6 +22,14 @@ export interface TextSearchOptions {
    * replaces the count reported by native, which only counts retained text.
    */
   total?: number
+  /**
+   * Matches that come before the searched subtree, for virtualized content.
+   *
+   * A `<virtual-list>` mounts a window of its rows, so native numbers only what
+   * that window holds. Pass the number of matches above it and the find cursor
+   * lands on the right row. Ignored when `total` is unset.
+   */
+  indexOffset?: number
 }
 
 export interface TextSearch {
@@ -53,6 +61,7 @@ export function useTextSearch(options: TextSearchOptions): TextSearch {
     activeColor,
     radius,
     total: suppliedTotal,
+    indexOffset,
   } = options
   const [reported, setReported] = useState(0)
   const [requested, setRequested] = useState(0)
@@ -74,8 +83,9 @@ export function useTextSearch(options: TextSearchOptions): TextSearch {
       activeColor,
       radius,
       activeIndex: active,
+      indexOffset,
     }
-  }, [query, caseSensitive, wholeWord, color, activeColor, radius, active])
+  }, [query, caseSensitive, wholeWord, color, activeColor, radius, active, indexOffset])
 
   const onHighlight = useCallback((event: EventPayload) => {
     setReported(event.matchCount ?? 0)
