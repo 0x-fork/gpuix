@@ -26,6 +26,15 @@ pub struct RetainedElement {
     pub auto_focus: bool,
     /// Last mutation applied to this element or one of its descendants.
     pub subtree_revision: u64,
+    /// Last change to the searchable TEXT of this subtree: content, structure,
+    /// or the set of nested `highlight` declarations.
+    ///
+    /// Separate from `subtree_revision` because `highlight` is itself a custom
+    /// prop: keying the group cache on the general revision means every find-bar
+    /// keystroke re-walks and re-folds the whole subtree, which is the one case
+    /// the cache exists for. Style, `activeIndex`, colours and a native
+    /// element's own props never move this.
+    pub search_revision: u64,
     /// Stable locator id from the React `testId` prop.
     pub test_id: Option<String>,
 }
@@ -42,6 +51,7 @@ impl RetainedElement {
             parent: None,
             auto_focus: false,
             subtree_revision: revision,
+            search_revision: revision,
             test_id: None,
             custom_props: HashMap::new(),
         }
@@ -76,7 +86,19 @@ impl RetainedTree {
         revision
     }
 
+    /// Invalidate `id` and its ancestors, including their searchable text.
     fn mark_changed(&mut self, id: u64) {
+        self.mark_changed_detail(id, true);
+    }
+
+    /// Invalidate for rendering only. Use for changes that cannot move a glyph
+    /// into or out of the searchable text: style, and a native element's own
+    /// props, whose text is matched at paint and never enters a `GroupList`.
+    fn mark_render_changed(&mut self, id: u64) {
+        self.mark_changed_detail(id, false);
+    }
+
+    fn mark_changed_detail(&mut self, id: u64, search: bool) {
         let revision = self.take_revision();
         let mut current = Some(id);
         while let Some(current_id) = current {
@@ -84,17 +106,36 @@ impl RetainedTree {
                 break;
             };
             element.subtree_revision = revision;
+            if search {
+                element.search_revision = revision;
+            }
             current = element.parent;
         }
     }
 
     /// Recursively destroy an element and all its children.
     /// Returns all destroyed IDs so the caller can clean up JS-side state.
+    ///
+    /// Unlinks from the parent BEFORE removing, then marks the parent chain
+    /// changed. React normally sends `removeChild` first, so this used to look
+    /// harmless, but the batch and napi APIs allow a direct destroy: without the
+    /// unlink the parent keeps a dangling child id, and without `mark_changed`
+    /// any cache keyed on `subtree_revision` keeps serving text that is no
+    /// longer in the tree.
     pub fn destroy_element(&mut self, id: u64) -> Vec<u64> {
+        let parent_id = self.elements.get(&id).and_then(|element| element.parent);
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = self.elements.get_mut(&parent_id) {
+                parent.children.retain(|child| *child != id);
+            }
+        }
         let mut destroyed = Vec::new();
         self.destroy_element_recursive(id, &mut destroyed);
         if self.root_id == Some(id) {
             self.root_id = None;
+        }
+        if let Some(parent_id) = parent_id {
+            self.mark_changed(parent_id);
         }
         destroyed
     }
@@ -176,7 +217,7 @@ impl RetainedTree {
             }
         }
         if changed {
-            self.mark_changed(id);
+            self.mark_render_changed(id);
         }
     }
 
@@ -204,8 +245,18 @@ impl RetainedTree {
     }
 
     /// Set a custom prop on an element (for non-div/text elements).
+    ///
+    /// Custom props never change the searchable text of a subtree: a native
+    /// element's strings are matched at paint, not collected into a group. The
+    /// one exception is `highlight` itself appearing or disappearing, which
+    /// changes which subtrees an ancestor skips.
     pub fn set_custom_prop(&mut self, id: u64, key: String, value: serde_json::Value) {
         let mut changed = false;
+        let is_highlight = key == "highlight";
+        let was_declaration = self
+            .elements
+            .get(&id)
+            .is_some_and(|element| element.custom_props.contains_key("highlight"));
         if let Some(element) = self.elements.get_mut(&id) {
             // `autoFocus` applies to every element type, so it is lifted out of
             // the custom-prop map that only custom elements read.
@@ -226,8 +277,21 @@ impl RetainedTree {
                 }
             }
         }
-        if changed {
-            self.mark_changed(id);
+        if !changed {
+            return;
+        }
+        self.mark_render_changed(id);
+        let is_declaration = self
+            .elements
+            .get(&id)
+            .is_some_and(|element| element.custom_props.contains_key("highlight"));
+        if is_highlight && was_declaration != is_declaration {
+            // Only the ancestors: `GroupList::collect` skips a nested
+            // declaration's subtree, so which subtrees exist changed for them.
+            // This element's own groups are unaffected by its own query.
+            if let Some(parent) = self.elements.get(&id).and_then(|element| element.parent) {
+                self.mark_changed(parent);
+            }
         }
     }
 
@@ -351,4 +415,118 @@ fn element_to_json(
     }
 
     serde_json::Value::Object(obj)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tree_with_child() -> RetainedTree {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".to_string());
+        tree.create_element(2, "text".to_string());
+        tree.create_element(3, "text".to_string());
+        tree.append_child(1, 2);
+        tree.append_child(2, 3);
+        tree.set_text(3, "hello".to_string());
+        tree
+    }
+
+    #[test]
+    fn destroy_unlinks_from_parent() {
+        let mut tree = tree_with_child();
+        let destroyed = tree.destroy_element(2);
+        assert_eq!(destroyed, vec![2, 3]);
+        assert_eq!(tree.elements[&1].children, Vec::<u64>::new());
+        assert!(!tree.elements.contains_key(&3));
+    }
+
+    #[test]
+    fn destroy_bumps_the_parent_chain_revision() {
+        let mut tree = tree_with_child();
+        let before = tree.elements[&1].subtree_revision;
+        tree.destroy_element(2);
+        assert!(
+            tree.elements[&1].subtree_revision > before,
+            "destroying a child must invalidate a subtree_revision cache on the parent"
+        );
+    }
+
+    #[test]
+    fn destroying_the_root_clears_it() {
+        let mut tree = tree_with_child();
+        tree.root_id = Some(1);
+        tree.destroy_element(1);
+        assert_eq!(tree.root_id, None);
+        assert!(tree.elements.is_empty());
+    }
+
+    /// The whole point of `search_revision`: `highlight` is a custom prop, so
+    /// keying the group cache on `subtree_revision` means every find-bar
+    /// keystroke re-walks and re-folds the subtree it exists to avoid.
+    #[test]
+    fn a_query_change_does_not_move_search_revision() {
+        let mut tree = tree_with_child();
+        tree.set_custom_prop(1, "highlight".to_string(), serde_json::json!({"query": "a"}));
+        let search = tree.elements[&1].search_revision;
+        let subtree = tree.elements[&1].subtree_revision;
+
+        tree.set_custom_prop(1, "highlight".to_string(), serde_json::json!({"query": "ab"}));
+        assert_eq!(tree.elements[&1].search_revision, search, "same text");
+        assert!(tree.elements[&1].subtree_revision > subtree, "still repaints");
+    }
+
+    #[test]
+    fn style_does_not_move_search_revision() {
+        let mut tree = tree_with_child();
+        let search = tree.elements[&1].search_revision;
+        tree.set_style(
+            3,
+            StyleDesc {
+                color: Some("#fff".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(tree.elements[&1].search_revision, search);
+        assert!(tree.elements[&1].subtree_revision > 0);
+    }
+
+    /// A nested declaration appearing changes which subtrees an ancestor skips,
+    /// so the ancestor's collected groups really did change.
+    #[test]
+    fn a_nested_declaration_appearing_moves_the_ancestor() {
+        let mut tree = tree_with_child();
+        let search = tree.elements[&1].search_revision;
+        tree.set_custom_prop(2, "highlight".to_string(), serde_json::json!({"query": "a"}));
+        assert!(tree.elements[&1].search_revision > search);
+
+        // Changing that nested query does not.
+        let after = tree.elements[&1].search_revision;
+        tree.set_custom_prop(2, "highlight".to_string(), serde_json::json!({"query": "b"}));
+        assert_eq!(tree.elements[&1].search_revision, after);
+    }
+
+    #[test]
+    fn text_and_structure_move_search_revision() {
+        let mut tree = tree_with_child();
+        let search = tree.elements[&1].search_revision;
+        tree.set_text(3, "changed".to_string());
+        assert!(tree.elements[&1].search_revision > search);
+
+        let after = tree.elements[&1].search_revision;
+        tree.destroy_element(3);
+        assert!(tree.elements[&1].search_revision > after);
+    }
+
+    #[test]
+    fn set_text_bumps_every_ancestor() {
+        let mut tree = tree_with_child();
+        let before = tree.elements[&1].subtree_revision;
+        tree.set_text(3, "changed".to_string());
+        assert!(tree.elements[&1].subtree_revision > before);
+        // An unchanged value must not invalidate anything.
+        let after = tree.elements[&1].subtree_revision;
+        tree.set_text(3, "changed".to_string());
+        assert_eq!(tree.elements[&1].subtree_revision, after);
+    }
 }

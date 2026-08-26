@@ -587,6 +587,20 @@ impl TestGpuixRenderer {
         Ok(crate::text::painted_text())
     }
 
+    /// Every highlight wash painted in the last frame, in paint order.
+    ///
+    /// A quad is invisible to `getPaintedText()`, so this is the only way to
+    /// assert on `highlight` without a screenshot. Each entry carries its rects,
+    /// so a soft-wrapped match is provably two boxes.
+    #[napi]
+    pub fn get_painted_highlights(&self) -> Result<Vec<crate::element_tree::HighlightMatch>> {
+        self.flush()?;
+        Ok(crate::text::painted_highlights()
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
     /// Drag-select from one point to another: mouse down, move, up.
     ///
     /// A single helper rather than three calls because the listeners that drive

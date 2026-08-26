@@ -1339,6 +1339,143 @@ rebuilds that continuity at paint time instead. The mechanism is ported from
 [Comet](https://github.com/zeronsh/comet) (MIT), which faced the same problem.
 </details>
 
+## Text highlighting and search
+
+The **`highlight` prop** paints a background wash behind matched text. Put it on
+any element and it applies to that element's subtree, so the root searches the
+window and a container searches only that container.
+
+```tsx
+<div highlight={{ query: 'fox' }}>
+  <text>the quick brown fox</text>
+</div>
+```
+
+It reaches `<text>`, `<code>`, `<markdown>` and `<diff>` with no extra props,
+because every string GPUIX paints goes through the same funnel.
+
+### A find bar
+
+`useTextSearch` owns the cursor and the count. `next` and `previous` are plain
+event handlers, so nothing here needs an effect.
+
+```tsx
+import { useTextSearch } from '@gpuix/react'
+
+function Find() {
+  const [query, setQuery] = useState('')
+  const search = useTextSearch({ query })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input value={query} onChange={(e) => setQuery(e.value ?? '')} />
+        <text>{search.total === 0 ? 'No results' : `${search.active + 1}/${search.total}`}</text>
+        <div onClick={search.previous}><text>↑</text></div>
+        <div onClick={search.next}><text>↓</text></div>
+      </div>
+
+      <div {...search.props} style={{ flex: 1 }}>
+        <Transcript />
+      </div>
+    </div>
+  )
+}
+```
+
+### Explicit ranges
+
+When you already have offsets, from an LSP range or your own model, pass them
+instead of a query. They are `[start, end)` in **UTF-16 code units**, the units
+`indexOf` and `RegExp.exec` return.
+
+```tsx
+<div highlight={{ ranges: [[6, 11]], color: '#f43f5e55' }}>
+  <text>Hello {name}!</text>
+</div>
+```
+
+A pair that splits a surrogate pair is **rejected**, never snapped. Ranges index
+retained text only; native elements build their strings in Rust, so use `query`
+for those.
+
+### Options
+
+| field | meaning |
+|---|---|
+| `query` | substring to match, case-insensitive by default |
+| `caseSensitive` | exact case only |
+| `wholeWord` | neither neighbour may be alphanumeric or `_` |
+| `ranges` | explicit `[start, end)` UTF-16 pairs |
+| `color` / `activeColor` | any CSS colour; defaults come from the theme |
+| `activeIndex` | which match gets `activeColor`, for a find cursor |
+| `radius` | corner radius of the wash, default 2 |
+
+Pass an **array** to paint several at once, for example search matches plus a
+persistent mention tint. Later entries draw on top.
+
+### Matching rules
+
+Matches are **non-overlapping** and leftmost-first. Case-insensitive matching
+uses Unicode **lowercasing**, not full case folding, so `ﬀ` does not match `ff`.
+A word boundary is any code point that is not a letter, a digit, or `_`.
+
+A match never crosses a line, exactly like browser find. It **does** cross the
+several host nodes React creates for one interpolated line, which matters more
+than it sounds:
+
+```tsx
+// React makes 3 host text nodes here. `Hello Tommy` still matches.
+<div highlight={{ query: 'Hello Tommy' }}>
+  <text>Hello {name}!</text>
+</div>
+```
+
+The nearest declaration wins, so a nested `highlight` replaces its ancestor's
+for that subtree.
+
+**`userSelect: "none"` does not opt out of search.** A browser still finds that
+text, so GPUIX still highlights it. Only element chrome, a code gutter or a diff
+file header, is excluded.
+
+<details>
+<summary>Counting matches in a virtual list</summary>
+
+`<virtual-list>` never builds off-screen rows, so native cannot count or scroll
+to a match that was never painted. The `onHighlight` count covers retained text
+only. Your app owns the row data, so count there and pass the result in:
+
+```tsx
+import { findRanges, useTextSearch } from '@gpuix/react'
+
+const hits = useMemo(
+  () =>
+    rows.flatMap((row, i) =>
+      findRanges({ text: row.text, query }).length > 0 ? [i] : [],
+    ),
+  [rows, query],
+)
+const search = useTextSearch({ query, total: hits.length })
+
+// search.next() moves the cursor; you do the scrolling
+listRef.current.scrollToItem(hits[search.active])
+```
+
+`findRanges` follows the same contract as the native matcher, so the two agree
+about what counts.
+</details>
+
+<details>
+<summary>Why a wash and not gpui's HighlightStyle</summary>
+
+`HighlightStyle.background_color` is painted natively by gpui, but only with
+square corners, and it cannot report the boxes it drew. GPUIX paints quads from
+`range_rects`, the same helper selection and inline-code pills use, so a
+soft-wrapped match is one box per visual row and `getPaintedHighlights()` can
+assert the geometry without a screenshot. Zed's own editor paints search
+highlights manually for the same reason.
+</details>
+
 ## Native text components
 
 Three elements render text with Syntect syntax highlighting computed in
@@ -1985,6 +2122,21 @@ Selection has its own helper. Listeners are registered during **paint**, so
 expect(renderer.dragSelect(20, 30, 900, 300)).toBe('first line\nsecond line')
 ```
 
+A highlight is a **quad**, so no amount of `getPaintedText()` will show it. Use
+`getPaintedHighlights()`, which reports the matched range in UTF-16 units plus
+the boxes it actually drew, one per visual row:
+
+```ts
+root.render(
+  <div highlight={{ query: 'quick' }}>
+    <text>the quick brown fox</text>
+  </div>,
+)
+const [hit] = renderer.getPaintedHighlights()
+expect(hit.text.slice(hit.start, hit.end)).toBe('quick')
+expect(hit.rects).toHaveLength(1)
+```
+
 ### Assert numbers, not pixels
 
 For a stateful surface, paint the state you want to assert into a **readout**
@@ -2075,6 +2227,7 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [x] Virtual lists (`<virtual-list>`)
 - [x] Native text components (`<code>`, `<diff>`, `<markdown>`)
 - [x] Cross-element text selection
+- [x] Text highlighting and search (`highlight`, `useTextSearch`)
 - [x] Headless Select, Combobox, and Tooltip
 - [x] Native `hover` and `active` styles
 - [x] Window title (`setWindowTitle`)

@@ -14,6 +14,7 @@ import type { EventPayload } from "@gpuix/native"
 import type {
   DebugFrameOverlayMode,
   DebugFrameOverlayStats,
+  HighlightMatch,
   NativeRenderer,
 } from "./types/host.js"
 import { createRoot, flushSync, type Root } from "./reconciler/reconciler.js"
@@ -70,6 +71,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   dragSelect(x1: number, y1: number, x2: number, y2: number): void
   getSelectedText(): string | null
   getPaintedText(): string[]
+  getPaintedHighlights(): HighlightMatch[]
   getSyntaxCacheStats(): number[]
   clearSelection(): void
   captureScreenshot(path: string): void
@@ -524,6 +526,14 @@ export class TestRenderer implements NativeRenderer {
    *  is the only way to assert on what they rendered. */
   getPaintedText(): string[] {
     return this.native.getPaintedText()
+  }
+
+  /** Every highlight wash painted in the last frame, in paint order.
+   *
+   *  A quad never lands in `getPaintedText()`, and a soft-wrapped match must
+   *  draw one box per visual row, so each entry carries its `rects`. */
+  getPaintedHighlights(): HighlightMatch[] {
+    return this.native.getPaintedHighlights()
   }
 
   /** Syntax-cache counters as `[hits, misses, documents]`. */

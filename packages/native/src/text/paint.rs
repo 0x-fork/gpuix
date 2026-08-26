@@ -36,6 +36,8 @@ struct RegEntry {
     key: Arc<str>,
     text: SharedString,
     layout: TextLayout,
+    /// See [`selection::RegisteredText::group`].
+    group: Option<u64>,
 }
 
 /// Full element box that owns whether a press may start a selection.
@@ -48,6 +50,24 @@ struct StartRegion {
     selectable: bool,
 }
 
+/// One highlight wash painted this frame, with the boxes it actually drew.
+///
+/// The rects are the point: a quad is invisible to `getPaintedText()`, and a
+/// match that soft-wraps must produce two boxes. Without the geometry the only
+/// way to assert that is a screenshot.
+#[derive(Clone, Debug)]
+pub struct PaintedHighlight {
+    pub element_id: u64,
+    pub sub: usize,
+    pub text: SharedString,
+    /// UTF-16 code-unit offsets, so JS can slice `text` directly.
+    pub start: usize,
+    pub end: usize,
+    pub active: bool,
+    /// `(x, y, width, height)` per visual row.
+    pub rects: Vec<(f32, f32, f32, f32)>,
+}
+
 thread_local! {
     static REGISTRY: RefCell<Vec<RegEntry>> = const { RefCell::new(Vec::new()) };
     static START_REGIONS: RefCell<Vec<StartRegion>> = const { RefCell::new(Vec::new()) };
@@ -58,6 +78,8 @@ thread_local! {
     /// way to assert what `<code>` or `<diff>` rendered is a screenshot, which
     /// tells you something changed but never what.
     static PAINTED: RefCell<Vec<SharedString>> = const { RefCell::new(Vec::new()) };
+    /// Same idea for highlight washes. See [`PaintedHighlight`].
+    static HIGHLIGHTS: RefCell<Vec<PaintedHighlight>> = const { RefCell::new(Vec::new()) };
 }
 
 /// A zero-size canvas that clears the per-frame registries and installs the
@@ -71,6 +93,8 @@ pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
             REGISTRY.with(|r| r.borrow_mut().clear());
             START_REGIONS.with(|r| r.borrow_mut().clear());
             PAINTED.with(|p| p.borrow_mut().clear());
+            HIGHLIGHTS.with(|h| h.borrow_mut().clear());
+            super::search::native_frame_reset();
             register_copy_listener(window, &selection);
             register_down_listener(window, &selection);
         },
@@ -119,6 +143,19 @@ pub fn painted_text() -> Vec<String> {
     PAINTED.with(|p| p.borrow().iter().map(|s| s.to_string()).collect())
 }
 
+/// Every highlight wash painted in the last frame, in paint order. Test-facing.
+pub fn painted_highlights() -> Vec<PaintedHighlight> {
+    HIGHLIGHTS.with(|h| h.borrow().clone())
+}
+
+/// Byte offset to UTF-16 code-unit offset, so the log speaks JS's units.
+fn utf16_offset(text: &str, byte: usize) -> usize {
+    text[..byte.min(text.len())]
+        .chars()
+        .map(char::len_utf16)
+        .sum()
+}
+
 /// Record text painted by a custom element that owns its text layout.
 pub fn log_painted_text(text: SharedString) {
     PAINTED.with(|painted| painted.borrow_mut().push(text));
@@ -150,6 +187,10 @@ pub fn selection_key(element_id: u64, sub: usize) -> Arc<str> {
 
 /// Inputs for [`selectable_text`].
 pub struct SelectableText {
+    /// Element that owns the run, and the run's index within it. The selection
+    /// key is derived from these, so nothing has to parse it back apart.
+    pub element_id: u64,
+    pub sub: usize,
     pub text: SharedString,
     /// `None` is the important case for plain `<text>` nodes: gpui then derives
     /// one run from `window.text_style()`, so colour, weight and family keep
@@ -170,26 +211,47 @@ pub struct SelectableText {
     /// False under `userSelect: "none"`: the text is still painted, logged and
     /// clickable, but it does not join the selection registry.
     pub selectable: bool,
+    /// See [`crate::text::selection::RegisteredText::group`]. `None` for a run
+    /// that must never merge with its neighbour, which is every custom element.
+    pub group: Option<u64>,
+    /// Resolved highlight washes for this subtree, inherited from the element
+    /// that declared `highlight`. `None` when nothing declared one, which is
+    /// the case in every app that does not use search.
+    ///
+    /// Retained `<text>` uses this: its matches are resolved once per revision
+    /// over the whole subtree, so a match can span the several host nodes React
+    /// makes for one interpolated line.
+    pub highlights: Option<Arc<super::search::ResolvedHighlights>>,
+    /// The unresolved spec, for a run whose text was generated inside
+    /// `render()` and therefore never reached the retained tree. Mutually
+    /// exclusive with `highlights`; see [`super::search::washes_for_native_run`].
+    pub highlight_set: Option<Arc<super::search::NativeHighlight>>,
 }
 
 impl SelectableText {
     pub fn new(
+        element_id: u64,
+        sub: usize,
         text: SharedString,
         runs: Option<Vec<TextRun>>,
-        key: Arc<str>,
         selection: SharedSelection,
         wash_color: Hsla,
     ) -> Self {
         Self {
+            element_id,
+            sub,
             text,
             runs,
-            key,
+            key: selection_key(element_id, sub),
             selection,
             wash_color,
             extra_wash: None,
             links: Vec::new(),
             on_link: None,
             selectable: true,
+            group: None,
+            highlights: None,
+            highlight_set: None,
         }
     }
 }
@@ -199,6 +261,8 @@ impl SelectableText {
 /// mouse listeners.
 pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
     let SelectableText {
+        element_id,
+        sub,
         text,
         runs,
         key,
@@ -208,6 +272,9 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
         links,
         on_link,
         selectable,
+        group,
+        highlights,
+        highlight_set,
     } = opts;
 
     let styled = match runs {
@@ -221,6 +288,20 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
         move |_, _, window, _| {
             if let Some(paint) = &extra_wash {
                 paint(&layout, window);
+            }
+            // Search washes sit UNDER the selection wash, so a selection over a
+            // match still reads as a selection.
+            match (&highlights, &highlight_set) {
+                (Some(resolved), _) => {
+                    if let Some(washes) = resolved.washes_for(&key) {
+                        paint_highlight_washes(&layout, element_id, sub, &text, washes, window);
+                    }
+                }
+                (None, Some(native)) => {
+                    let washes = super::search::washes_for_native_run(&key, &text, native);
+                    paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
+                }
+                (None, None) => {}
             }
             if let Some(range) = selectable
                 .then(|| selection.lock().wash_range(&key))
@@ -243,6 +324,7 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
                         key: key.clone(),
                         text: text.clone(),
                         layout: layout.clone(),
+                        group,
                     })
                 });
                 register_listeners(window, &key, &selection);
@@ -261,6 +343,54 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
         .child(underlay)
         .child(styled)
         .into_any_element()
+}
+
+/// Paint one run's highlight washes and log their geometry.
+fn paint_highlight_washes(
+    layout: &TextLayout,
+    element_id: u64,
+    sub: usize,
+    text: &SharedString,
+    washes: &[super::search::Wash],
+    window: &mut Window,
+) {
+    for wash in washes {
+        let rects = range_rects(layout, &wash.range, 0.0, 0.0);
+        if rects.is_empty() {
+            continue;
+        }
+        for rect in &rects {
+            window.paint_quad(quad(
+                *rect,
+                px(wash.radius),
+                wash.color,
+                px(0.0),
+                gpui::transparent_black(),
+                BorderStyle::default(),
+            ));
+        }
+        HIGHLIGHTS.with(|h| {
+            h.borrow_mut().push(PaintedHighlight {
+                element_id,
+                sub,
+                text: text.clone(),
+                start: utf16_offset(text, wash.range.start),
+                end: utf16_offset(text, wash.range.end),
+                active: wash.active,
+                rects: rects
+                    .iter()
+                    .map(|r| {
+                        (
+                            f32::from(r.origin.x),
+                            f32::from(r.origin.y),
+                            f32::from(r.size.width),
+                            f32::from(r.size.height),
+                        )
+                    })
+                    .collect(),
+            })
+        });
+    }
 }
 
 /// Fire `on_link` for the range under a click.
@@ -400,9 +530,13 @@ fn resolve_drag(
             // Anchor scrolled out of this frame — keep the spans we have.
             return false;
         };
-        let elements: Vec<(&str, &str)> = reg
+        let elements: Vec<selection::RegisteredText> = reg
             .iter()
-            .map(|e| (e.key.as_ref(), e.text.as_ref()))
+            .map(|e| selection::RegisteredText {
+                key: e.key.as_ref(),
+                text: e.text.as_ref(),
+                group: e.group,
+            })
             .collect();
         let spans = selection::resolve_spans(&elements, (anchor_ei, anchor_ix), head);
         selection.lock().update_spans(spans)

@@ -151,6 +151,64 @@ is the only place document order is guaranteed: a `list()` decides at paint time
 which rows exist. `selection_frame_reset()` must stay the first child of the
 root, or stale entries from the previous frame leak into the next drag.
 
+## Text is grouped, because React splits one line into many nodes
+
+`shouldSetTextContent` is false, so `<text>Hello {name}!</text>` becomes **three**
+host text nodes and three `TextLayout`s. Anything that reasons about a line, copy
+and `highlight` both, must merge them first.
+
+The rule is structural: **adjacent** primitive text children of the same parent
+form one group. Never derive it from `display`; `apply_styles` only knows `flex`
+and `grid`, and every text node already sits inside a `div`.
+
+Copy and search must agree, so both call `search::group_id`. Using
+`element.parent` for one and adjacency for the other is a silent divergence: a
+non-text sibling between two leaves ends the run for search but not for copy.
+`None` means a run that never merges, which is every native element line.
+
+## `highlight` resolves per subtree, with two caches
+
+`crate::text::search` deliberately builds **no joined document** for a query. It
+matches per group, so a 5k-row chat is 5k small strings rather than one megabyte
+string rebuilt on every keystroke. A joined document exists only when a spec
+supplies explicit `ranges`, because only then does someone index into it.
+
+`HighlightCacheEntry` has two levels and they must stay separate:
+
+- the `GroupList` is keyed by **`search_revision`**
+- the `MatchSet` is additionally keyed by `HighlightSet::matcher_hash()`, which
+  **excludes** `activeIndex` and the colours; a cursor move only re-`colorize`s
+
+`search_revision` exists because `highlight` is itself a custom prop, so
+`subtree_revision` moves on every keystroke. Key the group list on that and a
+find-bar keystroke re-walks and re-folds the whole subtree.
+
+**A timing budget does not catch this.** On the 1000-turn chat the broken version
+is 2.7ms against 1.9ms, because most of that text lives in native element props
+rather than retained `<text>`. `highlight_cache_tests` in `renderer.rs` compares
+`Arc` identity instead, and fails outright.
+
+Native elements (`<code>`, `<markdown>`, `<diff>`) generate text inside
+`render()`, so the build-time resolver cannot see it. They match the exact string
+they are about to paint, through `washes_for_native_run`. Do **not** add a second
+traversal that re-derives their text and `sub` values; markdown assigns `sub`
+with a render-time counter and the two would drift.
+
+Native runs share one ordinal sequence per declaration, continuing after the
+retained matches (`NativeHighlight::offsets`) and memoised per run so a row gpui
+paints twice keeps its numbers. Number each run from zero and `activeIndex: 1`
+marks the second match of *every* code line active.
+
+`onHighlight` is queued during build and flushed **after** the root build
+returns, keyed on `MatchSet::identity()` rather than the count. Emitting inline
+lets a `setState` in the handler re-enter the build; keying on the count alone
+misses a query swap that finds the same number of hits, and including the
+colours makes a cursor move look like a new result.
+
+Content is searchable even under `userSelect: "none"`, because a browser still
+finds it. `chrome_text` cannot paint a wash, so it is only for real chrome:
+gutters, language tags, diff file headers.
+
 ## Layout numbers live in `Theme::metrics`, not in Rust constants
 
 Row heights, gutter widths, paddings, text sizes and the heading scale are all
@@ -817,6 +875,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] `<virtual-list>`
 - [x] `<code>`, `<diff>`, `<markdown>` with Syntect
 - [x] Cross-element text selection
+- [x] `highlight` prop: search matches and explicit ranges
 - [x] Headless Select, Combobox, Tooltip
 - [x] `setWindowTitle`
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)

@@ -290,6 +290,52 @@ export interface GpuixTheme {
   metrics?: GpuixMetrics
 }
 
+/** One `highlight` entry. See `Props.highlight`. */
+export interface HighlightSpec {
+  /**
+   * Substring to match. Case-insensitive unless `caseSensitive` is set.
+   *
+   * A match never crosses a line, exactly like browser find. It DOES cross the
+   * several host nodes React makes for one interpolated line, so
+   * `<text>Hello {name}!</text>` matches `Hello Tommy`.
+   */
+  query?: string
+  caseSensitive?: boolean
+  /** Only match when neither neighbour is alphanumeric or `_`. */
+  wholeWord?: boolean
+  /**
+   * Explicit `[start, end)` pairs in UTF-16 code units, the units `indexOf` and
+   * `RegExp.exec` return. They index the declaring subtree's text, with a
+   * newline between lines.
+   *
+   * A pair that splits a surrogate pair is rejected, not snapped. Native text
+   * (`<code>`, `<markdown>`, `<diff>`) is not part of that text; use `query`.
+   */
+  ranges?: Array<[number, number]>
+  /** Any CSS colour. Defaults to the theme accent at 30% alpha. */
+  color?: string
+  /** Colour for the match at `activeIndex`. Defaults to accent at 65%. */
+  activeColor?: string
+  /** Index of the match to highlight differently, for a find-bar cursor. */
+  activeIndex?: number
+  /** Corner radius of the wash. Defaults to 2. */
+  radius?: number
+}
+
+/** One highlight wash painted in the last frame. Test-facing. */
+export interface HighlightMatch {
+  elementId: number
+  /** Index of the run within that element. 0 for a plain `<text>`. */
+  sub: number
+  /** The run's full string, so `text.slice(start, end)` is the match. */
+  text: string
+  start: number
+  end: number
+  active: boolean
+  /** One box per visual row, so a soft-wrapped match has two. */
+  rects: Array<{ x: number; y: number; width: number; height: number }>
+}
+
 // Props passed to elements.
 // Element IDs are auto-generated numeric IDs (not user-settable).
 // Use React refs to get an element's ID: ref.current.id
@@ -337,6 +383,18 @@ export interface Props {
   onLineClick?: (event: EventPayload) => void
   onLinkClick?: (event: EventPayload) => void
   onVisibleRange?: (event: EventPayload) => void
+  /** Match count changed for this element's `highlight`. See `matchCount`. */
+  onHighlight?: (event: EventPayload) => void
+
+  // ── Highlight ──────────────────────────────────────────────────
+  /**
+   * Paint a background wash behind matched or explicitly given text ranges.
+   *
+   * Scoped by position: on the root it searches the window, on a container it
+   * searches that container. The nearest declaration wins, so a nested
+   * `highlight` replaces an ancestor's for its own subtree.
+   */
+  highlight?: HighlightSpec | HighlightSpec[] | null
 
   // ── Focus props ────────────────────────────────────────────────
   /** Take keyboard focus when the element first mounts. Required for `<input>`:
@@ -520,6 +578,12 @@ export interface NativeRenderer {
   getSelectedText?(): string | null
   /** Drop the current selection. */
   clearSelection?(): void
+
+  // ── Highlight API ──────────────────────────────────────────────
+  /** Every highlight wash painted in the last frame, in paint order.
+   *  A quad never appears in getPaintedText(), so this is how `highlight`
+   *  is asserted without a screenshot. */
+  getPaintedHighlights?(): HighlightMatch[]
 
   // ── Window API ─────────────────────────────────────────────────
   getWindowSize?(): { width: number; height: number }
