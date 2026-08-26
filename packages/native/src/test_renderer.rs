@@ -53,13 +53,29 @@ struct VisualTestState {
 impl Drop for VisualTestState {
     fn drop(&mut self) {
         let view = self.view.clone();
+        // Unmount, exactly as React would: empty the tree, then paint one more
+        // frame. The registry is not the only owner of the entity. `<input>`
+        // installs an `ElementInputHandler` during paint, and a clone of that
+        // lives in the window's rendered frame and in the platform window. A
+        // frame with nothing in it is what drops those, and it has to happen
+        // while the `App` is still alive.
         self.cx.update(|cx| {
-            view.update(cx, |view, _cx| {
+            view.update(cx, |view, cx| {
+                if let Ok(mut tree) = view.tree.lock() {
+                    tree.root_id = None;
+                }
                 view.custom_registry.destroy_all();
                 view.focus_subscriptions.clear();
                 view.focus_handles.clear();
+                cx.notify();
             });
         });
+        // Err only means the window is already gone, which is the state this
+        // is trying to reach.
+        self.cx
+            .update_window(self.window, |_, window, _| window.refresh())
+            .ok();
+        self.cx.run_until_parked();
     }
 }
 
