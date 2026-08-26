@@ -1083,6 +1083,35 @@ mod tests {
             .all(|wash| !wash.active));
     }
 
+    /// One declaration is one element, not one allocation.
+    ///
+    /// `build_virtual_child` re-resolves the declaration after the root render
+    /// returned, and gets a NEW `HighlightContext` whenever the tree moved in
+    /// between. Ordinals used to key on the `Arc` address of the spec, so that
+    /// row restarted the sequence at 0 and the active wash jumped to it. They
+    /// key on the declaring element id now, so the sequence continues.
+    #[test]
+    fn two_contexts_for_one_declaration_share_the_sequence() {
+        let resolved = |active: usize| {
+            let mut s = spec("x");
+            s.active_index = Some(active);
+            HighlightContext {
+                declaration: 7,
+                set: HighlightSet { specs: vec![s] },
+                matches: Arc::new(MatchSet::default()),
+            }
+        };
+        // Two separate allocations, same declaring element.
+        let root = resolved(1);
+        let row = resolved(1);
+
+        ordinal_frame_reset();
+        let first = washes_for_native_run(&root, &"7:0".into(), "x");
+        let second = washes_for_native_run(&row, &"7:1".into(), "x");
+        assert!(!first[0].active, "ordinal 0");
+        assert!(second[0].active, "ordinal 1, not a second ordinal 0");
+    }
+
     #[test]
     fn matcher_hash_ignores_the_index_offset() {
         let a = spec("foo");
