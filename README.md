@@ -39,7 +39,6 @@ typecheck.
     "jsx": "react-jsx",
     "jsxImportSource": "@gpuix/react",
     "strict": true,
-    "noImplicitAny": false,
     "skipLibCheck": true,
     "noEmit": true
   }
@@ -158,11 +157,11 @@ Cross-Origin-Embedder-Policy: require-corp
 The chat example puts a virtualized `<diff>` and a GFM table inside an assistant
 turn, inside a scrolling transcript:
 
-![A diff and a markdown table inside a chat turn](docs/images/chat-diff.png)
+![A diff and a markdown table inside a chat turn](./docs/images/chat-diff.png)
 
 Markdown, code and a virtualized diff in one frame:
 
-![Markdown, code and diff rendered together](docs/images/showcase.png)
+![Markdown, code and diff rendered together](./docs/images/showcase.png)
 
 ## Architecture
 
@@ -359,6 +358,28 @@ later calls only remount React.
 `createRenderer()`, `createRoot()`, and `startFrameLoop()` stay public for
 tests and custom hosts. Pass `{ renderer }` into `render()` when you already
 have one.
+
+### flushSync
+
+The root is a **concurrent root**, so React commits in a later microtask.
+`flushSync` forces the render and the commit to finish before it returns, the
+same as in `react-dom`.
+
+```tsx
+import { flushSync } from '@gpuix/react'
+
+flushSync(() => setSidebarOpen(true))
+```
+
+It flushes **React only**, down to one `applyBatch` call. After it returns the
+native retained tree is up to date, including styles and text.
+
+It does **not** wait for GPUI. Layout and paint still happen on the next frame,
+exactly like the browser paints after a DOM mutation. To see pixels, wait a
+frame in the app, or call `renderer.flush()` in a test.
+
+Use it when an ordering bug depends on the commit landing first: an unmount
+before a remount, or a state change before you feed the next event.
 
 ## Debug frame overlay
 
@@ -773,9 +794,27 @@ React Fiber + Rust RetainedTree    all row IDs, props, text, and events
        GPUI layout and paint      visible rows only
 ```
 
-GPUI measures a row when it enters the viewport. `estimatedItemHeight` gives unseen rows an approximate height so the scrollbar is useful before every row has been visited. The measured height replaces the estimate automatically.
+### Row heights
 
-When a retained descendant changes, GPUIX marks its direct row for remeasurement. Appending, removing, or reordering keyed rows keeps measurements for rows whose IDs did not change.
+**Rows do not need equal heights, and you do not need to know them.** GPUI measures a row when it enters the viewport. `estimatedItemHeight` is a **hint for rows nothing has measured yet**, not a size contract.
+
+```text
+index:     0        1        2        3        4        5        6        7
+       ┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+       │  hint  │  hint  │measured│measured│measured│  hint  │  hint  │  hint  │
+       │  220px │  220px │  184px │  512px │   96px │  220px │  220px │  220px │
+       └────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘
+           ▲                          ▲                          ▲
+           │                          │                          │
+     estimate only         real, variable heights          estimate only
+                          (viewport plus overdraw)
+```
+
+The sum of that height cache is the scroll length, so a rough estimate only affects **scrollbar accuracy** before a row is visited. The measured height replaces the estimate automatically, and the scrollbar converges as you scroll.
+
+When a retained descendant changes, GPUIX marks its direct row for remeasurement, so a streaming row grows correctly. Appending, removing, or reordering keyed rows keeps measurements for rows whose IDs did not change.
+
+`estimatedItemHeight` is optional in children mode, where every row exists and can be measured. It is **required** with `itemCount`, because React never mounts the rows outside the window and native has no element to measure. Those indexes render as an empty box of the estimated height until React mounts the real row.
 
 ### Row boundaries
 
@@ -1218,7 +1257,7 @@ gutters — set `userSelect: "none"`, which inherits like the CSS property:
 </div>
 ```
 
-![Text selected across markdown blocks](docs/images/selection.png)
+![Text selected across markdown blocks](./docs/images/selection.png)
 
 Read the selection from the renderer:
 
@@ -1270,7 +1309,7 @@ header. `style` is the surface, so the card look is yours.
 />
 ```
 
-![A syntax-highlighted code block](docs/images/code.png)
+![A syntax-highlighted code block](./docs/images/code.png)
 
 `fontFamily`, `fontSize`, `fontWeight`, `lineHeight` and `color` in `style` beat
 the theme. Rows are a fixed height, so `fontSize` alone scales that height by the
@@ -1319,7 +1358,7 @@ scroller. See [Scrolling](#scrolling).
 />
 ```
 
-![A unified diff with word-level highlights](docs/images/diff.png)
+![A unified diff with word-level highlights](./docs/images/diff.png)
 
 ### `<markdown>`
 
@@ -1330,7 +1369,7 @@ strikethrough, task lists, and autolinked bare URLs.
 <markdown source={readme} onLinkClick={(e) => open(e.value)} />
 ```
 
-![Markdown with headings, lists, a table and a code fence](docs/images/markdown.png)
+![Markdown with headings, lists, a table and a code fence](./docs/images/markdown.png)
 
 ### Theming
 
@@ -1371,7 +1410,7 @@ so changing `diffLineHeight` also re-sizes the scroll model.
 
 The same three components, retuned entirely from `metrics` with no rebuild:
 
-![The components with enlarged metrics](docs/images/metrics.png)
+![The components with enlarged metrics](./docs/images/metrics.png)
 
 Languages bundled: Rust, TypeScript, TSX, JavaScript, JSX, Python, Go, JSON,
 Bash, TOML, YAML, Markdown, HTML, CSS, C.
@@ -1709,7 +1748,7 @@ await app.screenshot({ path: 'sent.png' })
 ```
 
 That is the chat example. The real test lives in
-[`examples/chat.test.tsx`](./examples/chat.test.tsx).
+[`examples/chat.test.tsx`](https://github.com/remorses/gpuix/blob/main/examples/chat.test.tsx).
 
 ```
 createTestRoot()          browser render()          launch({ command, args })
@@ -1965,8 +2004,8 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 
 ## Documentation
 
-See [AGENTS.md](./AGENTS.md) for detailed architecture, communication flow, and contributing guide.
+See [AGENTS.md](https://github.com/remorses/gpuix/blob/main/AGENTS.md) for detailed architecture, communication flow, and contributing guide.
 
 ## License
 
-[Apache-2.0](./LICENSE)
+[Apache-2.0](https://github.com/remorses/gpuix/blob/main/LICENSE)
