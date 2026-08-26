@@ -188,4 +188,46 @@ describeNative("automation", () => {
     ])
     await app.close()
   })
+
+  // Custom elements paint themselves, so they only appear in the bounds
+  // registry if their builder attaches `automation::bounds_tracker`. Without
+  // it, `click()` on an editor fails with "Element has no painted bounds" and
+  // the only workaround is a hard-coded pixel coordinate.
+  it("gives an input and a textarea painted bounds", async () => {
+    function Form() {
+      const [single, setSingle] = useState("one")
+      const [multi, setMulti] = useState("two")
+      return (
+        <div style={{ display: "flex", flexDirection: "column", width: 400, height: 200 }}>
+          <input
+            testId="single"
+            style={{ width: 300, height: 40 }}
+            value={single}
+            onChange={(event) => setSingle(event.value)}
+          />
+          <textarea
+            testId="multi"
+            style={{ width: 300, height: 60 }}
+            value={multi}
+            onChange={(event) => setMulti(event.value)}
+          />
+        </div>
+      )
+    }
+
+    const { render, renderer } = createTestRoot()
+    render(<Form />)
+    const app = await connectTest(renderer)
+
+    const single = await app.getByTestId("single").bounds()
+    const multi = await app.getByTestId("multi").bounds()
+    expect(single).not.toBeNull()
+    expect(multi).not.toBeNull()
+    expect(single!.width).toBeGreaterThan(0)
+    expect(single!.height).toBeGreaterThan(0)
+    // The textarea is laid out under the input, so its box must start lower.
+    expect(multi!.y).toBeGreaterThan(single!.y)
+
+    await app.close()
+  })
 })

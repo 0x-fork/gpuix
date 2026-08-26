@@ -882,6 +882,9 @@ export function browserKeystrokeInit(
   }
 }
 
+/** The hidden element GPUI's browser platform appends to `<body>` for IME. */
+export const IME_MIRROR_SELECTOR = "[data-gpui-input]"
+
 function dispatchBrowserKeystroke({
   keystroke,
   type,
@@ -891,7 +894,12 @@ function dispatchBrowserKeystroke({
   type: "keydown" | "keyup"
   isHeld?: boolean
 }): void {
-  const input = document.querySelector("input[data-gpui-input]")
+  // GPUI's IME conduit is a `<textarea>`, not an `<input>`: a single-line
+  // input silently strips newlines from an assigned value, which would make
+  // the mirror text disagree with the document. See `gpui_web/src/ime_mirror.rs`.
+  // Match on the attribute alone so a future tag change cannot silently turn
+  // every keystroke into "GPUI browser input is unavailable".
+  const input = document.querySelector(IME_MIRROR_SELECTOR)
   if (!input) {
     throw new AutomationError("Unsupported", "GPUI browser input is unavailable")
   }

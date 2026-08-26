@@ -2135,6 +2135,12 @@ await app.getByTestId('canvas').wheel(0, 120, { modifiers: 'cmd' })
 await app.getByTestId('clip-8').click({ modifiers: 'shift' })
 ```
 
+`click()` needs painted bounds, and a custom element only has them if its
+builder records them. `<div>`, `<text>`, `<input>`, `<textarea>` and `<code>`
+do. **`<img>`, `<svg>`, `<anchored>`, `<diff>` and `<markdown>` do not**, so
+`click()` on those throws `Element has no painted bounds`. `getByText` still
+finds text painted inside them, because text registers separately.
+
 ### Screenshots and clock
 
 `app.screenshot({ path })` writes the current GPU frame as a PNG.

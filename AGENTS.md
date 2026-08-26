@@ -317,6 +317,30 @@ self-accepted for Fast Refresh. The callback then remounts on top of a
 successful refresh and wipes every hook. This looks exactly like Fast Refresh
 being broken, and it is not.
 
+**Never run `bun run build` in `packages/react` while the web dev server is up.**
+That script is `rm -rf dist && tsc`, and `packages/react/dist` is inside the dev
+server's module graph. Deleting it under a running server permanently corrupts
+its registry: every page load then fails with `Failed to load bundled module
+'packages/react/dist/index.js'`, even after a hard reload. Only a server restart
+clears it. Rebuild the library first, then start the server.
+
+## Custom elements are invisible to automation unless they say otherwise
+
+`automation::bounds_tracker` is what puts an element in the bounds registry, and
+`build_element` only attaches it for `<div>` and `<text>`. A custom element that
+paints itself has **no bounds**, so `getByTestId(..).click()` throws
+`Element has no painted bounds`. `<code>` and `<input>` / `<textarea>` attach
+their own. `<img>`, `<svg>`, `<anchored>`, `<diff>` and `<markdown>` do not.
+
+Add `el.child(crate::automation::bounds_tracker(ctx.id, None))` to any new custom
+element whose root is a `relative()` div. The tracker is `absolute().size_full()`,
+so it needs a positioned parent.
+
+GPUI's browser IME conduit is a **`<textarea>`**, not an `<input>`. Match it with
+the attribute alone (`IME_MIRROR_SELECTOR` in `automation/client.ts`). A tag-
+qualified selector silently turns every browser keystroke into
+`GPUI browser input is unavailable`.
+
 ## Virtualized React children re-enter through `cx.processor`
 
 `<virtual-list>` does not build its retained children during `GpuixView::render`.
