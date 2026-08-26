@@ -55,6 +55,103 @@ describeNative('todo app', () => {
     await app.close()
   })
 
+  it('repaints the header and the rows for every sidebar tab', async () => {
+    const { render, renderer } = createTestRoot()
+    render(<TodoApp />)
+    const app = await connectTest(renderer)
+
+    // The whole painted screen, not just the rows: a tab has to move the
+    // header title and its count as well as the list under it.
+    const screen = async (view: string) => {
+      await app.getByTestId(`view-${view}`).click()
+      return renderer.getPaintedText().join('\n')
+    }
+
+    const today = await screen('today')
+
+    expect(await screen('inbox')).toMatchInlineSnapshot(`
+      "Tasks
+      Inbox
+      6
+      Today
+      2
+      Starred
+      2
+      Done
+      2
+      Settings
+      Inbox
+      6
+      Wire a native <input> to React state
+      Put a long list behind <virtual-list>
+      Animate the sidebar with motion.div
+      Tint an icon through style.color
+      Compile a standalone binary
+      Ship it
+      Add a task
+      Add"
+    `)
+    expect(await screen('starred')).toMatchInlineSnapshot(`
+      "Tasks
+      Inbox
+      6
+      Today
+      2
+      Starred
+      2
+      Done
+      2
+      Settings
+      Starred
+      2
+      Wire a native <input> to React state
+      Animate the sidebar with motion.div
+      Add a task
+      Add"
+    `)
+    expect(await screen('done')).toMatchInlineSnapshot(`
+      "Tasks
+      Inbox
+      6
+      Today
+      2
+      Starred
+      2
+      Done
+      2
+      Settings
+      Done
+      2
+      Read the GPUIX quickstart
+      Draw the first window
+      Add a task
+      Add"
+    `)
+
+    // Back to the tab the app opened on, to prove a tab is not one-way.
+    expect(await screen('today')).toBe(today)
+    expect(today).toMatchInlineSnapshot(`
+      "Tasks
+      Inbox
+      6
+      Today
+      2
+      Starred
+      2
+      Done
+      2
+      Settings
+      Today
+      2
+      Wire a native <input> to React state
+      Put a long list behind <virtual-list>
+      Add a task
+      Add"
+    `)
+
+    await app.close()
+  })
+
   it('deletes the hovered row', async () => {
     const { render, renderer } = createTestRoot()
     render(<TodoApp />)
