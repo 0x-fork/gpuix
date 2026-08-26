@@ -79,4 +79,6 @@ expect(hit.rects).toHaveLength(1)
 
 **Performance.** The prop is the opt-in: nothing resolves and nothing paints unless an element declares one. When a query is active, the subtree's group list is cached on a dedicated text revision that a query change does not move, while the located matches are cached on a matcher hash that excludes `activeIndex` and the colours. So a keystroke never re-walks or re-folds text, and moving the find cursor only re-colours matches it already found. A root-scoped query over a 1000-turn chat costs about 2ms per keystroke.
 
-**Matching contract.** Unicode default lowercasing, not full case folding, so `ﬀ` does not match `ff`. A word boundary is any code point that is not a letter, a digit, or `_`. Both the native matcher and `findRanges` follow the same rules.
+**Matching contract.** Unicode default lowercasing, not full case folding, so `ﬀ` does not match `ff`. A word boundary is any code point that is not Unicode Alphabetic, a digit, or `_`. Both the native matcher and `findRanges` follow the same rules.
+
+`activeIndex` counts matches in document order, in the order they paint, so it means the same thing whether a match sits in a `<text>` or inside a `<code>` block.

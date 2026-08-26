@@ -166,7 +166,7 @@ pub struct MdContext {
     pub theme: Theme,
     /// Inherited `highlight`, matched per painted string. See
     /// [`crate::text::search::washes_for_native_run`].
-    pub highlight_set: Option<Arc<crate::text::search::NativeHighlight>>,
+    pub highlight_set: Option<Arc<crate::text::HighlightContext>>,
     /// Monotonic sub-key counter. Must advance in document order so a drag
     /// resolves spans the same way the reader sees them.
     next_sub: usize,
@@ -183,7 +183,7 @@ impl MdContext {
         selection_wash: Hsla,
         theme: Theme,
         on_link: Option<Arc<dyn Fn(&str)>>,
-        highlight_set: Option<Arc<crate::text::search::NativeHighlight>>,
+        highlight_set: Option<Arc<crate::text::HighlightContext>>,
     ) -> Self {
         Self {
             element_id,

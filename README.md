@@ -1418,7 +1418,8 @@ persistent mention tint. Later entries draw on top.
 
 Matches are **non-overlapping** and leftmost-first. Case-insensitive matching
 uses Unicode **lowercasing**, not full case folding, so `ﬀ` does not match `ff`.
-A word boundary is any code point that is not a letter, a digit, or `_`.
+A word boundary is any code point that is not Unicode Alphabetic, a digit,
+or `_`.
 
 A match never crosses a line, exactly like browser find. It **does** cross the
 several host nodes React creates for one interpolated line, which matters more

@@ -117,7 +117,11 @@ export interface FindRangesOptions {
   wholeWord?: boolean
 }
 
-const WORD_CHAR = /[\p{L}\p{N}_]/u
+// `Alphabetic`, not `L`: Rust's `char::is_alphanumeric` uses the Unicode
+// Alphabetic property, which also covers combining marks such as U+0345. With
+// `\p{L}` the two matchers disagree on `wholeWord` and a virtual-list count
+// stops matching what native actually paints.
+const WORD_CHAR = /[\p{Alphabetic}\p{N}_]/u
 
 /** True when the code point ending at `end` is a word character. */
 function wordCharBefore(text: string, end: number): boolean {
@@ -165,7 +169,8 @@ function fold(text: string): { folded: string; map: number[] } {
  * Non-overlapping `[start, end)` matches of `query` in `text`, in UTF-16 code
  * units. Same contract as the native matcher: leftmost first, non-overlapping,
  * Unicode **lowercasing** (not full case folding, so `ﬀ` does not match `ff`),
- * and a word boundary is any code point that is not a letter, a digit, or `_`.
+ * and a word boundary is any code point that is not Unicode Alphabetic, a
+ * digit, or `_`.
  */
 export function findRanges(options: FindRangesOptions): Array<[number, number]> {
   const { text, query, caseSensitive = false, wholeWord = false } = options

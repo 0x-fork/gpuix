@@ -52,7 +52,7 @@ pub struct CustomRenderContext<'a> {
     /// tree never sees it and the build-time resolver cannot produce ranges for
     /// it. `ctx.text` matches the exact string it is about to paint instead,
     /// which makes drift between the search pass and the paint pass impossible.
-    pub highlight_set: Option<std::sync::Arc<crate::text::search::NativeHighlight>>,
+    pub highlight_set: Option<std::sync::Arc<crate::text::HighlightContext>>,
 }
 
 impl CustomRenderContext<'_> {

@@ -236,23 +236,54 @@ describe("highlight", () => {
     expect(actives).toEqual([false, false, true, false])
   })
 
-  // Retained matches are numbered first, so a native run must not reuse an
-  // ordinal a sibling <text> already took.
-  it("numbers native matches after retained ones", () => {
+  // Ordinals follow PAINT order, so `activeIndex` means "the nth match in the
+  // document" no matter which kind of element painted it. Numbering retained
+  // matches first made activeIndex: 0 mark the <text> even when <code> came
+  // first in the document.
+  it("numbers matches in document order across both kinds", () => {
     const { render, renderer } = createTestRoot()
-    render(
+    const app = (first: "text" | "code") => (
       <div
         style={{ display: "flex", flexDirection: "column" }}
-        highlight={{ query: "x", activeIndex: 1 }}
+        highlight={{ query: "x", activeIndex: 0 }}
       >
-        <text>x here</text>
+        {first === "text" ? <text>x here</text> : null}
         <code code={"x again"} language="typescript" showHeader={false} />
+        {first === "code" ? <text>x here</text> : null}
       </div>
     )
 
-    const hits = renderer.getPaintedHighlights()
+    render(app("text"))
+    let hits = renderer.getPaintedHighlights()
     expect(hits).toHaveLength(2)
-    expect(hits.map((hit) => hit.active)).toEqual([false, true])
+    expect(hits[0].text).toContain("here")
+    expect(hits.map((hit) => hit.active)).toEqual([true, false])
+
+    render(app("code"))
+    hits = renderer.getPaintedHighlights()
+    expect(hits).toHaveLength(2)
+    expect(hits[0].text).toContain("again")
+    expect(hits.map((hit) => hit.active)).toEqual([true, false])
+  })
+
+  it("reports a count to a listener added after the first render", () => {
+    const { render, renderer } = createTestRoot()
+    const counts: number[] = []
+
+    render(
+      <div highlight={{ query: "fox" }}>
+        <text>fox and fox</text>
+      </div>
+    )
+    renderer.dispatchNativeEvents()
+
+    render(
+      <div highlight={{ query: "fox" }} onHighlight={(e) => counts.push(e.matchCount ?? -1)}>
+        <text>fox and fox</text>
+      </div>
+    )
+    renderer.dispatchNativeEvents()
+    expect(counts).toEqual([2])
   })
 
   it("keeps native content searchable under userSelect none", () => {
@@ -373,6 +404,18 @@ describe("findRanges", () => {
     expect(
       findRanges({ text: "\u{1F44B}foo", query: "foo", wholeWord: true })
     ).toEqual([[2, 5]])
+  })
+
+  // Rust uses char::is_alphanumeric, which is the Unicode Alphabetic property.
+  // With \p{L} the JS side called a combining mark a word boundary and the two
+  // matchers disagreed.
+  it("treats combining marks as word characters, like the native matcher", () => {
+    expect(
+      findRanges({ text: "foo\u0345", query: "foo", wholeWord: true })
+    ).toEqual([])
+    expect(
+      findRanges({ text: "foo\u05B0", query: "foo", wholeWord: true })
+    ).toEqual([])
   })
 
   it("agrees with the native matcher on the same input", () => {

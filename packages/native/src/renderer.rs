@@ -2553,20 +2553,13 @@ struct HighlightCacheEntry {
     revision: u64,
     groups: Arc<crate::text::GroupList>,
     matcher_hash: u64,
-    /// Match locations, colour-free. Survives a colour or `activeIndex` change.
-    matches: Arc<crate::text::search::MatchSet>,
-    /// The spec plus the per-spec retained counts native runs continue from.
-    native: Arc<crate::text::search::NativeHighlight>,
-    resolved: Arc<crate::text::ResolvedHighlights>,
-    /// Last identity reported through `onHighlight`.
+    /// The spec plus the located matches. Ordinals and colours are decided at
+    /// paint, so a colour or `activeIndex` change reuses this whole value.
+    context: Arc<crate::text::HighlightContext>,
+    /// Last identity delivered through `onHighlight`. Only written once an
+    /// event is really queued, so adding the listener later still reports.
     reported: Option<u64>,
 }
-
-type ResolvedHighlight = (
-    Arc<crate::text::ResolvedHighlights>,
-    Arc<crate::text::search::NativeHighlight>,
-    Option<usize>,
-);
 
 fn emit_highlight_events(callback: &Option<EventCallback>, events: &[(u64, usize)]) {
     for &(id, total) in events {
@@ -2578,16 +2571,18 @@ fn emit_highlight_events(callback: &Option<EventCallback>, events: &[(u64, usize
 
 /// Resolve one element's `highlight` prop, reusing both cache levels.
 ///
-/// Returns the washes, plus the match count when the result differs from the
-/// last one this element reported. Identity, not count: swapping a query for a
-/// different one with the same number of hits is still a new result.
+/// Returns the context, plus the match count when `has_listener` and the result
+/// differs from the last one this element reported. Identity, not count:
+/// swapping a query for a different one with the same number of hits is still a
+/// new result.
 fn resolve_highlight(
     cache: &mut HashMap<u64, HighlightCacheEntry>,
     tree: &RetainedTree,
     id: u64,
     value: &serde_json::Value,
     theme: &Theme,
-) -> Option<ResolvedHighlight> {
+    has_listener: bool,
+) -> Option<(Arc<crate::text::HighlightContext>, Option<usize>)> {
     let set = crate::text::HighlightSet::parse(value, theme)?;
     // `search_revision`, NOT `subtree_revision`: `highlight` is a custom prop,
     // so the general revision moves on every keystroke and this cache would
@@ -2595,51 +2590,62 @@ fn resolve_highlight(
     let revision = tree.elements.get(&id)?.search_revision;
     let matcher_hash = set.matcher_hash();
 
-    if let Some(entry) = cache.get(&id) {
-        if entry.revision == revision && entry.matcher_hash == matcher_hash {
-            // Same matches. A colour or `activeIndex` change only re-colours
-            // them, which walks the matches and never touches text.
-            if *entry.native.set == set {
-                return Some((entry.resolved.clone(), entry.native.clone(), None));
-            }
-            let resolved = Arc::new(crate::text::search::colorize(&entry.matches, &set));
-            let native = Arc::new(crate::text::search::NativeHighlight {
-                set: Arc::new(set),
-                offsets: entry.matches.per_spec.clone(),
-            });
-            let entry = cache.get_mut(&id)?;
-            entry.native = native.clone();
-            entry.resolved = resolved.clone();
-            return Some((resolved, native, None));
+    let cached = cache
+        .get(&id)
+        .filter(|entry| entry.revision == revision && entry.matcher_hash == matcher_hash);
+    let (context, identity, total) = match cached {
+        Some(entry) if *entry.context.set == set => {
+            (entry.context.clone(), entry.context.matches.identity(), entry.context.matches.total)
         }
-    }
-
-    let groups = match cache.get(&id) {
-        Some(entry) if entry.revision == revision => entry.groups.clone(),
-        _ => Arc::new(crate::text::GroupList::collect(tree, id)),
+        // Same matches, different colours or find cursor: reuse the located
+        // matches and swap only the spec. No text is scanned.
+        Some(entry) => {
+            let matches = entry.context.matches.clone();
+            let identity = matches.identity();
+            let total = matches.total;
+            let context = Arc::new(crate::text::HighlightContext {
+                set: Arc::new(set),
+                matches,
+            });
+            cache.get_mut(&id)?.context = context.clone();
+            (context, identity, total)
+        }
+        None => {
+            let groups = match cache.get(&id) {
+                Some(entry) if entry.revision == revision => entry.groups.clone(),
+                _ => Arc::new(crate::text::GroupList::collect(tree, id)),
+            };
+            let matches = Arc::new(crate::text::search::resolve(&groups, &set));
+            let identity = matches.identity();
+            let total = matches.total;
+            let context = Arc::new(crate::text::HighlightContext {
+                set: Arc::new(set),
+                matches,
+            });
+            let reported = cache.get(&id).and_then(|entry| entry.reported);
+            cache.insert(
+                id,
+                HighlightCacheEntry {
+                    revision,
+                    groups,
+                    matcher_hash,
+                    context: context.clone(),
+                    reported,
+                },
+            );
+            (context, identity, total)
+        }
     };
-    let matches = Arc::new(crate::text::search::resolve(&groups, &set));
-    let resolved = Arc::new(crate::text::search::colorize(&matches, &set));
-    let native = Arc::new(crate::text::search::NativeHighlight {
-        set: Arc::new(set),
-        offsets: matches.per_spec.clone(),
-    });
-    let identity = matches.identity();
-    let changed = cache.get(&id).and_then(|entry| entry.reported) != Some(identity);
-    let total = matches.total;
-    cache.insert(
-        id,
-        HighlightCacheEntry {
-            revision,
-            groups,
-            matcher_hash,
-            matches,
-            native: native.clone(),
-            resolved: resolved.clone(),
-            reported: Some(identity),
-        },
-    );
-    Some((resolved, native, changed.then_some(total)))
+
+    if !has_listener {
+        return Some((context, None));
+    }
+    let entry = cache.get_mut(&id)?;
+    if entry.reported == Some(identity) {
+        return Some((context, None));
+    }
+    entry.reported = Some(identity);
+    Some((context, Some(total)))
 }
 
 impl GpuixView {
@@ -2713,6 +2719,31 @@ impl GpuixView {
         let now = self.clock.now();
         let mut motion_active = false;
         let mut highlight_events = Vec::new();
+
+        // Re-resolve against the tree as it is NOW. gpui calls this during
+        // layout and prepaint, after the root render returned, and on Windows
+        // and Linux the Node thread can commit new text in between. Reusing the
+        // captured ranges would paint a wash over the wrong glyphs, or at a byte
+        // offset that is no longer a character boundary.
+        let mut inherited = inherited;
+        if let Some(declaration) = inherited.highlight_declaration {
+            inherited.highlight = tree
+                .elements
+                .get(&declaration)
+                .and_then(|element| element.custom_props.get("highlight"))
+                .and_then(|value| {
+                    resolve_highlight(
+                        &mut self.highlights,
+                        &tree,
+                        declaration,
+                        value,
+                        &Theme::dark(),
+                        false,
+                    )
+                })
+                .map(|(context, _)| context);
+        }
+
         let mut build_ctx = BuildCtx {
             tree: &tree,
             event_callback: &callback,
@@ -2855,12 +2886,14 @@ pub(crate) struct Inherited {
     pub selectable: bool,
     /// Selection wash colour for this subtree.
     pub selection_wash: gpui::Hsla,
-    /// Highlight washes resolved by the nearest ancestor that declared a
-    /// `highlight` prop. `None` in every app that does not use search.
-    pub highlight: Option<Arc<crate::text::ResolvedHighlights>>,
-    /// The same declaration, unresolved, for native elements that generate
-    /// their text during `render()` and must match it themselves.
-    pub highlight_set: Option<Arc<crate::text::search::NativeHighlight>>,
+    /// The nearest ancestor's `highlight`, resolved. `None` in every app that
+    /// does not use search.
+    pub highlight: Option<Arc<crate::text::HighlightContext>>,
+    /// Element that declared it. A virtual-list row is built after the root
+    /// render returns, so it must re-resolve against the tree as it is THEN;
+    /// on Windows and Linux the Node thread can edit text in between, and a
+    /// stale range would paint over the wrong glyphs.
+    pub highlight_declaration: Option<u64>,
 }
 
 impl Inherited {
@@ -2871,7 +2904,7 @@ impl Inherited {
             selectable: true,
             selection_wash: wash,
             highlight: None,
-            highlight_set: None,
+            highlight_declaration: None,
         }
     }
 
@@ -3445,17 +3478,18 @@ pub(crate) fn build_element(
     // and `GroupList::collect` skips nested declarations so an ancestor never
     // resolves or counts matches that will not paint.
     if let Some(value) = element.custom_props.get("highlight") {
-        match resolve_highlight(ctx.highlights, ctx.tree, id, value, &Theme::dark()) {
-            Some((resolved, set, changed)) => {
-                if let Some(total) = changed.filter(|_| element.events.contains("highlight")) {
+        let has_listener = element.events.contains("highlight");
+        match resolve_highlight(ctx.highlights, ctx.tree, id, value, &Theme::dark(), has_listener) {
+            Some((context, changed)) => {
+                if let Some(total) = changed {
                     ctx.highlight_events.push((id, total));
                 }
-                ctx.inherited.highlight = Some(resolved);
-                ctx.inherited.highlight_set = Some(set);
+                ctx.inherited.highlight = Some(context);
+                ctx.inherited.highlight_declaration = Some(id);
             }
             None => {
                 ctx.inherited.highlight = None;
-                ctx.inherited.highlight_set = None;
+                ctx.inherited.highlight_declaration = None;
             }
         }
     }
@@ -3494,7 +3528,7 @@ pub(crate) fn build_element(
                 selection: ctx.selection.clone(),
                 selectable: inherited.selectable,
                 selection_wash: inherited.selection_wash,
-                highlight_set: inherited.highlight_set.clone(),
+                highlight_set: inherited.highlight.clone(),
             };
             ctx.custom_registry
                 .render(custom_type, &element.custom_props, render_ctx, window, cx)
@@ -4914,6 +4948,10 @@ mod highlight_cache_tests {
         serde_json::json!({ "query": text })
     }
 
+    fn declare(tree: &mut RetainedTree, value: &serde_json::Value) {
+        tree.set_custom_prop(1, "highlight".to_string(), value.clone());
+    }
+
     /// The whole reason `search_revision` exists. `highlight` is a custom prop,
     /// so keying the group list on `subtree_revision` means every keystroke
     /// re-walks and re-folds the subtree. The pointer comparison is the proof;
@@ -4924,12 +4962,12 @@ mod highlight_cache_tests {
         let mut tree = tree_with_text();
         let mut cache = HashMap::new();
 
-        tree.set_custom_prop(1, "highlight".to_string(), query("f"));
-        resolve_highlight(&mut cache, &tree, 1, &query("f"), &theme).expect("resolves");
+        declare(&mut tree, &query("f"));
+        resolve_highlight(&mut cache, &tree, 1, &query("f"), &theme, false).expect("resolves");
         let first = Arc::as_ptr(&cache[&1].groups);
 
-        tree.set_custom_prop(1, "highlight".to_string(), query("fo"));
-        resolve_highlight(&mut cache, &tree, 1, &query("fo"), &theme).expect("resolves");
+        declare(&mut tree, &query("fo"));
+        resolve_highlight(&mut cache, &tree, 1, &query("fo"), &theme, false).expect("resolves");
         assert_eq!(
             Arc::as_ptr(&cache[&1].groups),
             first,
@@ -4938,7 +4976,7 @@ mod highlight_cache_tests {
     }
 
     /// Moving a find cursor changes no text and no matcher, so it must re-use
-    /// the located matches and only re-colour them.
+    /// the located matches. Colours and ordinals are decided at paint.
     #[test]
     fn a_cursor_move_reuses_the_located_matches() {
         let theme = Theme::dark();
@@ -4946,21 +4984,16 @@ mod highlight_cache_tests {
         let mut cache = HashMap::new();
         let spec = |active: u64| serde_json::json!({ "query": "fox", "activeIndex": active });
 
-        tree.set_custom_prop(1, "highlight".to_string(), spec(0));
-        resolve_highlight(&mut cache, &tree, 1, &spec(0), &theme).expect("resolves");
-        let matches = Arc::as_ptr(&cache[&1].matches);
+        declare(&mut tree, &spec(0));
+        resolve_highlight(&mut cache, &tree, 1, &spec(0), &theme, true).expect("resolves");
+        let matches = Arc::as_ptr(&cache[&1].context.matches);
 
-        tree.set_custom_prop(1, "highlight".to_string(), spec(1));
-        let (resolved, _, changed) =
-            resolve_highlight(&mut cache, &tree, 1, &spec(1), &theme).expect("resolves");
-        assert_eq!(Arc::as_ptr(&cache[&1].matches), matches, "no rescan");
+        declare(&mut tree, &spec(1));
+        let (context, changed) =
+            resolve_highlight(&mut cache, &tree, 1, &spec(1), &theme, true).expect("resolves");
+        assert_eq!(Arc::as_ptr(&context.matches), matches, "no rescan");
         assert_eq!(changed, None, "a cursor move is not a new result");
-        let washes = resolved.washes_for("2:0").expect("washes");
-        assert_eq!(
-            washes.iter().map(|wash| wash.active).collect::<Vec<_>>(),
-            vec![false, true],
-            "the colour still moved"
-        );
+        assert_eq!(context.set.specs[0].active_index, Some(1), "spec still swapped");
     }
 
     /// Editing the text must invalidate, or the wash paints over stale offsets.
@@ -4970,14 +5003,37 @@ mod highlight_cache_tests {
         let mut tree = tree_with_text();
         let mut cache = HashMap::new();
 
-        tree.set_custom_prop(1, "highlight".to_string(), query("fox"));
-        resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme).expect("resolves");
+        declare(&mut tree, &query("fox"));
+        resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, true).expect("resolves");
         let first = Arc::as_ptr(&cache[&1].groups);
 
         tree.set_text(2, "one fox only".to_string());
-        let (_, _, changed) =
-            resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme).expect("resolves");
+        let (_, changed) =
+            resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, true).expect("resolves");
         assert_ne!(Arc::as_ptr(&cache[&1].groups), first);
         assert_eq!(changed, Some(1), "two matches became one");
+    }
+
+    /// A review caught this: `reported` used to be written even with no
+    /// listener, so mounting without `onHighlight` and adding it later reported
+    /// nothing, forever.
+    #[test]
+    fn adding_the_listener_later_still_reports() {
+        let theme = Theme::dark();
+        let mut tree = tree_with_text();
+        let mut cache = HashMap::new();
+
+        declare(&mut tree, &query("fox"));
+        let (_, changed) =
+            resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, false).expect("resolves");
+        assert_eq!(changed, None, "nothing to report without a listener");
+
+        let (_, changed) =
+            resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, true).expect("resolves");
+        assert_eq!(changed, Some(2), "the listener gets the current count");
+
+        let (_, changed) =
+            resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, true).expect("resolves");
+        assert_eq!(changed, None, "and only once");
     }
 }

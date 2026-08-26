@@ -94,7 +94,7 @@ pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
             START_REGIONS.with(|r| r.borrow_mut().clear());
             PAINTED.with(|p| p.borrow_mut().clear());
             HIGHLIGHTS.with(|h| h.borrow_mut().clear());
-            super::search::native_frame_reset();
+            super::search::ordinal_frame_reset();
             register_copy_listener(window, &selection);
             register_down_listener(window, &selection);
         },
@@ -193,9 +193,9 @@ pub fn selection_key(element_id: u64, sub: usize) -> Arc<str> {
 pub enum HighlightSource {
     /// Retained `<text>`. A match can span the several host nodes React makes
     /// for one interpolated line, because they were merged before matching.
-    Resolved(Arc<super::search::ResolvedHighlights>),
+    Resolved(Arc<super::search::HighlightContext>),
     /// `<code>`, `<markdown>`, `<diff>`: text the retained tree never sees.
-    Native(Arc<super::search::NativeHighlight>),
+    Native(Arc<super::search::HighlightContext>),
 }
 
 pub struct SelectableText {
@@ -289,13 +289,12 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
             // Search washes sit UNDER the selection wash, so a selection over a
             // match still reads as a selection.
             match &highlight {
-                Some(HighlightSource::Resolved(resolved)) => {
-                    if let Some(washes) = resolved.washes_for(&key) {
-                        paint_highlight_washes(&layout, element_id, sub, &text, washes, window);
-                    }
+                Some(HighlightSource::Resolved(ctx)) => {
+                    let washes = super::search::washes_for_retained_run(ctx, &key);
+                    paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
                 }
-                Some(HighlightSource::Native(native)) => {
-                    let washes = super::search::washes_for_native_run(&key, &text, native);
+                Some(HighlightSource::Native(ctx)) => {
+                    let washes = super::search::washes_for_native_run(ctx, &key, &text);
                     paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
                 }
                 None => {}

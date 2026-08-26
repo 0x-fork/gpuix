@@ -177,7 +177,7 @@ supplies explicit `ranges`, because only then does someone index into it.
 
 - the `GroupList` is keyed by **`search_revision`**
 - the `MatchSet` is additionally keyed by `HighlightSet::matcher_hash()`, which
-  **excludes** `activeIndex` and the colours; a cursor move only re-`colorize`s
+  **excludes** `activeIndex` and the colours; a cursor move swaps only the spec
 
 `search_revision` exists because `highlight` is itself a custom prop, so
 `subtree_revision` moves on every keystroke. Key the group list on that and a
@@ -194,16 +194,30 @@ they are about to paint, through `washes_for_native_run`. Do **not** add a secon
 traversal that re-derives their text and `sub` values; markdown assigns `sub`
 with a render-time counter and the two would drift.
 
-Native runs share one ordinal sequence per declaration, continuing after the
-retained matches (`NativeHighlight::offsets`) and memoised per run so a row gpui
-paints twice keeps its numbers. Number each run from zero and `activeIndex: 1`
-marks the second match of *every* code line active.
+**Ordinals are allocated during paint, by `search::ordinal`, for retained and
+native matches alike.** `activeIndex` means the nth match in the document, and
+only paint knows that order: retained matches are located before the frame,
+native text exists only during it, and a subtree can interleave them. Numbering
+each kind separately made `activeIndex: 0` mark the `<text>` match even when a
+`<code>` block came first.
+
+Two things that look redundant there are not. `MatchId::Retained` carries the
+build-time index so a match split over several interpolated runs takes exactly
+one ordinal. The `assigned` memo makes a row gpui paints twice keep its numbers
+rather than advance the cursor again.
 
 `onHighlight` is queued during build and flushed **after** the root build
 returns, keyed on `MatchSet::identity()` rather than the count. Emitting inline
 lets a `setState` in the handler re-enter the build; keying on the count alone
 misses a query swap that finds the same number of hits, and including the
-colours makes a cursor move look like a new result.
+colours makes a cursor move look like a new result. `reported` is written only
+when an event is really queued, or adding `onHighlight` after the first render
+would report nothing forever.
+
+A `<virtual-list>` row is built from `cx.processor` **after** the root render
+returned, so `build_virtual_child` re-resolves the declaration against the tree
+as it is then. On Windows and Linux the Node thread can commit new text in
+between, and a captured range would paint over the wrong glyphs.
 
 Content is searchable even under `userSelect: "none"`, because a browser still
 finds it. `chrome_text` cannot paint a wash, so it is only for real chrome:

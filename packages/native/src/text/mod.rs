@@ -18,4 +18,4 @@ pub use paint::{
     record_start_region, selectable_text, selection_frame_reset, selection_key,
     selection_start_region, HighlightSource, PaintedHighlight, SelectableText, SharedSelection,
 };
-pub use search::{GroupList, HighlightSet, ResolvedHighlights};
+pub use search::{GroupList, HighlightContext, HighlightSet};

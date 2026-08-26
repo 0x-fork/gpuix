@@ -209,56 +209,97 @@ fn is_whole_word(text: &str, range: &Range<usize>) -> bool {
     !before.is_some_and(is_word_char) && !after.is_some_and(is_word_char)
 }
 
-/// A declaration as a native element sees it: the spec, plus how many retained
-/// matches each spec already numbered.
+/// A resolved declaration: the spec, plus the retained matches located once for
+/// the whole subtree.
 ///
-/// Without the offsets a native run would restart at 0, so `activeIndex: 1`
-/// would mark the second match of *every* code line active instead of one.
+/// One value serves both kinds of run. A retained run looks its matches up by
+/// key; a native run matches the string it is about to paint. Both take their
+/// ordinal from the same per-frame sequence, which is what makes `activeIndex`
+/// mean "the nth match in the document".
 #[derive(Debug)]
-pub struct NativeHighlight {
+pub struct HighlightContext {
     pub set: Arc<HighlightSet>,
-    /// Retained match count per spec, the first ordinal a native run may use.
-    pub offsets: Vec<usize>,
+    pub matches: Arc<MatchSet>,
 }
 
-/// Per-frame native match numbering.
+/// Identity of one match within a declaration, stable across the runs that
+/// paint it and across a repaint of the same run.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum MatchId {
+    /// Located at build time; the value is its document-order index per spec.
+    /// A match split over several interpolated runs shares one id, so it takes
+    /// exactly one ordinal.
+    Retained(usize),
+    /// Generated during `render()`; identified by the run and the position
+    /// inside it, because nothing located it earlier.
+    Native(Arc<str>, usize),
+}
+
+/// Per-frame match numbering, shared by retained and native runs.
 #[derive(Default)]
-struct NativeOrdinals {
+struct Ordinals {
     /// Next ordinal per `(declaration, spec)`.
     cursor: HashMap<(usize, usize), usize>,
-    /// Ordinals already handed to a run, so a row gpui paints twice keeps the
-    /// numbers it had the first time instead of advancing the cursor again.
-    assigned: HashMap<(usize, usize, Arc<str>), usize>,
+    /// Ordinals already handed out, so a match painted by two runs, or a row
+    /// gpui paints twice, keeps the number it got the first time.
+    assigned: HashMap<(usize, usize, MatchId), usize>,
 }
 
 thread_local! {
-    static NATIVE: RefCell<NativeOrdinals> = RefCell::new(NativeOrdinals::default());
+    static ORDINALS: RefCell<Ordinals> = RefCell::new(Ordinals::default());
 }
 
-/// Clear the per-frame native match numbering. Called by the frame reset.
-pub fn native_frame_reset() {
-    NATIVE.with(|state| *state.borrow_mut() = NativeOrdinals::default());
+/// Clear the per-frame match numbering. Called by the frame reset, which paints
+/// before any text, including `gpui::list()` rows and deferred overlays.
+pub fn ordinal_frame_reset() {
+    ORDINALS.with(|state| *state.borrow_mut() = Ordinals::default());
 }
 
-fn native_start(
-    declaration: usize,
-    spec: usize,
-    key: &Arc<str>,
-    count: usize,
-    offset: usize,
-) -> usize {
-    NATIVE.with(|state| {
+/// Ordinal of one match, allocated in PAINT order.
+///
+/// Numbering at build time cannot work: retained matches are located before the
+/// frame, native text only exists during it, and a subtree can interleave them
+/// (`<code>` then `<text>`). Numbering each kind separately made `activeIndex`
+/// point at the wrong match whenever a native element came first.
+fn ordinal(declaration: usize, spec: usize, id: MatchId) -> usize {
+    ORDINALS.with(|state| {
         let state = &mut *state.borrow_mut();
-        let slot = (declaration, spec, key.clone());
-        if let Some(start) = state.assigned.get(&slot) {
-            return *start;
+        let slot = (declaration, spec, id);
+        if let Some(assigned) = state.assigned.get(&slot) {
+            return *assigned;
         }
-        let next = state.cursor.entry((declaration, spec)).or_insert(offset);
-        let start = *next;
-        *next += count;
-        state.assigned.insert(slot, start);
-        start
+        let next = state.cursor.entry((declaration, spec)).or_insert(0);
+        let ordinal = *next;
+        *next += 1;
+        state.assigned.insert(slot, ordinal);
+        ordinal
     })
+}
+
+fn wash(spec: &HighlightSpec, range: Range<usize>, ordinal: usize) -> Wash {
+    let active = spec.active_index == Some(ordinal);
+    Wash {
+        range,
+        color: if active { spec.active_color } else { spec.color },
+        radius: spec.radius,
+        active,
+    }
+}
+
+/// Washes for a retained `<text>` run, looked up by selection key.
+pub fn washes_for_retained_run(ctx: &HighlightContext, key: &Arc<str>) -> Vec<Wash> {
+    let Some(entries) = ctx.matches.by_key.get(key) else {
+        return Vec::new();
+    };
+    let declaration = declaration_id(ctx);
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let spec = ctx.set.specs.get(entry.spec)?;
+            let ordinal = ordinal(declaration, entry.spec, MatchId::Retained(entry.index));
+            Some(wash(spec, entry.range.clone(), ordinal))
+        })
+        .collect()
 }
 
 /// Washes for a string a native element is about to paint.
@@ -270,10 +311,10 @@ fn native_start(
 ///
 /// Explicit `ranges` are skipped here: they index the retained subtree's joined
 /// document, which a natively generated string is not part of.
-pub fn washes_for_native_run(key: &Arc<str>, text: &str, native: &NativeHighlight) -> Vec<Wash> {
+pub fn washes_for_native_run(ctx: &HighlightContext, key: &Arc<str>, text: &str) -> Vec<Wash> {
     let mut out = Vec::new();
     // Folding allocates, and a case-sensitive spec never reads it.
-    let folded = native
+    let folded = ctx
         .set
         .specs
         .iter()
@@ -284,25 +325,23 @@ pub fn washes_for_native_run(key: &Arc<str>, text: &str, native: &NativeHighligh
         None => ("", [].as_slice()),
     };
 
-    let declaration = Arc::as_ptr(&native.set) as *const u8 as usize;
-    for (spec_index, spec) in native.set.specs.iter().enumerate() {
-        let hits = matches_in(text, folded, fold_map, spec);
-        if hits.is_empty() {
-            continue;
-        }
-        let offset = native.offsets.get(spec_index).copied().unwrap_or(0);
-        let start = native_start(declaration, spec_index, key, hits.len(), offset);
-        for (position, range) in hits.into_iter().enumerate() {
-            let active = spec.active_index == Some(start + position);
-            out.push(Wash {
-                range,
-                color: if active { spec.active_color } else { spec.color },
-                radius: spec.radius,
-                active,
-            });
+    let declaration = declaration_id(ctx);
+    for (spec_index, spec) in ctx.set.specs.iter().enumerate() {
+        for (position, range) in matches_in(text, folded, fold_map, spec)
+            .into_iter()
+            .enumerate()
+        {
+            let id = MatchId::Native(key.clone(), position);
+            out.push(wash(spec, range, ordinal(declaration, spec_index, id)));
         }
     }
     out
+}
+
+/// Stable per-frame identity of a declaration. The `Arc` is alive for the whole
+/// frame through `Inherited`, so the address cannot be reused underneath us.
+fn declaration_id(ctx: &HighlightContext) -> usize {
+    Arc::as_ptr(&ctx.set) as *const u8 as usize
 }
 
 /// Non-overlapping byte ranges of `spec.query` in `text`, leftmost first.
@@ -442,10 +481,15 @@ fn collect_into(tree: &RetainedTree, id: u64, is_root: bool, out: &mut Vec<Group
     if !is_root && element.custom_props.contains_key("highlight") {
         return;
     }
-    // Own content is a line of its own. For a leaf this only happens when the
-    // declaration sits directly on a text node, which the mutation API allows
-    // even though JSX always wraps.
-    if let Some(content) = element.content.as_ref().filter(|text| !text.is_empty()) {
+    // Own content is a line of its own. Only for built-ins: `build_custom`
+    // renders from props and ignores `content`, so collecting it there would
+    // invent matches that never paint.
+    let paints_own_content = element.element_type == "text" || element.element_type == "div";
+    if let Some(content) = element
+        .content
+        .as_ref()
+        .filter(|text| !text.is_empty() && paints_own_content)
+    {
         out.push(Group::new(
             vec![(crate::text::selection_key(id, 0), 0..content.len())],
             content.clone(),
@@ -508,9 +552,6 @@ pub struct MatchSet {
     by_key: HashMap<Arc<str>, Vec<MatchRef>>,
     /// Matches found, counted once even when split across runs. Reported to JS.
     pub total: usize,
-    /// Per-spec counts, so a native run can continue the same numbering rather
-    /// than restarting at 0. See [`NativeHighlight`].
-    pub per_spec: Vec<usize>,
 }
 
 impl MatchSet {
@@ -544,43 +585,8 @@ pub struct Wash {
     pub active: bool,
 }
 
-/// Every wash of one subtree, keyed by the run that must paint it.
-#[derive(Debug, Default)]
-pub struct ResolvedHighlights {
-    by_key: HashMap<Arc<str>, Vec<Wash>>,
-}
-
-impl ResolvedHighlights {
-    pub fn washes_for(&self, key: &str) -> Option<&[Wash]> {
-        self.by_key.get(key).map(Vec::as_slice)
-    }
-}
-
-/// Apply colours to already-located matches. O(matches), no text scanned.
-pub fn colorize(matches: &MatchSet, set: &HighlightSet) -> ResolvedHighlights {
-    let mut out = ResolvedHighlights {
-        by_key: HashMap::with_capacity(matches.by_key.len()),
-    };
-    for (key, entries) in &matches.by_key {
-        let washes = entries
-            .iter()
-            .filter_map(|entry| {
-                let spec = set.specs.get(entry.spec)?;
-                let active = spec.active_index == Some(entry.index);
-                Some(Wash {
-                    range: entry.range.clone(),
-                    color: if active { spec.active_color } else { spec.color },
-                    radius: spec.radius,
-                    active,
-                })
-            })
-            .collect();
-        out.by_key.insert(key.clone(), washes);
-    }
-    out
-}
-
-/// Locate every match of a subtree's groups. Colour-free.
+/// Locate every match of a subtree's groups. Colour-free and ordinal-free: both
+/// are decided at paint, where document order is known.
 pub fn resolve(groups: &GroupList, set: &HighlightSet) -> MatchSet {
     let mut matches = MatchSet::default();
     let document = set.needs_document().then(|| groups.document());
@@ -601,25 +607,28 @@ pub fn resolve(groups: &GroupList, set: &HighlightSet) -> MatchSet {
                     log::warn!("highlight range [{start}, {end}) is not a valid UTF-16 range");
                     continue;
                 };
+                let mut painted = false;
                 for (group, &group_start) in groups.groups.iter().zip(starts) {
                     // Groups sit at `start..start + len` with a separating
-                    // newline that belongs to no group, so a range covering a
-                    // separator simply contributes nothing there.
+                    // newline that belongs to no group.
                     let group_end = group_start + group.text.len();
                     if doc_range.end <= group_start || doc_range.start >= group_end {
                         continue;
                     }
-                    let local =
-                        (doc_range.start.max(group_start) - group_start)
-                            ..(doc_range.end.min(group_end) - group_start);
+                    let local = (doc_range.start.max(group_start) - group_start)
+                        ..(doc_range.end.min(group_end) - group_start);
                     if local.start < local.end {
                         push_match(&mut matches, group, &local, spec_index, index);
+                        painted = true;
                     }
                 }
-                index += 1;
+                // A range that covers only a separator paints nothing, so it is
+                // not a match. Counting it would shift every later ordinal.
+                if painted {
+                    index += 1;
+                }
             }
         }
-        matches.per_spec.push(index);
         matches.total += index;
     }
     matches
@@ -639,11 +648,15 @@ fn push_match(
         if lo >= hi {
             continue;
         }
-        matches.by_key.entry(key.clone()).or_default().push(MatchRef {
-            range: (lo - part.start)..(hi - part.start),
-            spec,
-            index,
-        });
+        matches
+            .by_key
+            .entry(key.clone())
+            .or_default()
+            .push(MatchRef {
+                range: (lo - part.start)..(hi - part.start),
+                spec,
+                index,
+            });
     }
 }
 
@@ -669,11 +682,27 @@ mod tests {
         matches_in(text, &folded, &map, spec)
     }
 
-    /// Locate, then colour. Tests assert on the painted washes and the count.
-    fn washes(groups: &GroupList, set: &HighlightSet) -> (ResolvedHighlights, usize) {
-        let matches = resolve(groups, set);
-        let total = matches.total;
-        (colorize(&matches, set), total)
+    fn context(groups: &GroupList, set: HighlightSet) -> HighlightContext {
+        HighlightContext {
+            matches: Arc::new(resolve(groups, &set)),
+            set: Arc::new(set),
+        }
+    }
+
+    /// Paint every group's runs in document order, the way a frame would, and
+    /// collect the washes per selection key.
+    fn paint(ctx: &HighlightContext, groups: &GroupList) -> HashMap<Arc<str>, Vec<Wash>> {
+        ordinal_frame_reset();
+        let mut out = HashMap::new();
+        for group in &groups.groups {
+            for (key, _) in &group.parts {
+                let washes = washes_for_retained_run(ctx, key);
+                if !washes.is_empty() {
+                    out.insert(key.clone(), washes);
+                }
+            }
+        }
+        out
     }
 
     #[test]
@@ -792,11 +821,12 @@ mod tests {
         let set = HighlightSet {
             specs: vec![spec("Hello Tommy")],
         };
-        let (resolved, total) = washes(&groups, &set);
-        assert_eq!(total, 1);
-        assert_eq!(resolved.washes_for("3:0").unwrap()[0].range, 0..6);
-        assert_eq!(resolved.washes_for("4:0").unwrap()[0].range, 0..5);
-        assert!(resolved.washes_for("5:0").is_none());
+        let ctx = context(&groups, set);
+        assert_eq!(ctx.matches.total, 1);
+        let painted = paint(&ctx, &groups);
+        assert_eq!(painted[&Arc::from("3:0")][0].range, 0..6);
+        assert_eq!(painted[&Arc::from("4:0")][0].range, 0..5);
+        assert!(!painted.contains_key(&Arc::<str>::from("5:0")));
     }
 
     #[test]
@@ -835,9 +865,9 @@ mod tests {
         let mut s = spec("");
         s.query = String::new();
         s.ranges = vec![(6, 11)];
-        let (resolved, total) = washes(&groups, &HighlightSet { specs: vec![s] });
-        assert_eq!(total, 1);
-        assert_eq!(resolved.washes_for("4:0").unwrap()[0].range, 0..5);
+        let ctx = context(&groups, HighlightSet { specs: vec![s] });
+        assert_eq!(ctx.matches.total, 1);
+        assert_eq!(paint(&ctx, &groups)[&Arc::from("4:0")][0].range, 0..5);
     }
 
     #[test]
@@ -845,9 +875,10 @@ mod tests {
         let groups = GroupList::collect(&interpolated_tree(), 1);
         let mut s = spec("l");
         s.active_index = Some(1);
-        let (resolved, total) = washes(&groups, &HighlightSet { specs: vec![s] });
-        assert_eq!(total, 2);
-        let washes = resolved.washes_for("3:0").unwrap();
+        let ctx = context(&groups, HighlightSet { specs: vec![s] });
+        assert_eq!(ctx.matches.total, 2);
+        let painted = paint(&ctx, &groups);
+        let washes = &painted[&Arc::<str>::from("3:0")];
         assert_eq!(washes.len(), 2);
         assert!(!washes[0].active);
         assert!(washes[1].active);
@@ -903,26 +934,29 @@ mod tests {
         let groups = GroupList::collect(&tree, 1);
         assert_eq!(groups.groups.len(), 1);
         assert_eq!(
-            washes(&groups, &HighlightSet { specs: vec![spec("fox")] }).1,
+            resolve(&groups, &HighlightSet { specs: vec![spec("fox")] }).total,
             1
         );
     }
 
-    /// Native runs continue one sequence, so `activeIndex` marks ONE match even
+    fn native_context(mut s: HighlightSpec, active: usize) -> HighlightContext {
+        s.active_index = Some(active);
+        HighlightContext {
+            set: Arc::new(HighlightSet { specs: vec![s] }),
+            matches: Arc::new(MatchSet::default()),
+        }
+    }
+
+    /// Native runs share one sequence, so `activeIndex` marks ONE match even
     /// when the element paints many strings.
     #[test]
     fn native_runs_share_one_active_sequence() {
-        native_frame_reset();
-        let mut s = spec("x");
-        s.active_index = Some(2);
-        let native = NativeHighlight {
-            set: Arc::new(HighlightSet { specs: vec![s] }),
-            offsets: vec![0],
-        };
+        ordinal_frame_reset();
+        let ctx = native_context(spec("x"), 2);
         let first: Arc<str> = "7:0".into();
         let second: Arc<str> = "7:1".into();
-        let line_one = washes_for_native_run(&first, "x x", &native);
-        let line_two = washes_for_native_run(&second, "x x", &native);
+        let line_one = washes_for_native_run(&ctx, &first, "x x");
+        let line_two = washes_for_native_run(&ctx, &second, "x x");
         let actives: Vec<bool> = line_one
             .iter()
             .chain(line_two.iter())
@@ -935,38 +969,65 @@ mod tests {
     /// reuse the ordinals rather than advance the cursor again.
     #[test]
     fn a_repainted_native_run_keeps_its_ordinals() {
-        native_frame_reset();
-        let mut s = spec("x");
-        s.active_index = Some(0);
-        let native = NativeHighlight {
-            set: Arc::new(HighlightSet { specs: vec![s] }),
-            offsets: vec![0],
-        };
+        ordinal_frame_reset();
+        let ctx = native_context(spec("x"), 0);
         let key: Arc<str> = "7:0".into();
-        let first = washes_for_native_run(&key, "x x", &native);
-        let again = washes_for_native_run(&key, "x x", &native);
+        let first = washes_for_native_run(&ctx, &key, "x x");
+        let again = washes_for_native_run(&ctx, &key, "x x");
         assert_eq!(first[0].active, again[0].active);
         assert!(again[0].active);
         assert!(!again[1].active);
     }
 
-    /// Retained matches are numbered first, so a native run must not reuse
-    /// ordinals that a `<text>` sibling already took.
+    /// The blocker a review caught: ordinals follow PAINT order, so a native
+    /// element painted BEFORE retained text takes the lower numbers. Numbering
+    /// retained matches first made `activeIndex: 0` mark the `<text>` match.
     #[test]
-    fn native_runs_continue_after_retained_matches() {
-        native_frame_reset();
-        let mut s = spec("x");
-        s.active_index = Some(1);
-        let native = NativeHighlight {
-            set: Arc::new(HighlightSet { specs: vec![s] }),
-            offsets: vec![1],
-        };
-        let key: Arc<str> = "7:0".into();
-        let washes = washes_for_native_run(&key, "x x", &native);
-        assert_eq!(
-            washes.iter().map(|wash| wash.active).collect::<Vec<_>>(),
-            vec![true, false]
-        );
+    fn ordinals_follow_paint_order_across_both_kinds() {
+        let groups = GroupList::collect(&interpolated_tree(), 1);
+        let mut s = spec("l");
+        s.active_index = Some(0);
+        let ctx = context(&groups, HighlightSet { specs: vec![s] });
+
+        ordinal_frame_reset();
+        let native: Arc<str> = "9:0".into();
+        // The native element paints first, so it must own ordinal 0.
+        let painted_native = washes_for_native_run(&ctx, &native, "l");
+        let painted_text = washes_for_retained_run(&ctx, &"3:0".into());
+        assert!(painted_native[0].active, "the first painted match is active");
+        assert!(painted_text.iter().all(|wash| !wash.active));
+
+        // Reverse the paint order and the ownership moves with it.
+        ordinal_frame_reset();
+        let painted_text = washes_for_retained_run(&ctx, &"3:0".into());
+        let painted_native = washes_for_native_run(&ctx, &native, "l");
+        assert!(painted_text[0].active);
+        assert!(painted_native.iter().all(|wash| !wash.active));
+    }
+
+    /// A match split across interpolated runs is ONE match, so it takes one
+    /// ordinal and the next match gets the following number.
+    #[test]
+    fn a_split_match_takes_one_ordinal() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "text".to_string());
+        for (id, text) in [(2, "ab"), (3, "ab")] {
+            tree.create_element(id, "text".to_string());
+            tree.append_child(1, id);
+            tree.set_text(id, text.to_string());
+        }
+        // "abab": matches at 0..2 and 2..4, the first split across both runs.
+        let groups = GroupList::collect(&tree, 1);
+        let mut s = spec("ba");
+        s.active_index = Some(0);
+        let ctx = context(&groups, HighlightSet { specs: vec![s] });
+
+        ordinal_frame_reset();
+        let first = washes_for_retained_run(&ctx, &"2:0".into());
+        let second = washes_for_retained_run(&ctx, &"3:0".into());
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert!(first[0].active && second[0].active, "one match, one ordinal");
     }
 
     #[test]

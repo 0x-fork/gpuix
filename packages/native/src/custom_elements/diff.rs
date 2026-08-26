@@ -446,7 +446,7 @@ struct RowContext<'a> {
     wash: Hsla,
     /// Inherited `highlight`, matched per painted row. See
     /// [`crate::text::search::washes_for_native_run`].
-    highlight_set: Option<std::sync::Arc<crate::text::search::NativeHighlight>>,
+    highlight_set: Option<std::sync::Arc<crate::text::HighlightContext>>,
     callback: &'a Option<crate::renderer::EventCallback>,
     wants_toggle: bool,
     wants_line_click: bool,
