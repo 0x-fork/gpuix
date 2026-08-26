@@ -387,7 +387,7 @@ terminal.
 | `windowBackground` | `"opaque"` (default), `"transparent"`, `"blurred"` | Window fill. `"blurred"` is the macOS vibrancy backdrop |
 | `trafficLightX` / `trafficLightY` | pixels | Traffic-light origin. Waku uses `(16, 17)` |
 | `transparent` | boolean | Same as `windowBackground: "transparent"` when that option is unset |
-| `appName` | string | Name inside the macOS application menu, in `Hide X` and `Quit X`. Defaults to `title` |
+| `appName` | string | Name inside the macOS `Hide X` and `Quit X` items. Defaults to `title` |
 Call it again after a save and it remounts the tree on the same window.
 
 ### The macOS menu bar
@@ -398,7 +398,7 @@ paints an empty menu bar, and those shortcuts do not exist at all: AppKit only
 provides them through menu items.
 
 ```
-Apple    <appName>                Window
+Apple    <executable>             Window
          ├ Services               ├ (AppKit window tiling)
          ├ Hide <appName>   ⌘H    ├ Minimize          ⌘M
          ├ Hide Others     ⌥⌘H    ├ Zoom
@@ -406,11 +406,10 @@ Apple    <appName>                Window
          └ Quit <appName>   ⌘Q    └ (open windows)
 ```
 
-The **title of the application menu comes from the executable**, not from
-`appName`. macOS reads it from the running binary, so `bun app.tsx` shows `bun`
-during development and a `bun build --compile` binary shows its own file name.
-Only a real `.app` bundle can change it. The items inside the menu do use
-`appName`.
+**`appName` does not set the title of the application menu.** macOS takes that
+from the executable, so `bun app.tsx` shows `bun` during development and a
+`bun build --compile` binary shows its own file name. Only a real `.app` bundle
+changes it. `appName` reaches the items inside the menu, and nothing else.
 
 There is **no Edit menu**, on purpose. A menu key equivalent is consumed by
 AppKit before the window sees the key event, so an Edit menu carrying `⌘C`

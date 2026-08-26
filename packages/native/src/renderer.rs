@@ -4956,8 +4956,10 @@ pub fn apply_batch_to_tree(tree: &mut RetainedTree, bytes: &[u8]) -> BatchResult
 
     // Release styles nothing references any more. Without this a dragged
     // element, which produces a distinct style every frame, would grow the
-    // table for as long as the app runs.
-    tree.styles.maybe_sweep();
+    // table for as long as the app runs. The element count is what catches the
+    // opposite case, a batch that destroyed most of the tree.
+    let live_elements = tree.elements.len();
+    tree.styles.maybe_sweep(live_elements);
 
     Ok(destroyed_ids)
 }
@@ -5063,8 +5065,9 @@ pub struct DebugFrameOverlayStats {
 #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct WindowOptions {
     pub title: Option<String>,
-    /// The name macOS shows in the application menu, and in its "Hide" and
-    /// "Quit" items. Defaults to `title`.
+    /// The name used inside the macOS "Hide" and "Quit" menu items. Defaults to
+    /// `title`. It does NOT set the title of the application menu itself: macOS
+    /// takes that from the executable, and only a `.app` bundle changes it.
     pub app_name: Option<String>,
     pub width: Option<f64>,
     pub height: Option<f64>,
