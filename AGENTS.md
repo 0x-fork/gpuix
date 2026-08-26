@@ -317,13 +317,13 @@ self-accepted for Fast Refresh. The callback then remounts on top of a
 successful refresh and wipes every hook. This looks exactly like Fast Refresh
 being broken, and it is not.
 
-**Never delete `packages/react/dist` while the web dev server is up.** That
-folder is inside the dev server's module graph, so removing it under a running
-server permanently corrupts the registry: every page load then fails with
-`Failed to load bundled module 'packages/react/dist/index.js'`, even after a
-hard reload, and only a server restart clears it. Any `rm -rf dist` / `rimraf
-dist` step in `packages/react` counts. Rebuild the library first, then start the
-server.
+**Never run `bun run clean` in `packages/react` while the web dev server is up.**
+That folder is inside the dev server's module graph, so removing it under a
+running server permanently corrupts the registry: every page load then fails
+with `Failed to load bundled module 'packages/react/dist/index.js'`, even after
+a hard reload, and only a server restart clears it. This is why `build` is plain
+`tsc` and the wipe lives in a separate `clean` script. Clean first, then start
+the server.
 
 ## Custom elements are invisible to automation unless they say otherwise
 
