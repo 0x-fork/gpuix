@@ -401,6 +401,29 @@ describe("<virtual-list>", () => {
     }
   })
 
+  it("keeps following the tail on a short list that is pinned at the top", () => {
+    // A following list that does not fill its viewport ends layout anchored at
+    // {0, 0}, which reads exactly like "the user is at the top". Pinning it
+    // there would call stop_following and break the chat tail.
+    const { render, renderer } = createTestRoot()
+    const following = (count: number) => (
+      <virtual-list
+        followTail
+        overdraw={0}
+        estimatedItemHeight={40}
+        style={{ width: 400, height: 160 }}
+      >
+        <Rows count={count} />
+      </virtual-list>
+    )
+
+    render(following(2))
+    render(following(3))
+    render(following(12))
+    expect(renderer.getPaintedText()).toContain("row-11")
+    expect(renderer.getPaintedText()).not.toContain("row-0")
+  })
+
   it("keeps the scroll anchor when rows are prepended below the top", () => {
     const { render, renderer } = createTestRoot()
 

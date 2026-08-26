@@ -3144,9 +3144,15 @@ impl VirtualListEntry {
         // While the content is shorter than the viewport gpui re-anchors to
         // item 0 every layout, so the drift only appears once the list
         // overflows. That is why `example-app` looked stuck at two rows.
+        //
+        // The guard is `is_following_tail()`, not `config.follow_tail`: a
+        // following list that does not fill its viewport also ends layout
+        // anchored at {0, 0}, and `scroll_to` would call `stop_following` on it.
+        // Once the user scrolls up to the top, following is already stopped, so
+        // a top-aligned `followTail` list still gets the browser behaviour.
         let top = self.state.logical_scroll_top();
         let was_pinned_to_top = matches!(config.alignment, gpui::ListAlignment::Top)
-            && !config.follow_tail
+            && !self.state.is_following_tail()
             && top.item_ix == 0
             && top.offset_in_item <= gpui::px(0.0);
 
