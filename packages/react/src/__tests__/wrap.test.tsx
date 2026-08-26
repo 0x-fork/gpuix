@@ -282,3 +282,60 @@ describeNative("text wrapping", () => {
     expect(offset![1]).toBeLessThan(0)
   })
 })
+
+/// The default 1280x800 window is wide enough that a centered max-width column
+/// stays capped, so a test that needs to observe re-wrapping must ask for a
+/// narrower window. These tests pin that contract.
+describeNative("test window size", () => {
+  function fullBleed(width: number | undefined, height: number | undefined) {
+    const root = createTestRoot(
+      width === undefined && height === undefined ? {} : { width, height },
+    )
+    root.render(
+      <div testId="full" style={{ width: "100%", height: "100%", backgroundColor: "#111" }} />,
+    )
+    return rect(root.renderer, "full")
+  }
+
+  it("defaults to 1280x800", () => {
+    expect(fullBleed(undefined, undefined)).toMatchObject({ width: 1280, height: 800 })
+  })
+
+  it("honours a custom window size", () => {
+    expect(fullBleed(640, 480)).toMatchObject({ width: 640, height: 480 })
+  })
+
+  it("keeps the default for the dimension that is omitted", () => {
+    expect(fullBleed(640, undefined)).toMatchObject({ width: 640, height: 800 })
+  })
+
+  it("rejects a size that cannot be laid out", () => {
+    expect(() => createTestRoot({ width: 0 })).toThrow(/positive/)
+    expect(() => createTestRoot({ width: -10 })).toThrow(/positive/)
+    expect(() => createTestRoot({ height: Number.NaN })).toThrow(/finite/)
+    expect(() => createTestRoot({ height: Number.POSITIVE_INFINITY })).toThrow(/finite/)
+    // Finite as f64, but saturates to f32 infinity once converted to pixels.
+    expect(() => createTestRoot({ width: 1e300 })).toThrow(/finite/)
+  })
+
+  /// Why the option exists: a centered `maxWidth` column only re-wraps once the
+  /// window is narrow enough to fall under the cap. At 1280 both states are
+  /// capped at 720, so the wrap width never moves and a reflow cost is invisible.
+  it("only re-wraps a capped column once the window falls under the cap", () => {
+    function columnWidth(windowWidth: number) {
+      const root = createTestRoot({ width: windowWidth, height: 400 })
+      root.render(
+        <div style={{ width: "100%", flexDirection: "row", justifyContent: "center" }}>
+          <div testId="column" style={{ width: 720, maxWidth: "100%" }}>
+            <text style={{ fontSize: 14, lineHeight: 20, color: "#eee" }}>{PROSE}</text>
+          </div>
+        </div>,
+      )
+      return rect(root.renderer, "column").width
+    }
+
+    expect(columnWidth(1280)).toBe(720)
+    expect(columnWidth(1027)).toBe(720)
+    expect(columnWidth(640)).toBe(640)
+  })
+})

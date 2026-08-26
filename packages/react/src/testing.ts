@@ -64,7 +64,13 @@ interface NativeTestRendererApi extends NativeRenderer {
 }
 
 interface NativeTestRendererConstructor {
-  new (): NativeTestRendererApi
+  new (width?: number, height?: number): NativeTestRendererApi
+}
+
+/** Offscreen window size for a test root. Defaults to 1280x800 in native. */
+export interface TestWindowOptions {
+  width?: number
+  height?: number
 }
 
 // The native test renderer is currently exported only by macOS builds.
@@ -106,13 +112,13 @@ export class TestRenderer implements NativeRenderer {
   /** Native TestGpuixRenderer — all state lives here in Rust's RetainedTree. */
   private native: NativeTestRendererApi
 
-  constructor() {
+  constructor(options: TestWindowOptions = {}) {
     if (!NativeTestRenderer) {
       throw new Error(
         "Native TestGpuixRenderer not available. Build with test-support to run tests."
       )
     }
-    this.native = new NativeTestRenderer()
+    this.native = new NativeTestRenderer(options.width, options.height)
   }
 
   // ── NativeRenderer interface (all mutations delegate to native) ──
@@ -523,9 +529,13 @@ export interface TestRoot {
  * All mutations go to the real GPUI pipeline via native TestGpuixRenderer.
  * Returns the Root (for rendering), the TestRenderer (for inspection/events),
  * and convenience methods.
+ *
+ * Pass `width` / `height` to size the offscreen window. The 1280x800 default is
+ * wide enough to keep a centered max-width column capped, so a layout test that
+ * needs to observe re-wrapping must ask for a narrower window.
  */
-export function createTestRoot(): TestRoot {
-  const renderer = new TestRenderer()
+export function createTestRoot(options: TestWindowOptions = {}): TestRoot {
+  const renderer = new TestRenderer(options)
   const root = createRoot(renderer)
 
   const render = (node: ReactNode): void => {

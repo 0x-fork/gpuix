@@ -64,6 +64,32 @@ fn with_test_state<R>(
     })
 }
 
+/// Default offscreen window size. Matches gpui's `open_offscreen_window_default`,
+/// so a `new TestGpuixRenderer()` with no size behaves exactly as before.
+///
+/// Note for layout tests: 1280 is wide enough that a centered max-width content
+/// column stays capped whether a sidebar is open or closed. A test that needs to
+/// observe re-wrapping must pass a narrower width explicitly.
+const DEFAULT_WINDOW_WIDTH: f64 = 1280.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 800.0;
+
+/// Validate a caller-supplied window dimension, falling back to `default`.
+///
+/// Checks the value *after* the `f32` cast: a finite `f64` such as `1e300`
+/// saturates to `f32::INFINITY`, which would open a window with no usable size.
+fn window_dimension(value: Option<f64>, default: f64, label: &str) -> Result<f32> {
+    let Some(value) = value else {
+        return Ok(default as f32);
+    };
+    let pixels = value as f32;
+    if !pixels.is_finite() || pixels <= 0.0 {
+        return Err(Error::from_reason(format!(
+            "TestGpuixRenderer {label} must be a positive, finite number, got {value}"
+        )));
+    }
+    Ok(pixels)
+}
+
 /// Convert JS button number (0=left, 1=middle, 2=right) to GPUI MouseButton.
 fn u32_to_mouse_button(button: u32) -> gpui::MouseButton {
     match button {
@@ -100,7 +126,11 @@ pub struct TestGpuixRenderer {
 #[napi]
 impl TestGpuixRenderer {
     #[napi(constructor)]
-    pub fn new() -> Result<Self> {
+    pub fn new(width: Option<f64>, height: Option<f64>) -> Result<Self> {
+        let window_size = gpui::size(
+            gpui::px(window_dimension(width, DEFAULT_WINDOW_WIDTH, "width")?),
+            gpui::px(window_dimension(height, DEFAULT_WINDOW_HEIGHT, "height")?),
+        );
         let tree = Arc::new(Mutex::new(RetainedTree::new()));
         let events: Arc<Mutex<Vec<EventPayload>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -127,7 +157,7 @@ impl TestGpuixRenderer {
         // Open an offscreen window at (-10000, -10000) — invisible but fully
         // rendered by Metal. Uses the same GpuixView as production.
         let window_handle = cx
-            .open_offscreen_window_default(|_window, app| {
+            .open_offscreen_window(window_size, |_window, app| {
                 app.new(|_cx| {
                     GpuixView::new(
                         tree_clone,
