@@ -29,7 +29,10 @@ const WHEEL_X = 700
 const WHEEL_Y = 400
 
 const BUDGET = {
-  mountMs: 150,
+  // `<code>` paints no card, so the chat draws its own wrapper, header strip
+  // and language label: three extra host nodes per code turn, about 6ms over
+  // 1000 turns. Chrome costs React nodes now, and that is the whole point.
+  mountMs: 170,
   idleP95Ms: 8,
   idleMaxMs: 16,
   wheelP95Ms: 8,
