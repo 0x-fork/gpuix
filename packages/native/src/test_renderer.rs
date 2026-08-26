@@ -39,6 +39,30 @@ struct VisualTestState {
     cx: gpui::VisualTestAppContext,
 }
 
+/// Release every `Entity` handle the view is holding, while the `App` is alive.
+///
+/// The test build enables gpui's leak detector, which panics if a handle
+/// outlives its `App`. `<input>` keeps an `Entity<TextEditorState>` in the
+/// view's custom element registry, so that panic fires from a thread-local
+/// destructor at process exit. macOS never runs this destructor, so the panic
+/// only appeared once Windows started running the suite: every test file
+/// passed and then the vitest worker died with "Worker exited unexpectedly".
+///
+/// `drop` runs before the fields are dropped, so `view` and `cx` are both
+/// still usable here.
+impl Drop for VisualTestState {
+    fn drop(&mut self) {
+        let view = self.view.clone();
+        self.cx.update(|cx| {
+            view.update(cx, |view, _cx| {
+                view.custom_registry.destroy_all();
+                view.focus_subscriptions.clear();
+                view.focus_handles.clear();
+            });
+        });
+    }
+}
+
 thread_local! {
     static TEST_STATE: RefCell<Option<VisualTestState>> = const { RefCell::new(None) };
 }

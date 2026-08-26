@@ -398,6 +398,8 @@
 
 26. **The test renderer runs on Windows** through GPUI's DirectX renderer: `TestGpuixRenderer`, `createTestRoot()`, native input simulation, and PNG screenshot capture. A live window can call `captureScreenshot()` there too. Linux stays unavailable until GPUI ships its pending wgpu headless renderer.
 
+    The test app also releases its custom elements before the GPUI app goes away. `<input>` keeps a GPUI entity handle, and GPUI's leak detector panics if one outlives the app, which killed the whole vitest worker on Windows after every test in the file had already passed. `createTestRoot({ width, height })` does not size the window on Windows yet: it opens at the display size. Tracked in [#21](https://github.com/remorses/gpuix/issues/21).
+
     `createTestRoot()` can also size the offscreen window, which was always **1280x800**. That is wide enough to keep a centered `maxWidth` column at its cap, so any layout that only changes below a breakpoint was invisible to the suite.
 
     ```tsx
