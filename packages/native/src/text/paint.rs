@@ -288,17 +288,16 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
             }
             // Search washes sit UNDER the selection wash, so a selection over a
             // match still reads as a selection.
-            match &highlight {
+            let washes = match &highlight {
                 Some(HighlightSource::Resolved(ctx)) => {
-                    let washes = super::search::washes_for_retained_run(ctx, &key);
-                    paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
+                    super::search::washes_for_retained_run(ctx, &key)
                 }
                 Some(HighlightSource::Native(ctx)) => {
-                    let washes = super::search::washes_for_native_run(ctx, &key, &text);
-                    paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
+                    super::search::washes_for_native_run(ctx, &key, &text)
                 }
-                None => {}
-            }
+                None => Vec::new(),
+            };
+            paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
             if let Some(range) = selectable
                 .then(|| selection.lock().wash_range(&key))
                 .flatten()

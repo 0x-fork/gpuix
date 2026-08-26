@@ -2601,34 +2601,30 @@ fn resolve_highlight(
     let cached = cache
         .get(&id)
         .filter(|entry| entry.revision == revision && entry.matcher_hash == matcher_hash);
-    let (context, identity, total) = match cached {
-        Some(entry) if *entry.context.set == set => {
-            (entry.context.clone(), entry.context.matches.identity(), entry.context.matches.total)
-        }
+    let context = match cached {
+        // Nothing moved at all. Returning the same `Arc` keeps the whole
+        // subtree's inherited value identical, which the cache tests assert.
+        Some(entry) if entry.context.set == set => entry.context.clone(),
         // Same matches, different colours or find cursor: reuse the located
         // matches and swap only the spec. No text is scanned.
         Some(entry) => {
-            let matches = entry.context.matches.clone();
-            let identity = matches.identity();
-            let total = matches.total;
             let context = Arc::new(crate::text::HighlightContext {
-                set: Arc::new(set),
-                matches,
+                declaration: id,
+                set,
+                matches: entry.context.matches.clone(),
             });
             cache.get_mut(&id)?.context = context.clone();
-            (context, identity, total)
+            context
         }
         None => {
             let groups = match cache.get(&id) {
                 Some(entry) if entry.revision == revision => entry.groups.clone(),
                 _ => Arc::new(crate::text::GroupList::collect(tree, id)),
             };
-            let matches = Arc::new(crate::text::search::resolve(&groups, &set));
-            let identity = matches.identity();
-            let total = matches.total;
             let context = Arc::new(crate::text::HighlightContext {
-                set: Arc::new(set),
-                matches,
+                declaration: id,
+                matches: Arc::new(crate::text::search::resolve(&groups, &set)),
+                set,
             });
             let reported = cache.get(&id).and_then(|entry| entry.reported);
             cache.insert(
@@ -2641,18 +2637,20 @@ fn resolve_highlight(
                     reported,
                 },
             );
-            (context, identity, total)
+            context
         }
     };
 
     if !has_listener {
         return Some((context, None));
     }
+    let identity = context.matches.identity();
     let entry = cache.get_mut(&id)?;
     if entry.reported == Some(identity) {
         return Some((context, None));
     }
     entry.reported = Some(identity);
+    let total = context.matches.total;
     Some((context, Some(total)))
 }
 
@@ -2734,7 +2732,7 @@ impl GpuixView {
         // captured ranges would paint a wash over the wrong glyphs, or at a byte
         // offset that is no longer a character boundary.
         let mut inherited = inherited;
-        if let Some(declaration) = inherited.highlight_declaration {
+        if let Some(declaration) = inherited.highlight.as_ref().map(|ctx| ctx.declaration) {
             inherited.highlight = tree
                 .elements
                 .get(&declaration)
@@ -2895,13 +2893,11 @@ pub(crate) struct Inherited {
     /// Selection wash colour for this subtree.
     pub selection_wash: gpui::Hsla,
     /// The nearest ancestor's `highlight`, resolved. `None` in every app that
-    /// does not use search.
+    /// does not use search. It carries the declaring element id, which is what
+    /// a virtual-list row re-resolves against: that row is built after the root
+    /// render returns, and on Windows and Linux the Node thread can edit text
+    /// in between, so a stale range would paint over the wrong glyphs.
     pub highlight: Option<Arc<crate::text::HighlightContext>>,
-    /// Element that declared it. A virtual-list row is built after the root
-    /// render returns, so it must re-resolve against the tree as it is THEN;
-    /// on Windows and Linux the Node thread can edit text in between, and a
-    /// stale range would paint over the wrong glyphs.
-    pub highlight_declaration: Option<u64>,
 }
 
 impl Inherited {
@@ -2912,7 +2908,6 @@ impl Inherited {
             selectable: true,
             selection_wash: wash,
             highlight: None,
-            highlight_declaration: None,
         }
     }
 
@@ -3505,19 +3500,12 @@ pub(crate) fn build_element(
     // resolves or counts matches that will not paint.
     if let Some(value) = element.custom_props.get("highlight") {
         let has_listener = element.events.contains("highlight");
-        match resolve_highlight(ctx.highlights, ctx.tree, id, value, &Theme::dark(), has_listener) {
-            Some((context, changed)) => {
-                if let Some(total) = changed {
-                    ctx.highlight_events.push((id, total));
-                }
-                ctx.inherited.highlight = Some(context);
-                ctx.inherited.highlight_declaration = Some(id);
-            }
-            None => {
-                ctx.inherited.highlight = None;
-                ctx.inherited.highlight_declaration = None;
-            }
+        let resolved =
+            resolve_highlight(ctx.highlights, ctx.tree, id, value, &Theme::dark(), has_listener);
+        if let Some((_, Some(total))) = &resolved {
+            ctx.highlight_events.push((id, *total));
         }
+        ctx.inherited.highlight = resolved.map(|(context, _)| context);
     }
 
     let built = match element.element_type.as_str() {

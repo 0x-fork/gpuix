@@ -194,7 +194,7 @@ they are about to paint, through `washes_for_native_run`. Do **not** add a secon
 traversal that re-derives their text and `sub` values; markdown assigns `sub`
 with a render-time counter and the two would drift.
 
-**Ordinals are allocated during paint, by `search::ordinal`, for retained and
+**Ordinals are allocated during paint, inside `search::wash`, for retained and
 native matches alike.** `activeIndex` means the nth match in the document, and
 only paint knows that order: retained matches are located before the frame,
 native text exists only during it, and a subtree can interleave them. Numbering

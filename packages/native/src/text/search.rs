@@ -218,7 +218,12 @@ fn is_whole_word(text: &str, range: &Range<usize>) -> bool {
 /// mean "the nth match in the document".
 #[derive(Debug)]
 pub struct HighlightContext {
-    pub set: Arc<HighlightSet>,
+    /// Element that declared the `highlight`. It is the per-frame ordinal
+    /// sequence's identity, and it is what a virtual-list row re-resolves
+    /// against after the root render returned.
+    pub declaration: u64,
+    pub set: HighlightSet,
+    /// Shared, so a colour or `activeIndex` change reuses the located matches.
     pub matches: Arc<MatchSet>,
 }
 
@@ -239,10 +244,10 @@ enum MatchId {
 #[derive(Default)]
 struct Ordinals {
     /// Next ordinal per `(declaration, spec)`.
-    cursor: HashMap<(usize, usize), usize>,
+    cursor: HashMap<(u64, usize), usize>,
     /// Ordinals already handed out, so a match painted by two runs, or a row
     /// gpui paints twice, keeps the number it got the first time.
-    assigned: HashMap<(usize, usize, MatchId), usize>,
+    assigned: HashMap<(u64, usize, MatchId), usize>,
 }
 
 thread_local! {
@@ -255,28 +260,31 @@ pub fn ordinal_frame_reset() {
     ORDINALS.with(|state| *state.borrow_mut() = Ordinals::default());
 }
 
-/// Ordinal of one match, allocated in PAINT order.
+/// The wash for one match, numbered in PAINT order.
 ///
 /// Numbering at build time cannot work: retained matches are located before the
 /// frame, native text only exists during it, and a subtree can interleave them
 /// (`<code>` then `<text>`). Numbering each kind separately made `activeIndex`
 /// point at the wrong match whenever a native element came first.
-fn ordinal(declaration: usize, spec: usize, id: MatchId) -> usize {
-    ORDINALS.with(|state| {
+fn wash(
+    ctx: &HighlightContext,
+    spec_index: usize,
+    spec: &HighlightSpec,
+    range: Range<usize>,
+    id: MatchId,
+) -> Wash {
+    let slot = (ctx.declaration, spec_index, id);
+    let ordinal = ORDINALS.with(|state| {
         let state = &mut *state.borrow_mut();
-        let slot = (declaration, spec, id);
         if let Some(assigned) = state.assigned.get(&slot) {
             return *assigned;
         }
-        let next = state.cursor.entry((declaration, spec)).or_insert(0);
+        let next = state.cursor.entry((slot.0, slot.1)).or_insert(0);
         let ordinal = *next;
         *next += 1;
         state.assigned.insert(slot, ordinal);
         ordinal
-    })
-}
-
-fn wash(spec: &HighlightSpec, range: Range<usize>, ordinal: usize) -> Wash {
+    });
     let active = spec.active_index == Some(ordinal);
     Wash {
         range,
@@ -291,13 +299,12 @@ pub fn washes_for_retained_run(ctx: &HighlightContext, key: &Arc<str>) -> Vec<Wa
     let Some(entries) = ctx.matches.by_key.get(key) else {
         return Vec::new();
     };
-    let declaration = declaration_id(ctx);
     entries
         .iter()
         .filter_map(|entry| {
             let spec = ctx.set.specs.get(entry.spec)?;
-            let ordinal = ordinal(declaration, entry.spec, MatchId::Retained(entry.index));
-            Some(wash(spec, entry.range.clone(), ordinal))
+            let id = MatchId::Retained(entry.index);
+            Some(wash(ctx, entry.spec, spec, entry.range.clone(), id))
         })
         .collect()
 }
@@ -325,23 +332,16 @@ pub fn washes_for_native_run(ctx: &HighlightContext, key: &Arc<str>, text: &str)
         None => ("", [].as_slice()),
     };
 
-    let declaration = declaration_id(ctx);
     for (spec_index, spec) in ctx.set.specs.iter().enumerate() {
         for (position, range) in matches_in(text, folded, fold_map, spec)
             .into_iter()
             .enumerate()
         {
             let id = MatchId::Native(key.clone(), position);
-            out.push(wash(spec, range, ordinal(declaration, spec_index, id)));
+            out.push(wash(ctx, spec_index, spec, range, id));
         }
     }
     out
-}
-
-/// Stable per-frame identity of a declaration. The `Arc` is alive for the whole
-/// frame through `Inherited`, so the address cannot be reused underneath us.
-fn declaration_id(ctx: &HighlightContext) -> usize {
-    Arc::as_ptr(&ctx.set) as *const u8 as usize
 }
 
 /// Non-overlapping byte ranges of `spec.query` in `text`, leftmost first.
@@ -684,8 +684,9 @@ mod tests {
 
     fn context(groups: &GroupList, set: HighlightSet) -> HighlightContext {
         HighlightContext {
+            declaration: 1,
             matches: Arc::new(resolve(groups, &set)),
-            set: Arc::new(set),
+            set,
         }
     }
 
@@ -942,7 +943,8 @@ mod tests {
     fn native_context(mut s: HighlightSpec, active: usize) -> HighlightContext {
         s.active_index = Some(active);
         HighlightContext {
-            set: Arc::new(HighlightSet { specs: vec![s] }),
+            declaration: 1,
+            set: HighlightSet { specs: vec![s] },
             matches: Arc::new(MatchSet::default()),
         }
     }
