@@ -2344,13 +2344,21 @@ impl WebGpuixRenderer {
         web_string_array(crate::text::painted_text())
     }
 
+    /// The same array of objects the napi build returns.
+    ///
+    /// Through `serde_json` and `JSON.parse`, not `serde-wasm-bindgen`: this is
+    /// a test-only API, and both crates here are already dependencies. Building
+    /// the nested value by hand with `js_sys` is 20 lines of noise.
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = getPaintedHighlights)]
     pub fn get_painted_highlights(&self) -> wasm_bindgen::JsValue {
         let matches: Vec<crate::element_tree::HighlightMatch> = crate::text::painted_highlights()
             .into_iter()
             .map(Into::into)
             .collect();
-        serde_wasm_bindgen::to_value(&matches).unwrap_or(wasm_bindgen::JsValue::NULL)
+        serde_json::to_string(&matches)
+            .ok()
+            .and_then(|json| js_sys::JSON::parse(&json).ok())
+            .unwrap_or(wasm_bindgen::JsValue::NULL)
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = simulateClick)]
