@@ -56,6 +56,12 @@ export declare class GpuixRenderer {
   isInitialized(): boolean
   /** Whether JavaScript must drive the native event loop with tick(). */
   requiresTick(): boolean
+  /**
+   * The paintable size of the window in logical pixels, excluding any
+   * platform title bar. This used to answer a hardcoded 800x600, so anything
+   * that turned a mouse position into layout coordinates pointed at the
+   * wrong place on every window that was not exactly that size.
+   */
   getWindowSize(): WindowSize
   getWindowInsets(): WindowInsets
   /** `"hidden"` | `"minimal"` | `"full"`. Paints into the scene after layout. */
@@ -90,10 +96,17 @@ export declare class GpuixRenderer {
   getElementBounds(id: number): Array<number> | null
   getAllText(): Array<string>
   getPaintedText(): Array<string>
-  simulateClick(x: number, y: number, button?: number | undefined | null): void
-  simulateMouseDown(x: number, y: number, button?: number | undefined | null): void
-  simulateMouseUp(x: number, y: number, button?: number | undefined | null): void
-  simulateMouseMove(x: number, y: number, pressedButton?: number | undefined | null): void
+  /** `modifiers` uses the `press()` syntax: "cmd", "cmd-shift", "alt". */
+  simulateClick(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
+  simulateMouseDown(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
+  simulateMouseUp(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
+  simulateMouseMove(x: number, y: number, pressedButton?: number | undefined | null, modifiers?: string | undefined | null): void
+  /**
+   * Dispatch a wheel event through the same GPUI hit test the trackpad uses.
+   * Deltas are pixels: negative `delta_y` scrolls down, negative `delta_x`
+   * pans right, matching `TestGpuixRenderer::simulate_scroll_wheel`.
+   */
+  simulateScrollWheel(x: number, y: number, deltaX: number, deltaY: number, modifiers?: string | undefined | null): void
   clockPause(): number
   clockSet(nowMs: number): number
   clockFastForward(deltaMs: number): number
@@ -102,8 +115,8 @@ export declare class GpuixRenderer {
 }
 
 /**
- * GPU-backed GPUI test renderer. Uses VisualTestAppContext (real Metal
- * rendering on macOS) with TestDispatcher for deterministic scheduling.
+ * GPU-backed GPUI test renderer. Uses VisualTestAppContext with the native
+ * Metal or DirectX renderer and TestDispatcher for deterministic scheduling.
  * Same GpuixView and rendering pipeline as production.
  *
  * Usage from JS:
@@ -111,7 +124,7 @@ export declare class GpuixRenderer {
  *   r.createElement(1, "div")
  *   r.setRoot(1)
  *   r.commitMutations()
- *   r.flush()                  // triggers GpuixView::render() via Metal
+ *   r.flush()                  // triggers GpuixView::render() on the GPU
  *   r.simulateClick(50, 50)    // dispatches through GPUI hit testing
  *   const events = r.drainEvents()
  *   r.captureScreenshot("/tmp/test.png")  // saves rendered UI as PNG
@@ -159,8 +172,9 @@ export declare class TestGpuixRenderer {
    * Dispatches MouseDown + MouseUp through GPUI's input pipeline,
    * which triggers the same event handlers as production.
    * IMPORTANT: Call flush() before this — hit testing requires laid-out elements.
+   * `modifiers` uses the `press()` syntax: "cmd", "cmd-shift", "alt".
    */
-  simulateClick(x: number, y: number): void
+  simulateClick(x: number, y: number, modifiers?: string | undefined | null): void
   /**
    * Simulate key strokes through GPUI's input pipeline.
    * Format: space-separated keys, e.g. "a", "enter", "cmd-shift-p".
@@ -186,7 +200,7 @@ export declare class TestGpuixRenderer {
    * pressed_button: optional mouse button held during move (0=left, 1=middle, 2=right).
    * Used to simulate drag events.
    */
-  simulateMouseMove(x: number, y: number, pressedButton?: number | undefined | null): void
+  simulateMouseMove(x: number, y: number, pressedButton?: number | undefined | null, modifiers?: string | undefined | null): void
   /**
    * Focus an element by its numeric ID.
    * The element must have a FocusHandle (created by sync_focus_handles when
@@ -198,17 +212,17 @@ export declare class TestGpuixRenderer {
    * Simulate a mouse down event at the given window coordinates.
    * Button: 0=left, 1=middle, 2=right. Defaults to left (0).
    */
-  simulateMouseDown(x: number, y: number, button?: number | undefined | null): void
+  simulateMouseDown(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
   /**
    * Simulate a mouse up event at the given window coordinates.
    * Button: 0=left, 1=middle, 2=right. Defaults to left (0).
    */
-  simulateMouseUp(x: number, y: number, button?: number | undefined | null): void
+  simulateMouseUp(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
   /**
    * Simulate a scroll wheel event at the given position.
    * delta_x and delta_y are in pixels (negative = scroll up/left).
    */
-  simulateScrollWheel(x: number, y: number, deltaX: number, deltaY: number): void
+  simulateScrollWheel(x: number, y: number, deltaX: number, deltaY: number, modifiers?: string | undefined | null): void
   /** The current text selection joined in document order, or null. */
   getSelectedText(): string | null
   /** Drop the current selection. */
@@ -265,7 +279,7 @@ export declare class TestGpuixRenderer {
   getScrollOffset(elementId: number): Array<number> | null
   /**
    * Capture a screenshot of the current rendered state and save as PNG.
-   * macOS only — requires Metal GPU rendering via VisualTestAppContext.
+   * Supported on macOS through Metal and Windows through DirectX.
    */
   captureScreenshot(path: string): void
   /**
@@ -293,6 +307,11 @@ export declare class TestGpuixRenderer {
   clockResume(): number
   /** Get the root element ID, or null if no root is set. */
   getRootId(): number | null
+  /**
+   * The offscreen window size, so `useWindowSize()` reports the same numbers
+   * under test as in a real window instead of falling back to a default.
+   */
+  getWindowSize(): WindowSize
 }
 
 /** Recorded draw times from the debug frame overlay. */

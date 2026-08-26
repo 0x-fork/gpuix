@@ -65,4 +65,92 @@ describeNative("automation", () => {
     expect(fs.statSync(frames[1]).size).toBeGreaterThan(0)
     await app.close()
   })
+
+  it("drags a locator through interpolated moves", async () => {
+    const log: string[] = []
+
+    function Draggable() {
+      const [x, setX] = useState(20)
+      const [origin, setOrigin] = useState<{ pointer: number; box: number } | null>(
+        null
+      )
+      return (
+        <div style={{ width: 600, height: 200, position: "relative" }}>
+          <div
+            testId="handle"
+            style={{
+              position: "absolute",
+              left: x,
+              top: 40,
+              width: 80,
+              height: 40,
+              backgroundColor: "#3366ff",
+            }}
+            onMouseDown={(event) => {
+              log.push("down")
+              setOrigin({ pointer: event.x ?? 0, box: x })
+            }}
+            onMouseMove={(event) => {
+              if (!origin) return
+              log.push("move")
+              setX(origin.box + (event.x ?? 0) - origin.pointer)
+            }}
+            onMouseUp={() => {
+              log.push("up")
+              setOrigin(null)
+            }}
+          >
+            <text>{`x=${Math.round(x)}`}</text>
+          </div>
+        </div>
+      )
+    }
+
+    const { render, renderer } = createTestRoot()
+    render(<Draggable />)
+    const app = await connectTest(renderer)
+
+    await app.getByTestId("handle").dragBy(200, 0, { steps: 4 })
+
+    expect(log).toEqual(["down", "move", "move", "move", "move", "up"])
+    expect(renderer.getAllText()).toEqual(["x=220"])
+
+    const bounds = await app.getByTestId("handle").bounds()
+    expect(Math.round(bounds.x)).toBe(220)
+    await app.close()
+  })
+
+  it("wheels over a locator and reports held modifiers", async () => {
+    const seen: Array<{ deltaY: number; cmd: boolean }> = []
+
+    function Surface() {
+      return (
+        <div
+          testId="surface"
+          style={{ width: 300, height: 200, backgroundColor: "#101010" }}
+          onScroll={(event) =>
+            seen.push({
+              deltaY: event.deltaY ?? 0,
+              cmd: event.modifiers?.cmd ?? false,
+            })
+          }
+        >
+          <text>surface</text>
+        </div>
+      )
+    }
+
+    const { render, renderer } = createTestRoot()
+    render(<Surface />)
+    const app = await connectTest(renderer)
+
+    await app.getByTestId("surface").wheel(0, -60)
+    await app.getByTestId("surface").wheel(0, -60, { modifiers: "cmd" })
+
+    expect(seen).toEqual([
+      { deltaY: -60, cmd: false },
+      { deltaY: -60, cmd: true },
+    ])
+    await app.close()
+  })
 })

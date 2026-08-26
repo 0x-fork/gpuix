@@ -33,11 +33,22 @@ interface NativeTestRendererApi extends NativeRenderer {
   focusElement(elementId: number): void
   simulateKeyDown(keystroke: string, isHeld?: boolean): void
   simulateKeyUp(keystroke: string): void
-  simulateClick(x: number, y: number): void
-  simulateScrollWheel(x: number, y: number, deltaX: number, deltaY: number): void
-  simulateMouseMove(x: number, y: number, pressedButton?: number): void
-  simulateMouseDown(x: number, y: number, button: number): void
-  simulateMouseUp(x: number, y: number, button: number): void
+  simulateClick(x: number, y: number, modifiers?: string): void
+  simulateScrollWheel(
+    x: number,
+    y: number,
+    deltaX: number,
+    deltaY: number,
+    modifiers?: string
+  ): void
+  simulateMouseMove(
+    x: number,
+    y: number,
+    pressedButton?: number,
+    modifiers?: string
+  ): void
+  simulateMouseDown(x: number, y: number, button: number, modifiers?: string): void
+  simulateMouseUp(x: number, y: number, button: number, modifiers?: string): void
   getTreeJson(): string
   getAutomationTree(): string
   getElementBounds(elementId: number): number[] | null
@@ -46,6 +57,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   clockFastForward(deltaMs: number): number
   clockResume(): number
   getRootId(): number | null
+  getWindowSize(): { width: number; height: number }
   getAllText(): string[]
   scrollTo(elementId: number, x: number, y: number): void
   scrollToItem(elementId: number, index: number): void
@@ -73,7 +85,7 @@ export interface TestWindowOptions {
   height?: number
 }
 
-// The native test renderer is currently exported only by macOS builds.
+// The native test renderer is exported by macOS and Windows builds.
 let NativeTestRenderer: NativeTestRendererConstructor | null = null
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -257,9 +269,9 @@ export class TestRenderer implements NativeRenderer {
 
   /** End-to-end: simulate a click through GPUI hit testing →
    *  dispatch resulting events to React. */
-  nativeSimulateClick(x: number, y: number): void {
+  nativeSimulateClick(x: number, y: number, modifiers?: string): void {
     this.native.flush()
-    this.native.simulateClick(x, y)
+    this.native.simulateClick(x, y, modifiers)
     this.dispatchNativeEvents()
     // Flush again after React state updates so the Rust RetainedTree
     // is fully rebuilt and GPUI has re-laid-out before any screenshot.
@@ -272,10 +284,11 @@ export class TestRenderer implements NativeRenderer {
     x: number,
     y: number,
     deltaX: number,
-    deltaY: number
+    deltaY: number,
+    modifiers?: string
   ): void {
     this.native.flush()
-    this.native.simulateScrollWheel(x, y, deltaX, deltaY)
+    this.native.simulateScrollWheel(x, y, deltaX, deltaY, modifiers)
     this.dispatchNativeEvents()
   }
 
@@ -283,18 +296,24 @@ export class TestRenderer implements NativeRenderer {
     x: number,
     y: number,
     deltaX: number,
-    deltaY: number
+    deltaY: number,
+    modifiers?: string
   ): void {
-    this.native.simulateScrollWheel(x, y, deltaX, deltaY)
+    this.native.simulateScrollWheel(x, y, deltaX, deltaY, modifiers)
     this.dispatchNativeEvents()
   }
 
   /** End-to-end: simulate mouse move through GPUI →
    *  dispatch resulting events to React.
    *  @param pressedButton - optional button held during move (0=left, 1=middle, 2=right) for drag simulation */
-  nativeSimulateMouseMove(x: number, y: number, pressedButton?: number): void {
+  nativeSimulateMouseMove(
+    x: number,
+    y: number,
+    pressedButton?: number,
+    modifiers?: string
+  ): void {
     this.native.flush()
-    this.native.simulateMouseMove(x, y, pressedButton)
+    this.native.simulateMouseMove(x, y, pressedButton, modifiers)
     this.dispatchNativeEvents()
     // Flush again after React state updates so hover styles are applied
     // and the Rust tree is current before any screenshot.
@@ -304,9 +323,14 @@ export class TestRenderer implements NativeRenderer {
   /** End-to-end: simulate mouse down through GPUI hit testing →
    *  dispatch resulting events to React.
    *  @param button - 0=left (default), 1=middle, 2=right */
-  nativeSimulateMouseDown(x: number, y: number, button?: number): void {
+  nativeSimulateMouseDown(
+    x: number,
+    y: number,
+    button?: number,
+    modifiers?: string
+  ): void {
     this.native.flush()
-    this.native.simulateMouseDown(x, y, button ?? 0)
+    this.native.simulateMouseDown(x, y, button ?? 0, modifiers)
     this.dispatchNativeEvents()
     this.native.flush()
   }
@@ -314,9 +338,14 @@ export class TestRenderer implements NativeRenderer {
   /** End-to-end: simulate mouse up through GPUI hit testing →
    *  dispatch resulting events to React.
    *  @param button - 0=left (default), 1=middle, 2=right */
-  nativeSimulateMouseUp(x: number, y: number, button?: number): void {
+  nativeSimulateMouseUp(
+    x: number,
+    y: number,
+    button?: number,
+    modifiers?: string
+  ): void {
     this.native.flush()
-    this.native.simulateMouseUp(x, y, button ?? 0)
+    this.native.simulateMouseUp(x, y, button ?? 0, modifiers)
     this.dispatchNativeEvents()
     this.native.flush()
   }
@@ -417,6 +446,11 @@ export class TestRenderer implements NativeRenderer {
     this.dispatchNativeEvents()
   }
 
+  /** The offscreen window size, so `useWindowSize()` works under test. */
+  getWindowSize(): { width: number; height: number } {
+    return this.native.getWindowSize()
+  }
+
   // ── Scroll API ──────────────────────────────────────────────────
 
   /** Set the scroll offset of a scrollable element (overflow: "scroll").
@@ -502,8 +536,7 @@ export class TestRenderer implements NativeRenderer {
     return this.native.getDebugFrameOverlayStats()
   }
 
-  /** Capture a screenshot of the current rendered UI and save as PNG.
-   *  macOS only — requires Metal GPU rendering via VisualTestAppContext. */
+  /** Capture the current Metal or DirectX frame and save it as a PNG. */
   captureScreenshot(path: string): void {
     this.native.flush()
     this.native.captureScreenshot(path)

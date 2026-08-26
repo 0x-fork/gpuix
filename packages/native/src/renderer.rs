@@ -211,21 +211,32 @@ enum MouseInput {
         x: f64,
         y: f64,
         button: u32,
+        modifiers: gpui::Modifiers,
     },
     Down {
         x: f64,
         y: f64,
         button: u32,
+        modifiers: gpui::Modifiers,
     },
     Up {
         x: f64,
         y: f64,
         button: u32,
+        modifiers: gpui::Modifiers,
     },
     Move {
         x: f64,
         y: f64,
         pressed_button: Option<u32>,
+        modifiers: gpui::Modifiers,
+    },
+    Wheel {
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        modifiers: gpui::Modifiers,
     },
 }
 
@@ -279,6 +290,11 @@ enum UiCommand {
     },
     DispatchMouse {
         input: MouseInput,
+        response: SyncSender<std::result::Result<(), String>>,
+    },
+    #[cfg(all(target_os = "windows", feature = "test-support"))]
+    CaptureScreenshot {
+        path: String,
         response: SyncSender<std::result::Result<(), String>>,
     },
     Blur,
@@ -447,21 +463,55 @@ async fn run_ui_commands(
             }
             UiCommand::DispatchMouse { input, response } => {
                 let result = window.update(cx, move |_view, window, cx| match input {
-                    MouseInput::Click { x, y, button } => {
-                        crate::automation::dispatch_click(window, cx, x, y, button);
+                    MouseInput::Click {
+                        x,
+                        y,
+                        button,
+                        modifiers,
+                    } => {
+                        crate::automation::dispatch_click(window, cx, x, y, button, modifiers);
                     }
-                    MouseInput::Down { x, y, button } => {
-                        crate::automation::dispatch_mouse_down(window, cx, x, y, button);
+                    MouseInput::Down {
+                        x,
+                        y,
+                        button,
+                        modifiers,
+                    } => {
+                        crate::automation::dispatch_mouse_down(window, cx, x, y, button, modifiers);
                     }
-                    MouseInput::Up { x, y, button } => {
-                        crate::automation::dispatch_mouse_up(window, cx, x, y, button);
+                    MouseInput::Up {
+                        x,
+                        y,
+                        button,
+                        modifiers,
+                    } => {
+                        crate::automation::dispatch_mouse_up(window, cx, x, y, button, modifiers);
                     }
                     MouseInput::Move {
                         x,
                         y,
                         pressed_button,
+                        modifiers,
                     } => {
-                        crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
+                        crate::automation::dispatch_mouse_move(
+                            window,
+                            cx,
+                            x,
+                            y,
+                            pressed_button,
+                            modifiers,
+                        );
+                    }
+                    MouseInput::Wheel {
+                        x,
+                        y,
+                        delta_x,
+                        delta_y,
+                        modifiers,
+                    } => {
+                        crate::automation::dispatch_scroll_wheel(
+                            window, cx, x, y, delta_x, delta_y, modifiers,
+                        );
                     }
                 });
                 response
@@ -472,6 +522,29 @@ async fn run_ui_commands(
                             .map_err(|error| format!("{error:#}")),
                     )
                     .ok();
+                result
+            }
+            #[cfg(all(target_os = "windows", feature = "test-support"))]
+            UiCommand::CaptureScreenshot { path, response } => {
+                let error_response = response.clone();
+                let result = window.update(cx, move |_view, window, cx| {
+                    cx.notify();
+                    window.refresh();
+                    window.on_next_frame(move |window, _cx| {
+                        let result = window
+                            .render_to_image()
+                            .map_err(|error| format!("Screenshot capture failed: {error}"))
+                            .and_then(|image| {
+                                image
+                                    .save(&path)
+                                    .map_err(|error| format!("Failed to save screenshot: {error}"))
+                            });
+                        response.send(result).ok();
+                    });
+                });
+                if let Err(error) = &result {
+                    error_response.send(Err(format!("{error:#}"))).ok();
+                }
                 result
             }
             UiCommand::Blur => window.update(cx, |_view, window, _cx| window.blur()),
@@ -1400,17 +1473,30 @@ impl GpuixRenderer {
         crate::text::painted_text()
     }
 
+    /// `modifiers` uses the `press()` syntax: "cmd", "cmd-shift", "alt".
     #[napi]
-    pub fn simulate_click(&self, x: f64, y: f64, button: Option<u32>) -> Result<()> {
+    pub fn simulate_click(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+        modifiers: Option<String>,
+    ) -> Result<()> {
         let button = button.unwrap_or(0);
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_click(window, cx, x, y, button);
+            crate::automation::dispatch_click(window, cx, x, y, button, modifiers);
         });
 
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
-        return self.dispatch_mouse_input(MouseInput::Click { x, y, button });
+        return self.dispatch_mouse_input(MouseInput::Click {
+            x,
+            y,
+            button,
+            modifiers,
+        });
 
         #[cfg(not(any(
             target_os = "macos",
@@ -1427,16 +1513,28 @@ impl GpuixRenderer {
     }
 
     #[napi]
-    pub fn simulate_mouse_down(&self, x: f64, y: f64, button: Option<u32>) -> Result<()> {
+    pub fn simulate_mouse_down(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+        modifiers: Option<String>,
+    ) -> Result<()> {
         let button = button.unwrap_or(0);
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_down(window, cx, x, y, button);
+            crate::automation::dispatch_mouse_down(window, cx, x, y, button, modifiers);
         });
 
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
-        return self.dispatch_mouse_input(MouseInput::Down { x, y, button });
+        return self.dispatch_mouse_input(MouseInput::Down {
+            x,
+            y,
+            button,
+            modifiers,
+        });
 
         #[cfg(not(any(
             target_os = "macos",
@@ -1453,16 +1551,28 @@ impl GpuixRenderer {
     }
 
     #[napi]
-    pub fn simulate_mouse_up(&self, x: f64, y: f64, button: Option<u32>) -> Result<()> {
+    pub fn simulate_mouse_up(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+        modifiers: Option<String>,
+    ) -> Result<()> {
         let button = button.unwrap_or(0);
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_up(window, cx, x, y, button);
+            crate::automation::dispatch_mouse_up(window, cx, x, y, button, modifiers);
         });
 
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
-        return self.dispatch_mouse_input(MouseInput::Up { x, y, button });
+        return self.dispatch_mouse_input(MouseInput::Up {
+            x,
+            y,
+            button,
+            modifiers,
+        });
 
         #[cfg(not(any(
             target_os = "macos",
@@ -1479,10 +1589,18 @@ impl GpuixRenderer {
     }
 
     #[napi]
-    pub fn simulate_mouse_move(&self, x: f64, y: f64, pressed_button: Option<u32>) -> Result<()> {
+    pub fn simulate_mouse_move(
+        &self,
+        x: f64,
+        y: f64,
+        pressed_button: Option<u32>,
+        modifiers: Option<String>,
+    ) -> Result<()> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
+
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
+            crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button, modifiers);
         });
 
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
@@ -1490,6 +1608,7 @@ impl GpuixRenderer {
             x,
             y,
             pressed_button,
+            modifiers,
         });
 
         #[cfg(not(any(
@@ -1500,6 +1619,50 @@ impl GpuixRenderer {
         )))]
         {
             let _ = (x, y, pressed_button);
+            Err(Error::from_reason(
+                "The production GPUIX renderer does not support this operating system",
+            ))
+        }
+    }
+
+    /// Dispatch a wheel event through the same GPUI hit test the trackpad uses.
+    /// Deltas are pixels: negative `delta_y` scrolls down, negative `delta_x`
+    /// pans right, matching `TestGpuixRenderer::simulate_scroll_wheel`.
+    #[napi]
+    pub fn simulate_scroll_wheel(
+        &self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        modifiers: Option<String>,
+    ) -> Result<()> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
+
+        #[cfg(target_os = "macos")]
+        return update_window(move |_view, window, cx| {
+            crate::automation::dispatch_scroll_wheel(
+                window, cx, x, y, delta_x, delta_y, modifiers,
+            );
+        });
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.dispatch_mouse_input(MouseInput::Wheel {
+            x,
+            y,
+            delta_x,
+            delta_y,
+            modifiers,
+        });
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        {
+            let _ = (x, y, delta_x, delta_y, modifiers);
             Err(Error::from_reason(
                 "The production GPUIX renderer does not support this operating system",
             ))
@@ -1612,11 +1775,21 @@ impl GpuixRenderer {
             Ok(())
         }
 
-        #[cfg(not(all(target_os = "macos", feature = "test-support")))]
+        #[cfg(all(target_os = "windows", feature = "test-support"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::CaptureScreenshot { path, response })?;
+            return recv_ui_response(receiver, "screenshot capture")?.map_err(Error::from_reason);
+        }
+
+        #[cfg(not(all(
+            feature = "test-support",
+            any(target_os = "macos", target_os = "windows")
+        )))]
         {
             let _ = path;
             Err(Error::from_reason(
-                "captureScreenshot needs the test-support build on macOS",
+                "captureScreenshot needs a test-support build on macOS or Windows",
             ))
         }
     }
@@ -2127,9 +2300,11 @@ impl WebGpuixRenderer {
         x: f64,
         y: f64,
         button: Option<u32>,
+        modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_click(window, cx, x, y, button.unwrap_or(0));
+            crate::automation::dispatch_click(window, cx, x, y, button.unwrap_or(0), modifiers);
             cx.notify();
         })
     }
@@ -2140,9 +2315,11 @@ impl WebGpuixRenderer {
         x: f64,
         y: f64,
         button: Option<u32>,
+        modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_down(window, cx, x, y, button.unwrap_or(0));
+            crate::automation::dispatch_mouse_down(window, cx, x, y, button.unwrap_or(0), modifiers);
             cx.notify();
         })
     }
@@ -2153,9 +2330,11 @@ impl WebGpuixRenderer {
         x: f64,
         y: f64,
         button: Option<u32>,
+        modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_up(window, cx, x, y, button.unwrap_or(0));
+            crate::automation::dispatch_mouse_up(window, cx, x, y, button.unwrap_or(0), modifiers);
             cx.notify();
         })
     }
@@ -2166,9 +2345,11 @@ impl WebGpuixRenderer {
         x: f64,
         y: f64,
         pressed_button: Option<u32>,
+        modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button);
+            crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button, modifiers);
             cx.notify();
         })
     }
@@ -2180,9 +2361,13 @@ impl WebGpuixRenderer {
         y: f64,
         delta_x: f64,
         delta_y: f64,
+        modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
+        let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_scroll_wheel(window, cx, x, y, delta_x, delta_y);
+            crate::automation::dispatch_scroll_wheel(
+                window, cx, x, y, delta_x, delta_y, modifiers,
+            );
             cx.notify();
         })
     }

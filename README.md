@@ -1677,7 +1677,39 @@ await page.screenshot({ path: 'review/chat.png', scale: 'css' })
 
 `click()` hits the center of the last painted bounds. `fill(text)` replaces the
 focused editor contents. `press('enter')` sends one key. `waitFor()` polls until
-exactly one match exists.
+exactly one match exists. `textContent()` returns the node's own text plus every
+descendant's, like DOM `textContent`.
+
+### Mouse, wheel, and drag
+
+| Call | What it does |
+|---|---|
+| `locator.hover()` | Moves the pointer to the center, so hover styles and tooltips fire |
+| `locator.wheel(dx, dy)` | One wheel event over the center |
+| `locator.dragBy(dx, dy)` | Presses on the center, travels, releases |
+| `locator.dragTo(target)` | Same, ending on another locator or a `{ x, y }` point |
+| `app.mouse.move / down / up / click` | Raw pointer input in window coordinates |
+| `app.mouse.wheel(target, dx, dy)` | A wheel over a point or a locator |
+| `app.mouse.drag(from, to)` | A drag between two points, two locators, or a mix |
+
+A drag sends **interpolated moves**, not one jump, because snapping, live
+previews, and per-move commits only appear when the pointer travels. Pass
+`steps` to control how many, and `offset` to press away from the center.
+
+```ts
+await app.getByTestId('clip-7').dragBy(120, 0, { steps: 6 })
+await app.getByTestId('clip-7-trim-end').dragTo(app.getByTestId('clip-8'))
+await app.mouse.drag({ x: 240, y: 500 }, { x: 700, y: 620 })
+```
+
+Every mouse call takes **`modifiers`** in the same syntax as `press('cmd-a')`,
+so cmd-wheel zoom, shift-click range selection, and alt-drag duplication are all
+testable:
+
+```ts
+await app.getByTestId('canvas').wheel(0, 120, { modifiers: 'cmd' })
+await app.getByTestId('clip-8').click({ modifiers: 'shift' })
+```
 
 ### Screenshots and clock
 
