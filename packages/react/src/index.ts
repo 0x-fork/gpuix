@@ -65,6 +65,7 @@ export type {
   WindowInsets,
   WindowInsetsOptions,
   WindowSize,
+  WindowSizeOptions,
 } from "./hooks/use-window-size.js"
 
 // Re-export types

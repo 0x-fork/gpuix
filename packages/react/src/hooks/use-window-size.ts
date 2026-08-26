@@ -11,26 +11,52 @@ export interface WindowSize {
   height: number
 }
 
+/** Fallback until the window answers. Only used if the renderer has no size yet. */
+const DEFAULT_WINDOW_SIZE: WindowSize = { width: 800, height: 600 }
+
+function readWindowSize(renderer: NativeRenderer | null): WindowSize {
+  try {
+    const size = renderer?.getWindowSize?.()
+    if (size && size.width > 0 && size.height > 0) {
+      return { width: size.width, height: size.height }
+    }
+  } catch {
+    // Renderer window is still opening.
+  }
+  return DEFAULT_WINDOW_SIZE
+}
+
+export interface WindowSizeOptions {
+  /** Poll interval in milliseconds. Defaults to 100. Set false for one read. */
+  intervalMs?: number | false
+}
+
 /**
- * Get the current window size and subscribe to changes
+ * The current window size, sampled every 100ms by default.
+ *
+ * It polls rather than reading once, for the same reason `useWindowInsets`
+ * does: the first read can land before the platform window has a size, and a
+ * value that stays at the fallback forever is far worse than a late one. Code
+ * that converts a mouse position into layout coordinates silently points at the
+ * wrong row when this number is stale.
  */
-export function useWindowSize(): WindowSize {
+export function useWindowSize(options: WindowSizeOptions = {}): WindowSize {
   const { renderer } = useGpuix()
-  const [size, setSize] = useState<WindowSize>({ width: 800, height: 600 })
+  const [size, setSize] = useState<WindowSize>(() => readWindowSize(renderer))
+  const intervalMs = options.intervalMs ?? 100
 
   useEffect(() => {
-    if (renderer?.getWindowSize) {
-      try {
-        const windowSize = renderer.getWindowSize()
-        setSize({
-          width: windowSize.width,
-          height: windowSize.height,
-        })
-      } catch {
-        // Renderer not ready
-      }
+    const update = () => {
+      const next = readWindowSize(renderer)
+      setSize((current) =>
+        current.width === next.width && current.height === next.height ? current : next
+      )
     }
-  }, [renderer])
+    update()
+    if (intervalMs === false) return
+    const timer = setInterval(update, Math.max(16, intervalMs))
+    return () => clearInterval(timer)
+  }, [renderer, intervalMs])
 
   return size
 }
