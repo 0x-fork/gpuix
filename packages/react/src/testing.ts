@@ -9,6 +9,8 @@
 /// flush the tree, dispatch through GPUI, drain events, and feed them into
 /// the React event registry via handleGpuixEvent.
 
+import { createRequire } from "node:module"
+
 import type { ReactNode } from "react"
 import type { EventPayload } from "@gpuix/native"
 import type {
@@ -88,10 +90,16 @@ export interface TestWindowOptions {
 }
 
 // The native test renderer is exported by macOS and Windows builds.
+//
+// Loaded through `createRequire`, never a bare `require`. This file ships as
+// ESM, and Node has no `require` there: in a workspace vitest inlines it and
+// happens to provide one, but a real dependency is externalized and run by
+// Node, where the bare call threw `require is not defined`. The `catch` then
+// made `hasNativeTestRenderer` false, so every suite that guards on it
+// silently skipped for anyone consuming the published package.
 let NativeTestRenderer: NativeTestRendererConstructor | null = null
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const native = require("@gpuix/native") as {
+  const native = createRequire(import.meta.url)("@gpuix/native") as {
     TestGpuixRenderer?: NativeTestRendererConstructor
   }
   if (native.TestGpuixRenderer) {
