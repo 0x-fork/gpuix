@@ -146,13 +146,52 @@ cargo install wasm-bindgen-cli --version 0.2.127 --locked
 bun run web
 ```
 
-The generated Wasm uses shared memory. Production servers must include these
-headers on the page, JavaScript, and Wasm responses:
+The generated Wasm uses shared memory, so the page must be cross-origin
+isolated. Production servers must send these headers on the **top-level
+document**:
 
 ```http
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
+
+`require-corp` then constrains **cross-origin** subresources, which must supply
+their own CORS or `Cross-Origin-Resource-Policy`. Serve the JavaScript and the
+Wasm from the same origin as the document and nothing else is needed.
+
+`bun run web` rebuilds the Wasm only when `packages/native/wasm` is missing.
+After a Rust change, force it:
+
+```bash
+bun scripts/web.ts --rebuild
+```
+
+#### Hot reload in the browser
+
+`bun run web` serves the example through Bun's frontend dev server, so an edit
+to `examples/chat.tsx` arrives as a **React Fast Refresh** update. Components
+swap in place and `useState` survives, which means the composer text, the
+sidebar selection, and the scroll position all stay where they were. The GPUI
+canvas is never re-created and the ~19 MB Wasm module is never re-fetched.
+
+Fast Refresh only applies to a module whose exports are all components. Edit
+anything else, such as the entry file, and Bun reloads the page instead. Both
+paths are correct; the reload is only slower.
+
+The Wasm half is a **singleton and must never re-evaluate**.
+`WebGpuixRenderer::init` fails with `GPUIX web is already running` once its
+thread-local app exists, and GPUI's browser platform appends its own canvas to
+`<body>`. What protects it is not that it lives in `node_modules`; Bun bundles
+it into the same client registry as your app. It is that Bun re-runs only the
+**changed** module and then walks upward through its importers, so an unchanged
+dependency stays evaluated and cached. Two rules follow:
+
+- do not call `import.meta.hot.accept("./your-app", ...)` in the entry file.
+  Bun runs an importer's dependency-accept callback **even when the imported
+  module already self-accepted**, so that callback would remount the tree on top
+  of a successful refresh and throw away every `useState`
+- keep the `@gpuix/native` import in a module that can never become a Refresh
+  boundary and is never explicitly accepted
 
 The chat example puts a virtualized `<diff>` and a GFM table inside an assistant
 turn, inside a scrolling transcript:
@@ -2023,6 +2062,33 @@ arbitrary local screenshot path. Use the controlling browser tool for that:
 ```ts
 await page.screenshot({ path: 'review/chat.png', scale: 'css' })
 ```
+
+Bounds come back in **canvas pixels**, not CSS pixels, because that is the
+coordinate space GPUI lays out in. On a 2x display a locator at `x: 44` sits at
+CSS `x: 22`. Convert before handing a rectangle to a browser tool:
+
+```ts
+const scale = await page.evaluate(() => {
+  const canvas = document.querySelector('canvas')!
+  return canvas.width / canvas.clientWidth
+})
+const { bounds } = await page.evaluate(() =>
+  globalThis.gpuix.getByText('New Task').waitFor(),
+)
+await page.screenshot({
+  scale: 'css',
+  clip: {
+    x: bounds.x / scale,
+    y: bounds.y / scale,
+    width: bounds.width / scale,
+    height: bounds.height / scale,
+  },
+})
+```
+
+Do not read `window.devicePixelRatio` for this. An automation tool can override
+the viewport scale factor after GPUI has already sized its canvas, and then the
+two disagree.
 
 ### Locators
 

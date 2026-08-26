@@ -286,6 +286,37 @@ the user asks, or when a debug-only tool (lldb, sanitizers) cannot run on
 release. After any debug build, rebuild release before starting `chat.tsx`
 or judging frame time.
 
+## Two Bun modes, only one of them refreshes React
+
+`bun --hot chat.tsx` is the **runtime**. It re-evaluates the module graph in the
+same process, so `render()` finds its window on `globalThis.__gpuixRenderHost`
+and remounts. There is no bundler, so there is no Fast Refresh transform and no
+`import.meta.hot`. Every save loses `useState`. Tracked upstream as
+[oven-sh/bun#40179](https://github.com/oven-sh/bun/issues/40179).
+
+`bun scripts/web.ts` is the **bundler dev server**. Bun applies the Fast Refresh
+transform and its HMR runtime calls `refreshRuntime.injectIntoGlobalHook(window)`,
+which is the only thing our reconciler needs: `injectIntoDevTools()` in
+`reconciler.ts` hands the hook `scheduleRefresh` and `setRefreshHandler`, and
+`react-refresh` drives updates through them.
+
+Delete that call and you get **no error and no page reload**. Bun still accepts
+the update and still calls `performReactRefresh()`, which iterates zero mounted
+roots and schedules nothing. The bundle changes and the painted UI stays stale.
+`fast-refresh.test.tsx` is the only thing that catches it.
+
+Do **not** assert on the return value of `injectIntoDevTools()`. It ends in
+`hook.checkDCE ? true : false`, and `react-refresh` installs no `checkDCE`, so a
+working injection still returns `false`. `fast-refresh.test.tsx` asserts the
+behaviour instead: `_getMountedRootCount()`, then a component swap that keeps
+state.
+
+**Never add `import.meta.hot.accept("./app", ...)` to a browser entry.** Bun runs
+an importer's dependency-accept callback even when the imported module already
+self-accepted for Fast Refresh. The callback then remounts on top of a
+successful refresh and wipes every hook. This looks exactly like Fast Refresh
+being broken, and it is not.
+
 ## Virtualized React children re-enter through `cx.processor`
 
 `<virtual-list>` does not build its retained children during `GpuixView::render`.
@@ -957,7 +988,8 @@ belong in README. This list is only the remaining engineering work.
 - [ ] **Window controls** - resize, minimize (title already works)
 - [ ] **Multiple windows** - Support multiple GPUI windows
 - [x] **JS remount** - `render()` plus `bun --hot` remounts the React tree on the same window
-- [ ] **React Refresh** - keep `useState` across saves. Needs Bun to run the Fast Refresh transform during `bun --hot`
+- [x] **React Refresh in the browser** - `bun run web` keeps `useState` across saves
+- [ ] **React Refresh on desktop** - `bun --hot` is the runtime, not the bundler, so it runs no Fast Refresh transform. Tracked as [oven-sh/bun#40179](https://github.com/oven-sh/bun/issues/40179)
 - [ ] **Native hot reload** - cannot unload a `.node`. `bun run dev` rebuilds and restarts
 - [ ] **DevTools** - React DevTools integration
 - [ ] **Animations** - Interpolated style transitions
