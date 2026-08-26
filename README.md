@@ -851,6 +851,24 @@ Combine `alignment="bottom"` and `followTail` for a chat thread:
 
 The list follows new rows while the user is at the bottom. Scrolling upward pauses tail following. Returning to the bottom enables it again. A streaming final row is remeasured as its content grows.
 
+### Scroll anchoring
+
+The list is anchored on a **row**, not on a pixel offset, so inserting rows above the viewport keeps the rows already on screen exactly where they are. A browser does the same, and calls it scroll anchoring.
+
+One exception, also copied from the browser: a top-aligned list that is scrolled to the **very top** stays at the top, so a prepended row is visible.
+
+```text
+scrolled down                          pinned to the top
+┌──────────────────┐                   ┌──────────────────┐
+│ new row  (above) │  ◄── inserted     │ new row          │  ◄── inserted, visible
+├──────────────────┤                   ├──────────────────┤
+│ ░░ viewport ░░░░ │  stays put        │ ░░ viewport ░░░░ │  follows the insert
+│ ░░░░░░░░░░░░░░░░ │                   │ ░░░░░░░░░░░░░░░░ │
+└──────────────────┘                   └──────────────────┘
+```
+
+That is what a todo list or a feed wants: `setItems((current) => [fresh, ...current])` puts the new row on screen. A history pane that loads older pages while the user reads should use `alignment="bottom"` instead, so a page load never moves the text.
+
 ### Programmatic scrolling
 
 Use a ref to call the same renderer scroll methods as a plain scroll container:

@@ -295,6 +295,25 @@ default zeroes the smaller of the two deltas, so one diagonal wheel moved one
 axis. A browser moves both, and a two-axis container is exactly where a user
 expects that.
 
+## A prepended row is only visible at the top
+
+`gpui::ListState` anchors on a **logical item**, and `splice_focusable` shifts
+that anchor by the number of rows inserted before it. So a prepend keeps the
+rows already on screen and pushes the new one above the viewport. That is
+correct for a history pane, and wrong for a feed.
+
+A browser anchors the same way and suppresses it at `scrollTop: 0`. GPUIX copies
+that: `VirtualListEntry::sync` remembers a top-aligned, non-`followTail` list
+whose `logical_scroll_top()` is `{0, 0}` and calls `scroll_to(default)` after the
+splice. Do not "simplify" that away.
+
+**Do not trust a short list to prove a prepend works.** While the content is
+shorter than the viewport, gpui's "does not fill" branch re-anchors to item 0 on
+every layout, so the drift is invisible. It appears on the frame where the list
+first overflows. `example-app` looked stuck on two rows for exactly that reason,
+and the regression test in `virtual-list.test.tsx` grows a 160px list from 2 rows
+to 12 rather than starting tall.
+
 ## A frozen header cannot use native scroll
 
 GPUI moves a scroll container on the wheel frame. The `onScroll` callback that

@@ -3132,6 +3132,21 @@ impl VirtualListEntry {
             return;
         }
 
+        // gpui anchors a list on a logical item, so splicing rows in at the
+        // front keeps the rows already on screen and pushes the new ones above
+        // the viewport. A browser anchors too, but suppresses it at scrollTop 0,
+        // so a prepend is visible. Match the browser: remember a list pinned to
+        // the top and put it back after the splice.
+        //
+        // While the content is shorter than the viewport gpui re-anchors to
+        // item 0 every layout, so the drift only appears once the list
+        // overflows. That is why `example-app` looked stuck at two rows.
+        let top = self.state.logical_scroll_top();
+        let was_pinned_to_top = matches!(config.alignment, gpui::ListAlignment::Top)
+            && !config.follow_tail
+            && top.item_ix == 0
+            && top.offset_in_item <= gpui::px(0.0);
+
         // A windowed list's children are a sliding viewport. Splicing by
         // child position would treat a scroll as a rewrite of items 0..N.
         if config.item_count.is_none() && self.child_ids != child_ids {
@@ -3192,6 +3207,9 @@ impl VirtualListEntry {
                 .remeasure_items(start..window_start + child_ids.len());
         }
         self.remeasure_unknown_rows(window_start, &child_ids, &old_rows);
+        if was_pinned_to_top {
+            self.state.scroll_to(gpui::ListOffset::default());
+        }
 
         self.window_start = window_start;
         self.child_ids = child_ids;
