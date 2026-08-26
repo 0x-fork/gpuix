@@ -1,17 +1,16 @@
 /// TestGpuixRenderer — GPU-backed GPUI test renderer exposed to Node.js via napi.
 ///
-/// Uses gpui::VisualTestAppContext (real Metal rendering on macOS) with
-/// TestDispatcher for deterministic scheduling. Runs the SAME GpuixView,
+/// Uses gpui::VisualTestAppContext with the native Metal or DirectX renderer
+/// and TestDispatcher for deterministic scheduling. Runs the SAME GpuixView,
 /// build_element(), apply_styles(), and event handlers as production.
 ///
 /// Windows are positioned offscreen at (-10000, -10000) — invisible but
-/// fully rendered by Metal. This enables capture_screenshot() for visual
+/// fully rendered by the native GPU. This enables capture_screenshot() for visual
 /// test validation.
 ///
 /// VisualTestAppContext is !Send, so it is stored in thread-local state.
 /// All napi calls happen on the JS main thread.
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::*;
@@ -101,8 +100,8 @@ fn u32_to_mouse_button(button: u32) -> gpui::MouseButton {
 
 // ── TestGpuixRenderer ────────────────────────────────────────────────
 
-/// GPU-backed GPUI test renderer. Uses VisualTestAppContext (real Metal
-/// rendering on macOS) with TestDispatcher for deterministic scheduling.
+/// GPU-backed GPUI test renderer. Uses VisualTestAppContext with the native
+/// Metal or DirectX renderer and TestDispatcher for deterministic scheduling.
 /// Same GpuixView and rendering pipeline as production.
 ///
 /// Usage from JS:
@@ -110,7 +109,7 @@ fn u32_to_mouse_button(button: u32) -> gpui::MouseButton {
 ///   r.createElement(1, "div")
 ///   r.setRoot(1)
 ///   r.commitMutations()
-///   r.flush()                  // triggers GpuixView::render() via Metal
+///   r.flush()                  // triggers GpuixView::render() on the GPU
 ///   r.simulateClick(50, 50)    // dispatches through GPUI hit testing
 ///   const events = r.drainEvents()
 ///   r.captureScreenshot("/tmp/test.png")  // saves rendered UI as PNG
@@ -145,17 +144,15 @@ impl TestGpuixRenderer {
         let selection = crate::text::SharedSelection::default();
         let selection_clone = selection.clone();
 
-        // Create VisualTestAppContext with real macOS Metal rendering +
-        // TestDispatcher for deterministic scheduling.
-        let mac_platform = gpui_macos::MacPlatform::new(false);
-        let mut cx = gpui::VisualTestAppContext::new(Rc::new(mac_platform));
+        let platform = gpui_platform::current_platform(false);
+        let mut cx = gpui::VisualTestAppContext::new(platform);
         cx.update(|cx| {
             crate::renderer::init_key_bindings(cx);
             crate::custom_elements::input::init(cx);
         });
 
-        // Open an offscreen window at (-10000, -10000) — invisible but fully
-        // rendered by Metal. Uses the same GpuixView as production.
+        // Open an offscreen window at (-10000, -10000) with the same GpuixView
+        // and native GPU renderer as production.
         let window_handle = cx
             .open_offscreen_window(window_size, |_window, app| {
                 app.new(|_cx| {
@@ -717,7 +714,7 @@ impl TestGpuixRenderer {
     }
 
     /// Capture a screenshot of the current rendered state and save as PNG.
-    /// macOS only — requires Metal GPU rendering via VisualTestAppContext.
+    /// Supported on macOS through Metal and Windows through DirectX.
     #[napi]
     pub fn capture_screenshot(&self, path: String) -> Result<()> {
         with_test_state(|cx, window, view| {
@@ -740,7 +737,7 @@ impl TestGpuixRenderer {
 
             cx.run_until_parked();
 
-            // Capture via GPUI's render_to_image (Metal texture → RgbaImage).
+            // Capture via the platform renderer's render_to_image implementation.
             let image = cx
                 .capture_screenshot(window)
                 .map_err(|e| Error::from_reason(format!("Screenshot capture failed: {}", e)))?;
@@ -910,6 +907,21 @@ impl TestGpuixRenderer {
     #[napi]
     pub fn get_root_id(&self) -> Option<f64> {
         self.tree.lock().unwrap().root_id.map(|id| id as f64)
+    }
+
+    /// The offscreen window size, so `useWindowSize()` reports the same numbers
+    /// under test as in a real window instead of falling back to a default.
+    #[napi]
+    pub fn get_window_size(&self) -> Result<crate::renderer::WindowSize> {
+        with_test_state(|cx, window, _view| {
+            let size = cx
+                .update_window(window, |_, window, _| window.viewport_size())
+                .map_err(|error| Error::from_reason(error.to_string()))?;
+            Ok(crate::renderer::WindowSize {
+                width: f32::from(size.width) as f64,
+                height: f32::from(size.height) as f64,
+            })
+        })
     }
 
     // ── Private helpers ──────────────────────────────────────────────

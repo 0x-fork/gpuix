@@ -25,6 +25,7 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+#[cfg(any(target_os = "macos", target_family = "wasm"))]
 use std::rc::Rc;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
@@ -279,6 +280,9 @@ enum UiCommand {
     GetAutomationBounds {
         response: SyncSender<HashMap<u64, crate::automation::ElementBounds>>,
     },
+    GetWindowSize {
+        response: SyncSender<WindowSize>,
+    },
     GetElementBounds {
         id: u64,
         response: SyncSender<Option<crate::automation::ElementBounds>>,
@@ -423,6 +427,15 @@ async fn run_ui_commands(
                 response.send(offset).ok();
                 Ok(())
             }
+            UiCommand::GetWindowSize { response } => window.update(cx, move |_view, window, _cx| {
+                let size = window.viewport_size();
+                response
+                    .send(WindowSize {
+                        width: f32::from(size.width) as f64,
+                        height: f32::from(size.height) as f64,
+                    })
+                    .ok();
+            }),
             UiCommand::GetAutomationBounds { response } => {
                 window.update(cx, move |_view, window, cx| {
                     cx.notify();
@@ -1085,12 +1098,37 @@ impl GpuixRenderer {
         cfg!(target_os = "macos")
     }
 
+    /// The paintable size of the window in logical pixels, excluding any
+    /// platform title bar. This used to answer a hardcoded 800x600, so anything
+    /// that turned a mouse position into layout coordinates pointed at the
+    /// wrong place on every window that was not exactly that size.
     #[napi]
     pub fn get_window_size(&self) -> Result<WindowSize> {
-        Ok(WindowSize {
-            width: 800.0,
-            height: 600.0,
-        })
+        #[cfg(target_os = "macos")]
+        return update_window(|_view, window, _cx| {
+            let size = window.viewport_size();
+            WindowSize {
+                width: f32::from(size.width) as f64,
+                height: f32::from(size.height) as f64,
+            }
+        });
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::GetWindowSize { response })?;
+            return recv_ui_response(receiver, "the window size query");
+        }
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason(
+            "The production GPUIX renderer does not support this operating system",
+        ))
     }
 
     #[napi]

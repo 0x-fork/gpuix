@@ -1748,8 +1748,15 @@ await app.close()
 
 The locators above sit on a **GPU-backed test renderer** (`TestGpuixRenderer`).
 It runs the same `GpuixView`, `build_element()`, `apply_styles()`, and event
-handlers as production. Windows are positioned offscreen but fully rendered by
-Metal. The methods below are the lower-level API when a locator is not enough.
+handlers as production. Test windows are positioned offscreen and rendered by
+Metal on macOS or DirectX on Windows. The methods below are the lower-level API
+when a locator is not enough.
+
+| Platform | Test renderer | PNG capture |
+|---|---|---|
+| macOS | Metal | Yes |
+| Windows | DirectX | Yes |
+| Linux | Not yet | Waiting for GPUI's wgpu headless renderer |
 
 ```ts
 import { createTestRoot } from '@gpuix/react/testing'
@@ -1757,7 +1764,7 @@ import { createTestRoot } from '@gpuix/react/testing'
 const { root, renderer } = createTestRoot()
 
 root.render(<MyComponent />)
-renderer.flush()  // triggers GpuixView::render() via Metal
+renderer.flush()  // triggers GpuixView::render() on the native GPU
 
 // Simulate events through GPUI's native input pipeline
 renderer.nativeSimulateClick(50, 50)
@@ -1765,7 +1772,7 @@ renderer.nativeSimulateKeystrokes('enter')
 
 // Inspect results
 const events = renderer.drainNativeEvents()
-const screenshot = renderer.captureScreenshot('/tmp/test.png')
+renderer.captureScreenshot('/tmp/test.png')
 const text = renderer.getAllText()
 ```
 
