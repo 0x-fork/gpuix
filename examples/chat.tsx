@@ -21,6 +21,7 @@ import {
   SelectLabel,
   SelectTrigger,
   useGpuix,
+  useWindowInsets,
   type StyleDesc,
 } from '@gpuix/react'
 import { SafeMdxRenderer } from 'safe-mdx'
@@ -1728,6 +1729,7 @@ export function ChatApp({
   const listRef = useRef<{ id: number } | null>(null)
   const skipScroll = useRef(true)
   const { renderer } = useGpuix()
+  const { ime } = useWindowInsets()
   const title = CONVERSATIONS.find((conversation) => conversation.id === activeId)?.title ?? ''
   const rowCount = turns.length + (includeSafeMdx ? 1 : 0)
 
@@ -1779,6 +1781,7 @@ export function ChatApp({
           flexGrow: 1,
           minWidth: 0,
           height: '100%',
+          paddingBottom: ime.bottom,
           backgroundColor: C.canvas,
         }}
       >

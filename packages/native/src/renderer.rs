@@ -1020,6 +1020,15 @@ impl GpuixRenderer {
         })
     }
 
+    #[napi]
+    pub fn get_window_insets(&self) -> Result<WindowInsets> {
+        #[cfg(target_os = "macos")]
+        return update_window(|_view, window, _cx| WindowInsets::from_gpui(window.insets()));
+
+        #[cfg(not(target_os = "macos"))]
+        Ok(WindowInsets::default())
+    }
+
     /// `"hidden"` | `"minimal"` | `"full"`. Paints into the scene after layout.
     #[napi]
     pub fn set_debug_frame_overlay(&self, mode: String) -> Result<String> {
@@ -1944,6 +1953,12 @@ impl WebGpuixRenderer {
         js_sys::Reflect::set(&size, &"width".into(), &window.inner_width()?)?;
         js_sys::Reflect::set(&size, &"height".into(), &window.inner_height()?)?;
         Ok(size.into())
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getWindowInsets)]
+    pub fn get_window_insets(&self) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+        let insets = update_web_window(|_view, window, _cx| window.insets())?;
+        window_insets_js(insets)
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = setWindowTitle)]
@@ -4259,6 +4274,81 @@ fn batch_str(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> BatchResul
 pub struct WindowSize {
     pub width: f64,
     pub height: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
+pub struct EdgeInsets {
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub left: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
+pub struct WindowInsets {
+    pub safe_area: EdgeInsets,
+    pub ime: EdgeInsets,
+    pub effective: EdgeInsets,
+}
+
+impl WindowInsets {
+    fn from_gpui(insets: gpui::WindowInsets) -> Self {
+        let effective = insets.effective();
+        Self {
+            safe_area: EdgeInsets::from_gpui(insets.safe_area),
+            ime: EdgeInsets::from_gpui(insets.ime),
+            effective: EdgeInsets::from_gpui(effective),
+        }
+    }
+}
+
+impl EdgeInsets {
+    fn from_gpui(insets: gpui::Edges<gpui::Pixels>) -> Self {
+        Self {
+            top: f32::from(insets.top) as f64,
+            right: f32::from(insets.right) as f64,
+            bottom: f32::from(insets.bottom) as f64,
+            left: f32::from(insets.left) as f64,
+        }
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn edge_insets_js(
+    insets: gpui::Edges<gpui::Pixels>,
+) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+    let object = js_sys::Object::new();
+    for (key, value) in [
+        ("top", insets.top),
+        ("right", insets.right),
+        ("bottom", insets.bottom),
+        ("left", insets.left),
+    ] {
+        js_sys::Reflect::set(
+            &object,
+            &wasm_bindgen::JsValue::from_str(key),
+            &wasm_bindgen::JsValue::from_f64(f32::from(value) as f64),
+        )?;
+    }
+    Ok(object.into())
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn window_insets_js(
+    insets: gpui::WindowInsets,
+) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
+    let effective = insets.effective();
+    let object = js_sys::Object::new();
+    for (key, value) in [
+        ("safeArea", edge_insets_js(insets.safe_area)?),
+        ("ime", edge_insets_js(insets.ime)?),
+        ("effective", edge_insets_js(effective)?),
+    ] {
+        js_sys::Reflect::set(&object, &wasm_bindgen::JsValue::from_str(key), &value)?;
+    }
+    Ok(object.into())
 }
 
 /// Recorded draw times from the debug frame overlay.

@@ -463,6 +463,7 @@ export interface NativeRenderer {
 
   // ── Window API ─────────────────────────────────────────────────
   getWindowSize?(): { width: number; height: number }
+  getWindowInsets?(): NativeWindowInsets
   setWindowTitle?(title: string): void
   setDebugFrameOverlay?(mode: DebugFrameOverlayMode): string
   getDebugFrameOverlay?(): string
@@ -472,6 +473,19 @@ export interface NativeRenderer {
 }
 
 export type DebugFrameOverlayMode = "hidden" | "minimal" | "full"
+
+export interface EdgeInsets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+export interface NativeWindowInsets {
+  safeArea: EdgeInsets
+  ime: EdgeInsets
+  effective: EdgeInsets
+}
 
 export interface DebugFrameOverlayStats {
   currentMs?: number

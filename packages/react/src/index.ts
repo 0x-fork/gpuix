@@ -8,7 +8,7 @@ export {
   startFrameLoop,
 } from "./reconciler/renderer.js"
 export { GpuixContext, useGpuix, useGpuixRequired } from "./hooks/use-gpuix.js"
-export { useWindowSize } from "./hooks/use-window-size.js"
+export { useWindowInsets, useWindowSize } from "./hooks/use-window-size.js"
 export {
   Select,
   SelectContent,
@@ -61,18 +61,24 @@ export type {
 } from "./components/tooltip.js"
 export { motion, VirtualList } from "./components/index.js"
 export type { Root, FrameLoop, RenderOptions } from "./reconciler/renderer.js"
-export type { WindowSize } from "./hooks/use-window-size.js"
+export type {
+  WindowInsets,
+  WindowInsetsOptions,
+  WindowSize,
+} from "./hooks/use-window-size.js"
 
 // Re-export types
 export type { MotionDivProps, WindowedVirtualListProps } from "./components/index.js"
 export type {
   DebugFrameOverlayMode,
   DebugFrameOverlayStats,
+  EdgeInsets,
   MotionEase,
   MotionProps,
   MotionStyle,
   MotionTransition,
   NativeRenderer,
+  NativeWindowInsets,
   StyleDesc,
 } from "./types/host.js"
 export { handleGpuixEvent } from "./reconciler/event-registry.js"
