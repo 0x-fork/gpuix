@@ -429,6 +429,11 @@ later calls only remount React.
 tests and custom hosts. Pass `{ renderer }` into `render()` when you already
 have one.
 
+**One renderer drives one root.** A renderer owns one window, one native root
+id, and one event map, so `createRoot()` throws if that renderer already has a
+mounted root. Call `unmount()` on the first root before you create another;
+`render()` already does that for you.
+
 ### Background launch
 
 `focus: false` opens the window **without taking focus**. The app you were
@@ -2164,6 +2169,12 @@ JavaScript round trip.
 Nesting is one level deep. A `hover` object cannot contain another `hover` or
 `active`.
 
+They work on **every** element, including `<text>`, `<code>`, `<markdown>`,
+`<diff>`, `<img>`, `<svg>` and the editors. The one exception is
+`<virtual-list>`, whose `style` type rejects them: gpui's list has no
+interactive identity to hold a hovered or pressed state, so put them on a
+wrapping `<div>`.
+
 > **Note: `white-space: pre` is not supported.** GPUI's text system only has `normal` (wraps) and `nowrap` (single line). To preserve newlines like HTML `<pre>`, split your text on `\n` in React and render each line as a separate `<text>` element in a flex column:
 >
 > ```tsx
@@ -2322,11 +2333,10 @@ await app.getByTestId('canvas').wheel(0, 120, { modifiers: 'cmd' })
 await app.getByTestId('clip-8').click({ modifiers: 'shift' })
 ```
 
-`click()` needs painted bounds, and a custom element only has them if its
-builder records them. `<div>`, `<text>`, `<input>`, `<textarea>` and `<code>`
-do. **`<img>`, `<svg>`, `<anchored>`, `<diff>` and `<markdown>` do not**, so
-`click()` on those throws `Element has no painted bounds`. `getByText` still
-finds text painted inside them, because text registers separately.
+`click()` needs painted bounds. **Every element type records them**, including
+`<img>`, `<svg>` and `<anchored>`. An `<anchored>` reports the box of the
+overlay itself, not of the trigger it is anchored to, so `click()` lands on the
+menu even when it is deferred and snapped back inside the window.
 
 ### Screenshots and clock
 

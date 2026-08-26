@@ -331,19 +331,47 @@ a hard reload, and only a server restart clears it. This is why `build` is plain
 `tsc` and the wipe lives in a separate `clean` script. Clean first, then start
 the server.
 
-## Custom elements are invisible to automation unless they say otherwise
+## A new element needs a host-derived GPUI id, or it has no state
 
-`automation::bounds_tracker` is what puts an element in the bounds registry, and
-`build_element` only attaches it for `<div>` and `<text>`. A custom element that
-paints itself has **no bounds**, so `getByTestId(..).click()` throws
-`Element has no painted bounds`. `<code>` and `<input>` / `<textarea>` attach
-their own. `<img>`, `<svg>`, `<anchored>`, `<diff>` and `<markdown>` do not.
+`.id(..)` is not decoration. gpui keys `InteractiveElementState` off the
+`GlobalElementId`, so an element without one silently loses **hover, active,
+pointer capture, implicit scroll, its accessibility node, and any element state
+gpui itself keeps**. `<img>` had no id, which is why an animated GIF never left
+frame zero: `ImgState` holds the frame index.
 
-Add `el.child(crate::automation::bounds_tracker(ctx.id, None))` to any new custom
-element whose root is a `relative()` div. The tracker is `absolute().size_full()`,
-so it needs a positioned parent. Pass `Some(selectable)` instead of `None` when
-the element also owns a selection-start region; the editor uses `Some(false)` so
-a drag moves the caret instead of starting a document selection.
+`<div>` and `<text>` use `gpui::ElementId::Integer(host_id)`. Host ids are
+already unique per renderer, and a formatted name cost a `SharedString`
+allocation on every node on every frame. Custom elements use
+`ElementId::Name("__gpuix_<kind>_<host id>")`; that is a different enum variant,
+so the two namespaces cannot collide.
+
+**Never call `apply_styles` on a stateful root. Call `apply_interactive_styles`.**
+`StyleDesc` carries `hover` and `active` for every element type, so a builder
+that applies only the base styles type-checks the prop, serializes it, and drops
+it. `custom_surface` in `custom_elements/mod.rs` does this for you.
+
+## Bounds: a container uses a tracker, a leaf uses `on_prepainted`
+
+`getByTestId(..).click()` needs a recorded box. Two mechanisms, both required:
+
+- **Containers** (`<div>`, `<text>`, `<code>`, `<diff>`, `<markdown>`, `<input>`)
+  add `crate::automation::bounds_tracker(id, selection_start)` as a child. It is
+  `absolute().size_full()`, so the parent must be positioned. Pass
+  `Some(selectable)` when the element also owns a selection-start region; the
+  editor uses `Some(false)` so a drag moves the caret instead of starting a
+  document selection. `custom_surface` attaches it.
+- **Leaves** (`<img>`, `<svg>`) and **`<anchored>`** use
+  `crate::automation::track_own_bounds(el, id)`, which is gpui's `on_painted`.
+  Wrapping a leaf in a div instead would move the layout box: the wrapper
+  becomes the flex item, and the image loses intrinsic sizing and corner
+  clipping. `<anchored>` uses it because only gpui knows where the overlay
+  landed after snapping.
+
+Both record during **paint**, and `bounds_frame_reset` clears the registry
+during paint too. Never move any of them to prepaint: `gpui::list()` prepaints a
+speculative row range, then rolls the window back through `Window::transact` and
+prepaints a different one, so a prepaint-recorded box can belong to a row that
+never reached the screen.
 
 ## A macOS menu item owns its shortcut, so the window never sees it
 
