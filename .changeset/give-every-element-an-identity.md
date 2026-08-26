@@ -56,23 +56,6 @@ await app.getByTestId('menu').click()
 
 `<img>` built a gpui image with no element id, so `ImgState` (the frame index and the delayed loading placeholder) was thrown away every frame and an animation never left frame zero.
 
-**Malformed mutations cannot corrupt the tree**
-
-`createElement`, `appendChild` and `applyBatch` are public API, so a hand-written call could reuse a live id, point a parent at a missing child, remove a child through the wrong parent, make an element its own ancestor, or set a missing element as the root. Each of those left a link the renderer walks pointing at nothing or at itself. React never produced any of them.
-
-A **single-op** call now throws, because there is no batch to half-apply:
-
-```ts
-renderer.appendChild(99, 2)
-// Error: appendChild ignored: parent 99 does not exist
-```
-
-Inside `applyBatch` the same op is **skipped and logged** instead. `applyBatch` runs after React already committed its fiber tree, so aborting the whole batch would drop a commit and leave every later commit on the wrong base. Losing the one op that could never have applied is strictly less damage.
-
-Logging now works at all. Every rejection reports through `log::warn!`, and env_logger's default filter is `error`, so the messages were dropped. The default is now `error,gpuix_native=warn`; `RUST_LOG` still overrides it.
-
-`createElement` returns the ids it destroyed when the id was already live, so those elements' event handlers are released instead of leaking.
-
 **One renderer, one root**
 
 `createRoot(renderer)` throws when that renderer already drives a mounted root, instead of silently taking over its window, its native root id, and its event map. `render()` already unmounts first, so it is unaffected.
