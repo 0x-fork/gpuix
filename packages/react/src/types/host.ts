@@ -319,15 +319,20 @@ export interface HighlightSpec {
   /** Index of the match to highlight differently, for a find-bar cursor. */
   activeIndex?: number
   /**
-   * Number of matches that come before this subtree in your document.
-   * `activeIndex` is compared against `indexOffset + n` for the nth match here.
+   * How many MATCHES come before this subtree in your document, so `activeIndex`
+   * is compared against `matchIndexOffset + n` for the nth match here.
+   *
+   * It is a match count, not a row index. Rows hold different numbers of
+   * matches, so a row index cannot stand in for it.
    *
    * Only needed for virtualized content: a `<virtual-list>` mounts a window of
-   * its rows, so native can only number what that window contains. Count the
-   * matches in the rows before `windowStart` with `findRanges` and pass the
-   * total. Defaults to 0.
+   * its rows, so native can only number what that window contains. Sum
+   * `findRanges` over the rows before `windowStart`. Defaults to 0.
+   *
+   * A negative or fractional value is refused and the whole spec is dropped,
+   * because a bad offset silently marks the wrong match.
    */
-  indexOffset?: number
+  matchIndexOffset?: number
   /** Corner radius of the wash. Defaults to 2. */
   radius?: number
 }

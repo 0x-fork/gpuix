@@ -226,11 +226,17 @@ one ordinal. The `assigned` memo makes a row gpui paints twice keep its numbers
 rather than advance the cursor again.
 
 Paint only sees what is mounted, so a **virtualized subtree must say where it
-starts**. `indexOffset` is the number of matches above the window, and the
-sequence begins there. Without it `activeIndex` silently means "the nth visible
-match" and a find cursor lands on the wrong row. `<virtual-list>` already takes
-`windowStart` and `itemCount` from the app for the same reason. It is excluded
-from `matcher_hash`, like `activeIndex`, so scrolling never rescans text.
+starts**. `matchIndexOffset` is the number of **matches** above the window, not
+a row index, and the sequence begins there. Without it `activeIndex` silently
+means "the nth visible match" and a find cursor lands on the wrong row.
+`<virtual-list>` already takes `windowStart` and `itemCount` from the app for the
+same reason. It is excluded from `matcher_hash`, like `activeIndex`, so scrolling
+never rescans text. A malformed value **rejects the whole spec**: a bad offset
+only shows up as a cursor on the wrong row, so silence is worse than nothing.
+
+`useTextSearch` takes both numbers as one `matches: { total, indexOffset }`
+object. They are never individually correct: native counts and numbers the same
+window, so an app that overrides one must override the other.
 
 `onHighlight` is queued during build and flushed **after** the root build
 returns, keyed on `MatchSet::identity()` rather than the count. Emitting inline

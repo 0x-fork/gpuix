@@ -18,18 +18,17 @@ export interface TextSearchOptions {
   activeColor?: string
   radius?: number
   /**
-   * Match count you computed yourself, for virtualized content. When set, it
-   * replaces the count reported by native, which only counts retained text.
-   */
-  total?: number
-  /**
-   * Matches that come before the searched subtree, for virtualized content.
+   * Match bookkeeping you did yourself, for content native cannot see whole.
    *
-   * A `<virtual-list>` mounts a window of its rows, so native numbers only what
-   * that window holds. Pass the number of matches above it and the find cursor
-   * lands on the right row. Ignored when `total` is unset.
+   * A `<virtual-list>` mounts a window of its rows, so native both counts and
+   * numbers that window only. Supplying one number without the other is always
+   * wrong, which is why they travel together: `total` replaces the count native
+   * reports, and `indexOffset` is how many matches sit above the window, so
+   * `next()` still lands on the right row.
+   *
+   * Both are MATCH counts, not row indices. Sum `findRanges` over your rows.
    */
-  indexOffset?: number
+  matches?: { total: number; indexOffset: number }
 }
 
 export interface TextSearch {
@@ -60,15 +59,14 @@ export function useTextSearch(options: TextSearchOptions): TextSearch {
     color,
     activeColor,
     radius,
-    total: suppliedTotal,
-    indexOffset,
+    matches: supplied,
   } = options
   const [reported, setReported] = useState(0)
   const [requested, setRequested] = useState(0)
 
   // An empty query paints nothing, so it reports nothing, so the last count
   // would survive and the bar would still read "1/2" on an empty input.
-  const total = query.length === 0 ? 0 : (suppliedTotal ?? reported)
+  const total = query.length === 0 ? 0 : (supplied?.total ?? reported)
   // Clamped on read rather than in an effect: the count and the cursor change
   // in the same render, and a stale cursor must never paint a wrong match.
   const active = total === 0 ? 0 : Math.min(requested, total - 1)
@@ -83,9 +81,18 @@ export function useTextSearch(options: TextSearchOptions): TextSearch {
       activeColor,
       radius,
       activeIndex: active,
-      indexOffset,
+      matchIndexOffset: supplied?.indexOffset,
     }
-  }, [query, caseSensitive, wholeWord, color, activeColor, radius, active, indexOffset])
+  }, [
+    query,
+    caseSensitive,
+    wholeWord,
+    color,
+    activeColor,
+    radius,
+    active,
+    supplied?.indexOffset,
+  ])
 
   const onHighlight = useCallback((event: EventPayload) => {
     setReported(event.matchCount ?? 0)

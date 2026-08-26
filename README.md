@@ -1466,7 +1466,7 @@ for those.
 | `ranges` | explicit `[start, end)` UTF-16 pairs |
 | `color` / `activeColor` | any CSS colour; defaults come from the theme |
 | `activeIndex` | which match gets `activeColor`, for a find cursor |
-| `indexOffset` | matches before this subtree; only for virtualized content |
+| `matchIndexOffset` | matches before this subtree; only for virtualized content |
 | `radius` | corner radius of the wash, default 2 |
 
 Pass an **array** to paint several at once, for example search matches plus a
@@ -1504,12 +1504,15 @@ file header, is excluded.
 mounted window. Two things follow, and both are the app's job because the app
 owns the row data.
 
-**Count the matches yourself** with `findRanges`, which follows the same
-contract as the native matcher. Pass the result as `total`.
+**Count the matches yourself** with `findRanges`, which runs the same algorithm
+as the native matcher on a string you give it.
 
-**Say where your window starts** with `indexOffset`, the number of matches above
-it. Without it native numbers the mounted rows from zero, `activeIndex` means
+**Say where your window starts**, as a count of **matches** above it, not a row
+index. Without it native numbers the mounted rows from zero, `activeIndex` means
 "the nth visible match", and the find cursor lands on the wrong row.
+
+Both numbers travel together in `matches`, because supplying one without the
+other is always wrong.
 
 ```tsx
 import { findRanges, useTextSearch } from '@gpuix/react'
@@ -1519,20 +1522,22 @@ const perRow = useMemo(
   () => rows.map((row) => findRanges({ text: row.text, query }).length),
   [rows, query],
 )
-const above = useMemo(
-  () => perRow.slice(0, windowStart).reduce((n, count) => n + count, 0),
-  [perRow, windowStart],
-)
 
 const search = useTextSearch({
   query,
-  total: perRow.reduce((n, count) => n + count, 0),
-  indexOffset: above,
+  matches: {
+    total: perRow.reduce((n, count) => n + count, 0),
+    indexOffset: perRow.slice(0, windowStart).reduce((n, count) => n + count, 0),
+  },
 })
 
 // search.next() moves the cursor; you do the scrolling
 listRef.current.scrollToItem(rowOfMatch(search.active))
 ```
+
+`findRanges` matches the native algorithm for the **same** string. Call it on
+the same logical lines native paints: adjacent text nodes of one parent are one
+line, and `<markdown>` paints inline runs rather than its source.
 </details>
 
 <details>

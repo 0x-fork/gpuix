@@ -320,15 +320,15 @@ describe("highlight", () => {
   })
 
   // A `<virtual-list>` mounts a window of its rows, so native can only number
-  // the matches inside that window. `indexOffset` is how the app says how many
-  // matches came before it, which is what keeps `activeIndex` meaning "the nth
-  // match in the document".
-  it("numbers matches from indexOffset in a windowed virtual list", () => {
+  // the matches inside that window. `matchIndexOffset` is how the app says how
+  // many matches came before it, which is what keeps `activeIndex` meaning "the
+  // nth match in the document".
+  it("numbers matches from matchIndexOffset in a windowed virtual list", () => {
     const { render, renderer } = createTestRoot()
     const windowed = (start: number, activeIndex: number) => (
       <div
         style={{ width: 400, height: 160 }}
-        highlight={{ query: "fox", activeIndex, indexOffset: start }}
+        highlight={{ query: "fox", activeIndex, matchIndexOffset: start }}
       >
         <virtual-list
           itemCount={1000}
@@ -360,10 +360,61 @@ describe("highlight", () => {
     expect(renderer.getPaintedHighlights().filter((hit) => hit.active)).toEqual([])
   })
 
-  it("leaves activeIndex zero-based when there is no indexOffset", () => {
+  // The offset counts MATCHES, not rows, and the two are deliberately
+  // different here: the window starts at row 2, but 4 matches sit above it.
+  // Passing `windowStart` instead would mark the wrong row every time.
+  it("counts matches and not rows in the offset", () => {
+    const { render, renderer } = createTestRoot()
+    const rows = ["fox fox", "fox fox", "fox", "", "fox fox fox"]
+    const windowStart = 2
+    const above = rows
+      .slice(0, windowStart)
+      .reduce((n, text) => n + findRanges({ text, query: "fox" }).length, 0)
+    expect(above).toBe(4)
+    expect(above).not.toBe(windowStart)
+
+    // Mounted rows 2..4 hold 1, 0 and 3 matches, numbered 4, then 5, 6 and 7.
+    const activeAt = (activeIndex: number) => {
+      render(
+        <div
+          style={{ width: 400, height: 200 }}
+          highlight={{ query: "fox", activeIndex, matchIndexOffset: above }}
+        >
+          <virtual-list
+            itemCount={rows.length}
+            windowStart={windowStart}
+            overdraw={0}
+            estimatedItemHeight={40}
+            style={{ width: 400, height: 200 }}
+          >
+            {rows.slice(windowStart).map((text, offset) => (
+              <div key={windowStart + offset} style={{ height: 40, flexShrink: 0 }}>
+                <text>{text || " "}</text>
+              </div>
+            ))}
+          </virtual-list>
+        </div>
+      )
+      renderer.scrollToItem(renderer.findByType("virtual-list")[0].id, windowStart)
+      return renderer
+        .getPaintedHighlights()
+        .map((hit) => hit.active)
+    }
+
+    // Row 2 holds the single match numbered 4.
+    expect(activeAt(4)).toEqual([true, false, false, false])
+    // Row 4 holds matches 5, 6 and 7.
+    expect(activeAt(6)).toEqual([false, false, true, false])
+    expect(activeAt(7)).toEqual([false, false, false, true])
+    // The row index is not the match index. With `windowStart` as the offset,
+    // ordinal 4 would be the third wash rather than the first.
+    expect(activeAt(2)).toEqual([false, false, false, false])
+  })
+
+  it("leaves activeIndex zero-based when the offset is zero", () => {
     const { render, renderer } = createTestRoot()
     render(
-      <div highlight={{ query: "fox", activeIndex: 1, indexOffset: 0 }}>
+      <div highlight={{ query: "fox", activeIndex: 1, matchIndexOffset: 0 }}>
         <text>fox fox fox</text>
       </div>
     )

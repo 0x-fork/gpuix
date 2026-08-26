@@ -34,15 +34,18 @@ pub struct HighlightSpec {
     pub color: Hsla,
     pub active_color: Hsla,
     pub active_index: Option<usize>,
-    /// Matches that come before this subtree in the caller's document, so the
-    /// nth match here is numbered `index_offset + n`.
+    /// How many MATCHES come before this subtree in the caller's document, so
+    /// the nth match here is numbered `match_index_offset + n`.
+    ///
+    /// It is a match count, not a row index. Rows hold different numbers of
+    /// matches, so a row index cannot stand in for it.
     ///
     /// A `<virtual-list>` mounts a window of its rows, so nothing native can
     /// see the matches above it. Without this, `activeIndex` would silently
     /// mean "the nth match in the window" and a find cursor would land on the
     /// wrong row. `<virtual-list>` already takes `windowStart` and `itemCount`
     /// from the app for the same reason.
-    pub index_offset: usize,
+    pub match_index_offset: usize,
     pub radius: f32,
 }
 
@@ -68,8 +71,8 @@ impl HighlightSet {
     }
 
     /// Key for the match cache. Deliberately excludes `active_index`,
-    /// `index_offset`, `color` and `active_color`: moving a find-bar cursor
-    /// must not rescan any text.
+    /// `match_index_offset`, `color` and `active_color`: moving a find-bar
+    /// cursor or scrolling a virtual list must not rescan any text.
     pub fn matcher_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -100,6 +103,22 @@ impl HighlightSpec {
                 .unwrap_or(false)
         };
         let color = |key: &str| string(key).and_then(crate::color::parse_color_rgba);
+
+        // A bad offset silently renumbers every match, which shows up as a find
+        // cursor on the wrong row and nothing else. Refuse the spec instead of
+        // treating a malformed value as absent.
+        let match_index_offset = match object.get("matchIndexOffset") {
+            None | Some(serde_json::Value::Null) => 0,
+            Some(value) => match value.as_u64() {
+                Some(offset) => offset as usize,
+                None => {
+                    log::warn!(
+                        "highlight matchIndexOffset must be a non-negative integer, got {value}"
+                    );
+                    return None;
+                }
+            },
+        };
 
         let query = string("query").unwrap_or_default().to_string();
         let ranges = object
@@ -136,10 +155,7 @@ impl HighlightSpec {
                 .get("activeIndex")
                 .and_then(serde_json::Value::as_u64)
                 .map(|n| n as usize),
-            index_offset: object
-                .get("indexOffset")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0) as usize,
+            match_index_offset,
             radius: object
                 .get("radius")
                 .and_then(serde_json::Value::as_f64)
@@ -296,7 +312,7 @@ fn wash(
         let next = state
             .cursor
             .entry((slot.0, slot.1))
-            .or_insert(spec.index_offset);
+            .or_insert(spec.match_index_offset);
         let ordinal = *next;
         *next += 1;
         state.assigned.insert(slot, ordinal);
@@ -690,7 +706,7 @@ mod tests {
             color: gpui::rgba(0xff000080).into(),
             active_color: gpui::rgba(0x00ff0080).into(),
             active_index: None,
-            index_offset: 0,
+            match_index_offset: 0,
             radius: 2.0,
         }
     }
@@ -1054,10 +1070,10 @@ mod tests {
     /// how many matches came before it and `activeIndex` keeps meaning "the
     /// nth match in the document".
     #[test]
-    fn index_offset_shifts_the_whole_sequence() {
+    fn match_index_offset_shifts_the_whole_sequence() {
         let groups = GroupList::collect(&interpolated_tree(), 1);
         let mut s = spec("l");
-        s.index_offset = 50;
+        s.match_index_offset = 50;
         s.active_index = Some(51);
         let ctx = context(&groups, HighlightSet { specs: vec![s] });
 
@@ -1074,7 +1090,7 @@ mod tests {
     fn a_cursor_above_the_window_marks_nothing() {
         let groups = GroupList::collect(&interpolated_tree(), 1);
         let mut s = spec("l");
-        s.index_offset = 50;
+        s.match_index_offset = 50;
         s.active_index = Some(9);
         let ctx = context(&groups, HighlightSet { specs: vec![s] });
         assert!(paint(&ctx, &groups)
@@ -1112,11 +1128,26 @@ mod tests {
         assert!(second[0].active, "ordinal 1, not a second ordinal 0");
     }
 
+    /// A malformed offset renumbers every match, and the only symptom is a find
+    /// cursor on the wrong row. Refuse the spec rather than read it as absent.
     #[test]
-    fn matcher_hash_ignores_the_index_offset() {
+    fn a_malformed_match_index_offset_rejects_the_spec() {
+        let theme = crate::theme::Theme::dark();
+        let parse = |value: serde_json::Value| HighlightSet::parse(&value, &theme);
+
+        assert!(parse(serde_json::json!({"query": "a"})).is_some());
+        assert!(parse(serde_json::json!({"query": "a", "matchIndexOffset": 4})).is_some());
+        assert!(parse(serde_json::json!({"query": "a", "matchIndexOffset": null})).is_some());
+        assert!(parse(serde_json::json!({"query": "a", "matchIndexOffset": -1})).is_none());
+        assert!(parse(serde_json::json!({"query": "a", "matchIndexOffset": 1.5})).is_none());
+        assert!(parse(serde_json::json!({"query": "a", "matchIndexOffset": "4"})).is_none());
+    }
+
+    #[test]
+    fn matcher_hash_ignores_the_match_index_offset() {
         let a = spec("foo");
         let mut b = spec("foo");
-        b.index_offset = 400;
+        b.match_index_offset = 400;
         assert_eq!(
             HighlightSet { specs: vec![a] }.matcher_hash(),
             HighlightSet { specs: vec![b] }.matcher_hash()
