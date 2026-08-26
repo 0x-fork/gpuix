@@ -332,13 +332,38 @@ impl TestGpuixRenderer {
     /// IMPORTANT: Call flush() before this — hit testing requires laid-out elements.
     /// `modifiers` uses the `press()` syntax: "cmd", "cmd-shift", "alt".
     #[napi]
-    pub fn simulate_click(&self, x: f64, y: f64, modifiers: Option<String>) -> Result<()> {
+    pub fn simulate_click(
+        &self,
+        x: f64,
+        y: f64,
+        button: Option<u32>,
+        modifiers: Option<String>,
+    ) -> Result<()> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
+        let button = button.unwrap_or(0);
         with_test_state(|cx, window, _view| {
-            cx.simulate_click(
+            // Not `cx.simulate_click`: that helper hard-codes the left button,
+            // so a right click silently became a left click.
+            let position = gpui::point(gpui::px(x as f32), gpui::px(y as f32));
+            let gpui_button = u32_to_mouse_button(button);
+            cx.simulate_event(
                 window,
-                gpui::point(gpui::px(x as f32), gpui::px(y as f32)),
-                modifiers,
+                gpui::MouseDownEvent {
+                    position,
+                    modifiers,
+                    button: gpui_button,
+                    click_count: 1,
+                    first_mouse: false,
+                },
+            );
+            cx.simulate_event(
+                window,
+                gpui::MouseUpEvent {
+                    position,
+                    modifiers,
+                    button: gpui_button,
+                    click_count: 1,
+                },
             );
             Ok(())
         })

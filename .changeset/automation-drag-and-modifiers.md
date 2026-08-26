@@ -30,7 +30,10 @@ A drag sends **interpolated moves**, not one jump, because snapping, live previe
 
 Every mouse call takes **`modifiers`** in the same hyphenated syntax as `press('cmd-a')`, so cmd-wheel zoom, shift-click range selection, and alt-drag duplication become testable.
 
-Two supporting fixes:
+Three supporting fixes:
 
 - **`launch()` can scroll a live app.** The production renderer had no `simulateScrollWheel`, so `app.mouse.wheel` against a child process threw `scrollWheel is not live yet`.
 - **`textContent()` reads descendants.** It returned the node's own text only, so `<text testId="x">{value}</text>` came back empty. It now concatenates in document order, like DOM `textContent`.
+- **`click({ button })` sends that button.** The test renderer used a GPUI helper that hard-codes the left button, so a right click was silently a left click.
+
+Note that GPUI arms pointer capture on the **left** button only, so a right-button drag ends when the pointer leaves the element.

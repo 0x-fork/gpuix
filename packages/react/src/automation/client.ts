@@ -60,7 +60,12 @@ abstract class ValidatedAutomationBackend implements AutomationBackend {
 }
 
 export interface TestAutomationRenderer {
-  nativeSimulateClick(x: number, y: number, modifiers?: string): void
+  nativeSimulateClick(
+    x: number,
+    y: number,
+    button?: number,
+    modifiers?: string
+  ): void
   nativeSimulateMouseDown(
     x: number,
     y: number,
@@ -147,7 +152,12 @@ export class InProcessBackend extends ValidatedAutomationBackend {
     }),
     cancel: () => ({ ok: true as const }),
     click: (params) => {
-      this.renderer.nativeSimulateClick(params.x, params.y, params.modifiers)
+      this.renderer.nativeSimulateClick(
+        params.x,
+        params.y,
+        params.button,
+        params.modifiers
+      )
       return { ok: true as const }
     },
     mouseDown: (params) => {
@@ -754,8 +764,8 @@ export function liveRendererAsTest(
     renderer.tick?.()
   }
   return {
-    nativeSimulateClick(x, y, modifiers) {
-      renderer.simulateClick(x, y, 0, modifiers)
+    nativeSimulateClick(x, y, button, modifiers) {
+      renderer.simulateClick(x, y, button, modifiers)
       afterInput()
     },
     nativeSimulateMouseDown(x, y, button, modifiers) {

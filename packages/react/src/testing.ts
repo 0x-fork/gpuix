@@ -33,7 +33,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   focusElement(elementId: number): void
   simulateKeyDown(keystroke: string, isHeld?: boolean): void
   simulateKeyUp(keystroke: string): void
-  simulateClick(x: number, y: number, modifiers?: string): void
+  simulateClick(x: number, y: number, button?: number, modifiers?: string): void
   simulateScrollWheel(
     x: number,
     y: number,
@@ -269,9 +269,14 @@ export class TestRenderer implements NativeRenderer {
 
   /** End-to-end: simulate a click through GPUI hit testing →
    *  dispatch resulting events to React. */
-  nativeSimulateClick(x: number, y: number, modifiers?: string): void {
+  nativeSimulateClick(
+    x: number,
+    y: number,
+    button?: number,
+    modifiers?: string
+  ): void {
     this.native.flush()
-    this.native.simulateClick(x, y, modifiers)
+    this.native.simulateClick(x, y, button, modifiers)
     this.dispatchNativeEvents()
     // Flush again after React state updates so the Rust RetainedTree
     // is fully rebuilt and GPUI has re-laid-out before any screenshot.
@@ -292,6 +297,9 @@ export class TestRenderer implements NativeRenderer {
     this.dispatchNativeEvents()
   }
 
+  /** Dispatch a wheel without the surrounding flushes, for perf sampling.
+   *  Call `flush()` yourself, or the sample is the React update only and
+   *  none of the GPUI build, layout and paint that follows. */
   dispatchScrollWheel(
     x: number,
     y: number,
@@ -300,6 +308,19 @@ export class TestRenderer implements NativeRenderer {
     modifiers?: string
   ): void {
     this.native.simulateScrollWheel(x, y, deltaX, deltaY, modifiers)
+    this.dispatchNativeEvents()
+  }
+
+  /** Dispatch a move without the surrounding flushes, for perf sampling.
+   *  `nativeSimulateMouseMove` flushes before and after, so a drag timed with
+   *  it contains two complete paints and cannot be compared to a wheel. */
+  dispatchMouseMove(
+    x: number,
+    y: number,
+    pressedButton?: number,
+    modifiers?: string
+  ): void {
+    this.native.simulateMouseMove(x, y, pressedButton, modifiers)
     this.dispatchNativeEvents()
   }
 

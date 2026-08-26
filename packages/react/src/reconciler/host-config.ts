@@ -70,6 +70,7 @@ const EVENT_PROPS = [
   ["onSubmit", "submit"],
   // Mouse events
   ["onClick", "click"],
+  ["onAuxClick", "auxClick"],
   ["onMouseDown", "mouseDown"],
   ["onMouseUp", "mouseUp"],
   ["onMouseEnter", "mouseEnter"],

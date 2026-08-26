@@ -1,0 +1,19 @@
+---
+'@gpuix/native': minor
+'@gpuix/react': minor
+---
+
+Add `onAuxClick` for the non-primary mouse buttons.
+
+`onClick` never fired for a right or middle click, so the `isRightClick` field it documents could never be `true` and a context menu had no event to hang on. `onClick` stays primary-only, like the DOM, and `onAuxClick` handles the rest.
+
+```tsx
+<div
+  onClick={() => select(item)}
+  onAuxClick={(event) => {
+    if (event.isRightClick) openContextMenu(event.x, event.y)
+  }}
+/>
+```
+
+`onMouseDown` and `onMouseUp` still see every button through `event.button`: `0` left, `1` middle, `2` right.

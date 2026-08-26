@@ -120,6 +120,41 @@ describeNative("automation", () => {
     await app.close()
   })
 
+  it("sends the button a click asks for", async () => {
+    const seen: Array<{ button?: number; click?: boolean; aux?: boolean }> = []
+
+    function Target() {
+      return (
+        <div
+          testId="target"
+          style={{ width: 200, height: 80, backgroundColor: "#101010" }}
+          onMouseDown={(event) => seen.push({ button: event.button })}
+          onClick={(event) => seen.push({ click: event.isRightClick })}
+          onAuxClick={(event) => seen.push({ aux: event.isRightClick })}
+        >
+          <text>target</text>
+        </div>
+      )
+    }
+
+    const { render, renderer } = createTestRoot()
+    render(<Target />)
+    const app = await connectTest(renderer)
+
+    await app.getByTestId("target").click()
+    await app.getByTestId("target").click({ button: 2 })
+
+    // `onClick` is the primary button only, like the DOM. A right click
+    // reaches `onMouseDown` and `onAuxClick`.
+    expect(seen).toEqual([
+      { button: 0 },
+      { click: false },
+      { button: 2 },
+      { aux: true },
+    ])
+    await app.close()
+  })
+
   it("wheels over a locator and reports held modifiers", async () => {
     const seen: Array<{ deltaY: number; cmd: boolean }> = []
 
