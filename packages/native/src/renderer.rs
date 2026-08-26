@@ -298,6 +298,7 @@ enum ClockControl {
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
 enum UiCommand {
     Invalidate,
+    ActivateWindow,
     SetWindowTitle(String),
     SetDebugFrameOverlay(gpui::DebugFrameOverlayMode),
     CycleDebugFrameOverlay {
@@ -374,6 +375,10 @@ async fn run_ui_commands(
     while let Some(command) = commands.next().await {
         let result = match command {
             UiCommand::Invalidate => refresh_ui_window(window, cx),
+            UiCommand::ActivateWindow => window.update(cx, |_view, window, cx| {
+                cx.activate(true);
+                window.activate_window();
+            }),
             UiCommand::SetWindowTitle(title) => window.update(cx, move |view, window, cx| {
                 view.window_title = title;
                 cx.notify();
@@ -832,6 +837,9 @@ impl GpuixRenderer {
         let height = options.height.unwrap_or(600.0);
         let title = options.title.clone().unwrap_or_else(|| "GPUIX".to_string());
         let app_name = options.app_name.clone().unwrap_or_else(|| title.clone());
+        // `focus: false` must also skip `cx.activate`: the window flag only
+        // decides key status inside the app, activation is what steals focus.
+        let activate = options.focus.unwrap_or(true);
         let window_options = options.clone();
 
         let platform = Rc::new(gpui_macos::MacPlatform::new_embedded());
@@ -870,7 +878,9 @@ impl GpuixRenderer {
             ) {
                 Ok(window_handle) => {
                     *opened_window_for_app.borrow_mut() = Some(window_handle);
-                    cx.activate(true);
+                    if activate {
+                        cx.activate(true);
+                    }
                 }
                 Err(error) => {
                     *startup_error_for_app.borrow_mut() = Some(error.to_string());
@@ -925,6 +935,9 @@ impl GpuixRenderer {
         let width = options.width.unwrap_or(800.0);
         let height = options.height.unwrap_or(600.0);
         let title = options.title.clone().unwrap_or_else(|| "GPUIX".to_string());
+        // `focus: false` must also skip `cx.activate`: the window flag only
+        // decides key status inside the app, activation is what steals focus.
+        let activate = options.focus.unwrap_or(true);
         let window_options = options.clone();
         let tree = self.tree.clone();
         let selection = self.selection.clone();
@@ -965,7 +978,9 @@ impl GpuixRenderer {
                             run_ui_commands(command_receiver, window, cx).await;
                         })
                         .detach();
-                        cx.activate(true);
+                        if activate {
+                            cx.activate(true);
+                        }
                         startup_sender.send(Ok(())).ok();
                     });
                 }));
@@ -1354,6 +1369,30 @@ impl GpuixRenderer {
             target_os = "freebsd"
         )))]
         Err(Error::from_reason("Unsupported operating system"))
+    }
+
+    /// Bring the window forward and give it focus. This is how a window opened
+    /// with `show: false` or `focus: false` is revealed later.
+    #[napi]
+    pub fn activate_window(&self) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        return update_window(|_view, window, cx| {
+            cx.activate(true);
+            window.activate_window();
+        });
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.send_ui_command(UiCommand::ActivateWindow);
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason(
+            "The production GPUIX renderer does not support this operating system",
+        ))
     }
 
     #[napi]
@@ -5223,6 +5262,12 @@ pub struct WindowOptions {
     pub window_background: Option<String>,
     pub traffic_light_x: Option<f64>,
     pub traffic_light_y: Option<f64>,
+    /// Give the window key focus when it opens. `false` opens it behind the
+    /// active app, like `open -g`. Ignored on Linux.
+    pub focus: Option<bool>,
+    /// Show the window when it opens. `false` opens it hidden; call
+    /// `activateWindow()` to reveal it. Ignored on Linux.
+    pub show: Option<bool>,
 }
 
 impl Default for WindowOptions {
@@ -5241,6 +5286,8 @@ impl Default for WindowOptions {
             window_background: None,
             traffic_light_x: None,
             traffic_light_y: None,
+            focus: Some(true),
+            show: Some(true),
         }
     }
 }
@@ -5283,6 +5330,8 @@ fn to_gpui_window_options(
         is_resizable: options.resizable.unwrap_or(true),
         window_background,
         window_min_size,
+        focus: options.focus.unwrap_or(true),
+        show: options.show.unwrap_or(true),
         ..Default::default()
     }
 }
@@ -5647,5 +5696,80 @@ mod batch_tests {
         apply(&mut tree, r#"[["destroyElement",1]]"#).expect("valid batch");
         tree.styles.sweep();
         assert_eq!(tree.styles.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod window_options_tests {
+    use super::*;
+
+    fn mapped(options: WindowOptions) -> gpui::WindowOptions {
+        let bounds = gpui::Bounds {
+            origin: gpui::point(gpui::px(0.0), gpui::px(0.0)),
+            size: gpui::size(gpui::px(800.0), gpui::px(600.0)),
+        };
+        to_gpui_window_options(&options, bounds)
+    }
+
+    #[test]
+    fn defaults_open_a_focused_visible_window() {
+        let gpui_options = mapped(WindowOptions::default());
+        assert!(gpui_options.focus);
+        assert!(gpui_options.show);
+    }
+
+    #[test]
+    fn unset_focus_and_show_still_default_to_true() {
+        let gpui_options = mapped(WindowOptions {
+            focus: None,
+            show: None,
+            ..WindowOptions::default()
+        });
+        assert!(gpui_options.focus);
+        assert!(gpui_options.show);
+    }
+
+    #[test]
+    fn focus_false_leaves_the_window_visible() {
+        let gpui_options = mapped(WindowOptions {
+            focus: Some(false),
+            ..WindowOptions::default()
+        });
+        assert!(!gpui_options.focus);
+        assert!(gpui_options.show);
+    }
+
+    #[test]
+    fn show_false_keeps_focus_independent() {
+        let gpui_options = mapped(WindowOptions {
+            show: Some(false),
+            ..WindowOptions::default()
+        });
+        assert!(!gpui_options.show);
+        assert!(gpui_options.focus);
+    }
+
+    #[test]
+    fn existing_options_are_still_mapped() {
+        let gpui_options = mapped(WindowOptions {
+            title: Some("Background".to_string()),
+            resizable: Some(false),
+            window_background: Some("blurred".to_string()),
+            min_width: Some(320.0),
+            min_height: Some(240.0),
+            focus: Some(false),
+            ..WindowOptions::default()
+        });
+        let titlebar = gpui_options.titlebar.expect("titlebar options");
+        assert_eq!(titlebar.title.as_deref(), Some("Background"));
+        assert!(!gpui_options.is_resizable);
+        assert_eq!(
+            gpui_options.window_background,
+            gpui::WindowBackgroundAppearance::Blurred
+        );
+        assert_eq!(
+            gpui_options.window_min_size,
+            Some(gpui::size(gpui::px(320.0), gpui::px(240.0)))
+        );
     }
 }

@@ -390,6 +390,9 @@ terminal.
 | `trafficLightX` / `trafficLightY` | pixels | Traffic-light origin. The chat example uses `(16, 17)` |
 | `transparent` | boolean | Same as `windowBackground: "transparent"` when that option is unset |
 | `appName` | string | Name inside the macOS `Hide X` and `Quit X` items. Defaults to `title` |
+| `focus` | boolean, default `true` | `false` opens the window behind the active app, like `open -g` |
+| `show` | boolean, default `true` | `false` opens the window hidden. Call `activateWindow()` to reveal it |
+
 Call it again after a save and it remounts the tree on the same window.
 
 ### The macOS menu bar
@@ -425,6 +428,43 @@ later calls only remount React.
 `createRenderer()`, `createRoot()`, and `startFrameLoop()` stay public for
 tests and custom hosts. Pass `{ renderer }` into `render()` when you already
 have one.
+
+### Background launch
+
+`focus: false` opens the window **without taking focus**. The app you were
+typing in keeps the caret and the active titlebar. `show: false` goes further
+and opens no window at all, so the process runs with a live React tree and
+nothing on screen.
+
+```tsx
+render(<App />, { title: 'Notes', focus: false })
+```
+
+`activateWindow()` brings the window forward and focuses it. It is the only way
+to reveal a `show: false` window. Reach it from any component with
+`useGpuixRequired()`:
+
+```tsx
+import { useGpuixRequired } from '@gpuix/react'
+
+function Reveal() {
+  const renderer = useGpuixRequired()
+  return <div onClick={() => renderer.activateWindow?.()}>Show</div>
+}
+```
+
+Outside React, call it on the renderer that `createRenderer()` returned.
+
+| Platform | `focus: false` | `show: false` |
+|---|---|---|
+| macOS | window orders in front without becoming key, like `open -g` | honored |
+| Windows | `SW_SHOWNOACTIVATE` | honored |
+| Linux | **ignored**, the window opens focused | **ignored** |
+
+The process still gets a **Dock icon** on macOS. GPUI sets the regular
+activation policy, so there is no menu-bar-agent mode yet. For a real
+background daemon, run the app from a `launchd` agent in
+`~/Library/LaunchAgents/`; launchd never activates the process.
 
 ### flushSync
 
@@ -2390,6 +2430,7 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)
 - [x] macOS menu bar with the standard shortcuts (`appName`)
 - [ ] App-declared menus and menu callbacks
+- [x] Background launch (`focus`, `show`, `activateWindow`)
 - [x] Last window close quits the process
 - [x] Debug frame overlay (`debugFrameOverlay` / `setDebugFrameOverlay`)
 - [ ] Canvas element

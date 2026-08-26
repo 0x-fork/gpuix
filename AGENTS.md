@@ -1107,6 +1107,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] `setWindowTitle`
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)
 - [x] macOS menu bar (`crate::app_menu`, `appName`)
+- [x] Background launch (`focus`, `show`, `activateWindow`)
 - [x] Last window close quits the process
 - [x] Debug frame overlay (`setDebugFrameOverlay`)
 
