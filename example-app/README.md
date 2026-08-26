@@ -16,9 +16,12 @@ bun run dev
 | `bun run dev` | Start the desktop app with hot remount |
 | `bun run build` | Compile a standalone binary into `dist/todo` |
 | `bun run typecheck` | Run `tsc --noEmit` |
-| `bun run web:build` | Build the browser renderer. Needs nightly Rust |
 | `bun run web:dev` | Bundle for the browser and serve on `:4173` |
 | `bun run screenshot` | Drive the app with the automation client and write a PNG |
+
+The browser renderer ships inside `@gpuix/native`, so `web:dev` needs no Rust.
+Inside the GPUIX repository `packages/native/wasm/` is gitignored; build it once
+with `bun run build:web` in `packages/native`.
 
 ## Files
 
@@ -33,7 +36,9 @@ assets.d.ts    tells TypeScript that a `.svg` import is a string
 
 ## What it shows
 
-- **`<virtual-list>`** for the task list, so only visible rows are built
+- **`<virtual-list>`** for the task list. GPUI builds only the visible rows plus
+  overdraw. React still mounts every child, so a list of thousands should also
+  pass `itemCount` and `windowStart` and render just that window
 - **native `<input>`** in the composer, with a caret, IME, and clipboard
 - **`motion.div`** for the sidebar, animated in Rust with no React frames
 - **`<svg>`** icons tinted through `style.color`

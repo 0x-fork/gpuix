@@ -59,7 +59,7 @@ export type {
   TooltipProviderProps,
   TooltipTriggerProps,
 } from "./components/tooltip.js"
-export { motion, VirtualList } from "./components/index.js"
+export { motion } from "./components/index.js"
 export type { Root, FrameLoop, RenderOptions } from "./reconciler/renderer.js"
 export type {
   WindowInsets,
@@ -68,7 +68,7 @@ export type {
 } from "./hooks/use-window-size.js"
 
 // Re-export types
-export type { MotionDivProps, WindowedVirtualListProps } from "./components/index.js"
+export type { MotionDivProps } from "./components/index.js"
 export type {
   CursorValue,
   DebugFrameOverlayMode,

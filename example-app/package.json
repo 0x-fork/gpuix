@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "bun --hot app.tsx",
     "build": "bun build --compile app.tsx --outfile dist/todo",
-    "web:build": "bun run --cwd ../packages/native build:web",
     "web:dev": "bun web.ts",
     "screenshot": "bun screenshot.ts",
     "typecheck": "tsc --noEmit"

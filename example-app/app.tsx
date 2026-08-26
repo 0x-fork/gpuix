@@ -479,8 +479,11 @@ export function TodoApp() {
           <IconButton icon="search" />
         </div>
 
-        {/* <virtual-list> is the only scroller on this screen. Nested scrolling
-            is not supported, so nothing inside a row may scroll. */}
+        {/* The only scroller on this screen. Nested scrolling is not supported,
+            so nothing inside a row may scroll. GPUI builds only the visible
+            rows plus overdraw; React still mounts every child, which is fine
+            at this size. A list of thousands wants `itemCount` and
+            `windowStart` so React mounts a window too. */}
         <virtual-list
           estimatedItemHeight={48}
           style={{

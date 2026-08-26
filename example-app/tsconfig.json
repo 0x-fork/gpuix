@@ -8,7 +8,6 @@
     "jsxImportSource": "@gpuix/react",
     "types": ["bun"],
     "strict": true,
-    "noImplicitAny": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true

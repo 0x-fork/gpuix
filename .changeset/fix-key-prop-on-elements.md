@@ -26,7 +26,7 @@ already carries `key`.
 Every element prop type extends `Props`, so `<div>`, `<text>`, `<img>`, `<svg>`,
 `<canvas>`, `<input>`, `<textarea>`, `<anchored>`, `<code>`, `<diff>`,
 `<markdown>` and `<virtual-list>` all accept `key` again. So do `motion.div`,
-`VirtualList`, Select, Combobox and Tooltip.
+Select, Combobox and Tooltip.
 
 Also fix `@gpuix/react/jsx-dev-runtime` types. They re-exported `jsx` and `jsxs`
 from `react/jsx-dev-runtime`, which exports only `jsxDEV`. The declarations now

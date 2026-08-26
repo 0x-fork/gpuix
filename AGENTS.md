@@ -269,9 +269,14 @@ every row live. Profile with `debugFrameOverlay: 'full'`. The overlay is
 draw time, not FPS. `8.3 MS` is about 120 Hz.
 
 A long `{rows.map(...)}` is slow **at start**. `createInstance` runs in the
-render phase. Use `VirtualList` with `itemCount` and `renderItem` so React
-only mounts the visible window. The host `<virtual-list>` children API still
-retains every child. After mount, scroll cost is visible Taffy only.
+render phase. The host `<virtual-list>` children API retains every child. Pass
+`itemCount` and `windowStart` and render only that slice so React mounts a
+window too. After mount, scroll cost is visible Taffy only.
+
+**There is no `VirtualList` wrapper component and there must not be one.** The
+window is app state. A generic wrapper cannot know when to widen its own
+window, so it silently dropped rows whenever `itemCount` grew without a scroll,
+which is exactly what a filter does.
 
 Keep chrome state out of the component that maps the list. `memo(Transcript)`
 so a sidebar click or composer keystroke does not remap every row. A 5k-row

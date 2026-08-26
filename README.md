@@ -883,7 +883,7 @@ function Results({ rows }: { rows: Result[] }) {
 
 ### Performance model
 
-| Work | Plain scroll container | `<virtual-list>` children | `VirtualList` + `itemCount` |
+| Work | Plain scroll container | `<virtual-list>` children | `<virtual-list>` + `itemCount` |
 |---|---|---|---|
 | React Fiber nodes | All rows | All rows | Visible window |
 | Rust retained nodes | All rows | All rows | Visible window |
@@ -891,7 +891,7 @@ function Results({ rows }: { rows: Result[] }) {
 | Layout and paint | All rows | Visible rows plus overdraw | Visible rows plus overdraw |
 | Height metadata | None | One lightweight entry per row | One lightweight entry per logical row |
 
-`VirtualList` with `itemCount` and `renderItem` mounts only the visible window. Use that for long transcripts. A 10,000-row `turns.map` still creates every React child. Collections with millions of rows still need application-level paging or a data-owning native element.
+The children form still creates every React child, so a 10,000-row `turns.map` is slow to mount. Pass `itemCount` and `windowStart` and render only that slice to mount a window too. Collections with millions of rows still need application-level paging or a data-owning native element.
 
 ### Keep scroll fast
 
@@ -903,22 +903,36 @@ Put a long list on `<virtual-list>`. Keep `overdraw` near one extra
 viewport. Put fat content in one native node (`<markdown>`, `<code>`, `<diff>`),
 not a tree of React spans.
 
-The host `<virtual-list>` still retains every React child. Pass `itemCount`
-and `estimatedItemHeight` with `renderItem` through `VirtualList` so mount
-only creates the window. Native ignores `itemCount` when the estimate is
+The host `<virtual-list>` still retains every React child. Pass `itemCount`,
+`estimatedItemHeight` and `windowStart`, then render only that window, so mount
+does not create every row. Native ignores `itemCount` when the estimate is
 missing, so a jump cannot collapse unmounted rows to height 0.
 
+There is **no `VirtualList` wrapper component**. The window is app state:
+only the app knows when it must widen, for example when a filter grows
+`itemCount` without any scroll. Keep `start` in `useState`, move it from
+`onVisibleRange`, and slice around it.
+
 ```tsx
-import { VirtualList } from '@gpuix/react'
+const WINDOW = 40
 
 const Transcript = memo(function Transcript({ turns }: { turns: Turn[] }) {
+  const [start, setStart] = useState(0)
+  const end = Math.min(turns.length, start + WINDOW)
   return (
-    <VirtualList
+    <virtual-list
       itemCount={turns.length}
+      windowStart={start}
       estimatedItemHeight={220}
       style={{ flexGrow: 1, minHeight: 0 }}
-      renderItem={(index) => <ChatTurn key={turns[index].id} turn={turns[index]} />}
-    />
+      onVisibleRange={(event) =>
+        setStart(Math.max(0, Math.floor(event.startIndex ?? 0) - WINDOW / 4))
+      }
+    >
+      {turns.slice(start, end).map((turn) => (
+        <ChatTurn key={turn.id} turn={turn} />
+      ))}
+    </virtual-list>
   )
 })
 

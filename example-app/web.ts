@@ -26,7 +26,13 @@ const bundle = await Bun.build({
 })
 if (!bundle.success) {
   for (const message of bundle.logs) console.error(message)
-  console.error('\nweb: if the Wasm renderer is missing, run: bun run web:build')
+  // Inside the GPUIX repository `packages/native/wasm/` is gitignored, so the
+  // browser renderer has to be built once. A copied app never hits this: the
+  // published `@gpuix/native` ships the Wasm files.
+  console.error(
+    '\nweb: if the Wasm renderer is missing and this is the GPUIX repository,' +
+      ' run `bun run build:web` in packages/native'
+  )
   process.exit(1)
 }
 
