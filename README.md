@@ -550,7 +550,8 @@ dedicated Rust UI thread. Node sends in-process commands to that thread, so
 `startFrameLoop` returns a no-op handle and does not create a JavaScript timer.
 All platforms use GPUI's native platform, window, renderer, input, scroll,
 clipboard, keyboard, and IME implementations. The embedded macOS run-loop
-extension comes from the pinned GPUIX fork. Windows runtime validation is pending.
+extension comes from the pinned GPUIX fork. CI runs the full React and example
+test suites through DirectX on Windows.
 
 > [!IMPORTANT]
 > On macOS, never drive `tick()` from a `setImmediate` loop. That spins at tens of thousands of
