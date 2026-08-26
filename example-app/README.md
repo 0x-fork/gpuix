@@ -1,0 +1,89 @@
+# GPUIX todo app
+
+A small todo app that renders on the GPU. Copy this folder to start a project.
+
+```bash
+bun install
+bun run dev
+```
+
+`dev` runs `bun --hot app.tsx`. A save remounts React on the same window.
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `bun run dev` | Start the desktop app with hot remount |
+| `bun run build` | Compile a standalone binary into `dist/todo` |
+| `bun run typecheck` | Run `tsc --noEmit` |
+| `bun run web:build` | Build the browser renderer. Needs nightly Rust |
+| `bun run web:dev` | Bundle for the browser and serve on `:4173` |
+| `bun run screenshot` | Drive the app with the automation client and write a PNG |
+
+## Files
+
+```
+app.tsx        the whole app: tokens, icons, data, components, screen
+index.html     the browser page. GPUI creates the canvas itself
+web.ts         bundles app.tsx and serves it with isolation headers
+screenshot.ts  drives the app with the automation client and writes a PNG
+assets/icons   lucide SVGs, imported as text and tinted with style.color
+assets.d.ts    tells TypeScript that a `.svg` import is a string
+```
+
+## What it shows
+
+- **`<virtual-list>`** for the task list, so only visible rows are built
+- **native `<input>`** in the composer, with a caret, IME, and clipboard
+- **`motion.div`** for the sidebar, animated in Rust with no React frames
+- **`<svg>`** icons tinted through `style.color`
+- **`hover` and `active`** styles applied natively, with no JavaScript round trip
+- **`testId`** props, so the automation client can drive the app
+
+## Copy it out of this repo
+
+This folder uses `"@gpuix/react": "workspace:^"`. Change that to a version range
+and it installs from npm:
+
+```json
+{
+  "dependencies": {
+    "@gpuix/react": "^0.4.0",
+    "react": "^19.2.4"
+  }
+}
+```
+
+Nothing else in the folder depends on the repository.
+
+## Two rules that are easy to miss
+
+**Set `jsxImportSource`.** Without it TypeScript uses DOM types and every GPUIX
+element fails:
+
+```json
+{ "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "@gpuix/react" } }
+```
+
+**Set a `color` on text.** GPUI does not inherit `color`, so a `<text>` with no
+color paints black and disappears on a dark surface.
+
+## Fonts on the web
+
+The browser build ships **IBM Plex Sans** and **Lilex** only. Any other family
+falls back to Lilex, which is a monospace, so `app.tsx` picks the family per
+target:
+
+```tsx
+const FONT = typeof window === 'undefined' ? 'Helvetica' : 'IBM Plex Sans'
+```
+
+## Cross-origin isolation
+
+The Wasm renderer uses shared memory. `web.ts` sends the two headers a
+production host also needs:
+
+```http
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```

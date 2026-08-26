@@ -4,7 +4,7 @@ React bindings for [GPUI](https://github.com/zed-industries/zed/tree/main/crates
 
 Build native GPU-accelerated desktop apps with React and TypeScript. Your components render directly to the GPU via Metal, DirectX, or Vulkan. No Electron, no web views.
 
-![A Waku-style app built with GPUIX](docs/images/chat-app.png)
+![A Waku-style app built with GPUIX](./docs/images/chat-app.png)
 
 Everything above is GPUIX: the sidebar, the scrolling list, the composer,
 and native `<markdown>`. Start it with **`bun --hot`** so a save remounts React
@@ -14,17 +14,115 @@ on the same window:
 cd examples && bun --hot chat.tsx
 ```
 
+## Quickstart
+
+Install two packages. `@gpuix/react` pulls the native renderer for your
+platform, so there is nothing to build and no Rust toolchain to install.
+
+```bash
+bun add @gpuix/react react
+bun add -d @types/react typescript
+```
+
+### 1. Point TypeScript at the GPUIX JSX types
+
+**`jsxImportSource` is required.** Without it TypeScript uses DOM types, so
+`<virtual-list>`, `<markdown>`, `<code>` and `style.hover` all fail to
+typecheck.
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@gpuix/react",
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "noEmit": true
+  }
+}
+```
+
+### 2. Write the entry file
+
+End the file with `render()`. That call creates the window, mounts React, and
+starts the frame loop.
+
+```tsx
+import { useState } from 'react'
+import { render } from '@gpuix/react'
+
+function App() {
+  const [count, setCount] = useState(0)
+  return (
+    <div style={{ padding: 24, backgroundColor: '#1a1a1a', height: '100%' }}>
+      <div
+        onClick={() => setCount((c) => c + 1)}
+        style={{
+          padding: 12,
+          borderRadius: 8,
+          cursor: 'pointer',
+          backgroundColor: '#232323',
+          hover: { backgroundColor: '#2c2c2c' },
+        }}
+      >
+        <text style={{ color: '#e2e2e2' }}>Count: {count}</text>
+      </div>
+    </div>
+  )
+}
+
+render(<App />, { title: 'My App', width: 800, height: 600 })
+```
+
+> [!IMPORTANT]
+> **Give every `<text>` a `color`.** GPUI does not inherit `color` from a
+> parent, so text with no color paints **black** and disappears on a dark
+> surface.
+
+### 3. Run it
+
+```bash
+bun --hot app.tsx
+```
+
+Use `bun --hot`, not plain `bun`. A save then remounts React on the same
+window instead of opening a second one.
+
+### 4. Ship a binary
+
+```bash
+bun build --compile app.tsx --outfile dist/app
+./dist/app
+```
+
+The binary carries the renderer, so it runs with no Bun and no Node install.
+
+### Start from the example app
+
+[`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) is a complete todo app in one file, with `dev`,
+`build`, `web:dev` and `typecheck` scripts already wired. Copy the folder,
+change `@gpuix/react` from `workspace:^` to a version range, and run
+`bun install`.
+
+![The GPUIX todo example app](./docs/images/todo-app.png)
+
 ## Examples
 
 | Example | Run | What it shows |
 |---|---|---|
+| **todo** | `bun run dev` in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) | The starting point: one file, a `<virtual-list>`, a native `<input>`, and an animated sidebar |
 | **chat** | `bun --hot chat.tsx` | A Waku-style app: transparent titlebar, animated sidebar, message list, composer, `<markdown>` |
 | **native-text** | `bun --hot native-text.tsx` | The three native text components with a tab switcher |
 | **counter** | `bun --hot counter.tsx` | The smallest possible app: state, events, hover |
 | **diff** | `bun --hot diff.tsx` | A diff viewer composed from `<div>` and `<text>` in JS, for comparison |
 | **web** | `bun run web` from the repository root | The ChatGPT example rendered in a browser canvas with WebGPU |
 
-All of them live in [`examples/`](./examples) and use hardcoded data.
+The todo app lives in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) and is meant to be copied.
+The rest live in [`examples/`](https://github.com/remorses/gpuix/tree/main/examples). All of them use hardcoded data.
 
 Or download a standalone **chat** build from the [GitHub release](https://github.com/remorses/gpuix/releases). Files are named `example-chat-<target>`. No Bun or Rust install is required.
 
@@ -175,6 +273,10 @@ Event handlers are stored in a JS-side registry keyed by `(elementId, eventType)
 - **`@gpuix/react`** — React reconciler, event registry, and TypeScript types. Implements the `react-reconciler` host config using the mutation API.
 
 ## Building
+
+This section is for **working on GPUIX itself**. To build an app with it, see
+[Quickstart](#quickstart) instead. Installing the packages needs no Rust
+toolchain and no submodule.
 
 ### Prerequisites
 

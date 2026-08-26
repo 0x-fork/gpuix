@@ -181,6 +181,12 @@ jobs:
         run: bun run test
         working-directory: examples
 
+      # Bun never typechecks. This step is what catches a broken public type,
+      # such as `key` disappearing from every element.
+      - name: Typecheck the example app
+        run: bun run typecheck
+        working-directory: example-app
+
   test-windows:
     name: test-windows-load
     needs: build

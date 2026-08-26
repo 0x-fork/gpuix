@@ -257,6 +257,11 @@ export interface GpuixTheme {
 // Element IDs are auto-generated numeric IDs (not user-settable).
 // Use React refs to get an element's ID: ref.current.id
 export interface Props {
+  // `key` must live here, not in `JSX.IntrinsicAttributes`. TypeScript 5 ignores
+  // that member for intrinsic elements, and React's DOM types work only because
+  // `DetailedHTMLProps` already carries `key`. Without this field every
+  // `<div key={...} />` inside a `.map()` fails to typecheck.
+  key?: React.Key | null
   style?: StyleDesc
   children?: React.ReactNode
   ref?: React.Ref<PublicInstance>
@@ -320,6 +325,8 @@ export interface TextareaProps extends InputProps {
 }
 
 type VirtualListShared = {
+  // See the note on `Props.key`.
+  key?: React.Key | null
   style?: StyleDesc
   children?: React.ReactNode
   ref?: React.Ref<PublicInstance>

@@ -4,7 +4,8 @@
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
-    "examples"
+    "examples",
+    "example-app"
   ],
   "scripts": {
     "build": "bun run build:native && bun run build:react",

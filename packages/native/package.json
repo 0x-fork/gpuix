@@ -42,7 +42,6 @@
     "index.d.ts",
     "browser.mjs",
     "wasm",
-    "*.node",
     "LICENSE"
   ]
 }
