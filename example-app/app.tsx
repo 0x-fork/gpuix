@@ -267,7 +267,9 @@ function TodoRow({
       >
         {todo.title}
       </text>
-      {todo.starred ? <Icon name="star" size={13} color={C.accent} /> : null}
+      {/* The hover strip already carries a star, so the static marker steps
+          aside instead of drawing the same icon twice. */}
+      {todo.starred && !hovered ? <Icon name="star" size={13} color={C.accent} /> : null}
       {hovered ? (
         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 2 }}>
           <IconButton
@@ -342,15 +344,19 @@ function Composer({ onAdd }: { onAdd: (title: string) => void }) {
   )
 }
 
+// Rendered in place of the list, not inside it: a `<virtual-list>` row is
+// sized to its content, so it can never centre on the vertical axis.
 function EmptyState({ view }: { view: ViewId }) {
   return (
     <div
       style={{
+        flexGrow: 1,
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: 10,
-        paddingTop: 90,
       }}
     >
       <Icon name="sparkle" size={22} color={C.ghost} />
@@ -499,30 +505,32 @@ export function TodoApp() {
             rows plus overdraw; React still mounts every child, which is fine
             at this size. A list of thousands wants `itemCount` and
             `windowStart` so React mounts a window too. */}
-        <virtual-list
-          estimatedItemHeight={48}
-          style={{
-            flexGrow: 1,
-            minHeight: 0,
-            paddingLeft: 14,
-            paddingRight: 14,
-          }}
-        >
-          {visible.length === 0
-            ? [<EmptyState key="empty" view={view} />]
-            : visible.map((todo) => (
-                <div key={todo.id}>
-                  <TodoRow
-                    todo={todo}
-                    onToggle={() => update(todo.id, { done: !todo.done })}
-                    onStar={() => update(todo.id, { starred: !todo.starred })}
-                    onDelete={() =>
-                      setTodos((current) => current.filter((entry) => entry.id !== todo.id))
-                    }
-                  />
-                </div>
-              ))}
-        </virtual-list>
+        {visible.length === 0 ? (
+          <EmptyState view={view} />
+        ) : (
+          <virtual-list
+            estimatedItemHeight={48}
+            style={{
+              flexGrow: 1,
+              minHeight: 0,
+              paddingLeft: 14,
+              paddingRight: 14,
+            }}
+          >
+            {visible.map((todo) => (
+              <div key={todo.id}>
+                <TodoRow
+                  todo={todo}
+                  onToggle={() => update(todo.id, { done: !todo.done })}
+                  onStar={() => update(todo.id, { starred: !todo.starred })}
+                  onDelete={() =>
+                    setTodos((current) => current.filter((entry) => entry.id !== todo.id))
+                  }
+                />
+              </div>
+            ))}
+          </virtual-list>
+        )}
 
         <div
           style={{
