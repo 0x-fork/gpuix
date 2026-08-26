@@ -591,23 +591,26 @@ cd examples && TURNS=10000 SAFE_MDX=1 bun run bench:serde
 cd packages/native && cargo run --release --example bench_serde
 ```
 
-Four results to keep in mind before touching this path:
+Four results that shaped the current code:
 
-- `batch_payload` deep-clones every style payload, then `from_value` parses it
-  again. Today's decode makes **1.76M allocations** for 221k ops
 - `StyleDesc` is **1392 bytes**. Putting it in an enum variant makes the whole
-  `Vec<Op>` 1408 bytes wide, so a typed decode that keeps it is **slower** than
-  the `serde_json::Value` tree it replaces. Box it
-- `RetainedElement` costs **3102 bytes resident**, and `size_of` is 1624 B only
-  because `Option<StyleDesc>` is inline. Moving it behind an `Arc` and sharing
-  the 90 distinct styles drops the tree **5.4x**, and `Deref` keeps
-  `apply_styles` and every custom element unchanged
-- once styles are interned in the protocol, a hand-packed compact style buys
-  **nothing**: only 90 of 221k ops parse a style. Do not write one first
+  `Vec<BatchOp>` 1408 bytes wide, so a 221k-op mount reserved 312 MB before
+  parsing anything. Never inline a style in an op
+- **styles are hash-consed in Rust, not in the protocol.** `RetainedTree::intern_style`
+  hashes the raw payload and shares one `Arc<StyleDesc>`. Do not move this into
+  JS: `commitUpdate` resends the full style every commit, a dragged element
+  produces a distinct style every frame, and a JS-owned table would grow forever
+  while sending two ops where it sends one today
+- `sweep_styles` runs after every batch and drops entries with
+  `Arc::strong_count == 1`. That is the only thing keeping the table bounded
+- `RetainedElement.style` is `Option<Arc<StyleDesc>>`. Read it with
+  `.as_deref()`. The motion path must copy out before mutating, or one
+  element's animation restyles every element that declared the same style
 
 No mainstream JS↔Rust codec deduplicates repeated string **values**. msgpackr
 `useRecords` deduplicates keys, and its output is not plain MessagePack, so
-`rmp_serde` cannot read it. Value dedup has to happen in the protocol.
+`rmp_serde` cannot read it. MessagePack measured 1.24x, which does not pay for a
+new dependency on both sides.
 
 ## Overlays and icons
 

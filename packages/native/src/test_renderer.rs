@@ -25,7 +25,6 @@ use crate::renderer::{
     GpuixView,
 };
 use crate::retained_tree::RetainedTree;
-use crate::style::StyleDesc;
 
 // ── Thread-local storage for !Send GPUI types ────────────────────────
 
@@ -235,10 +234,11 @@ impl TestGpuixRenderer {
     #[napi]
     pub fn set_style(&self, id: f64, style_json: String) -> Result<()> {
         let id = to_element_id(id)?;
-        let style: StyleDesc = serde_json::from_str(&style_json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse style: {}", e)))?;
-        self.tree.lock().unwrap().set_style(id, style);
-        Ok(())
+        self.tree
+            .lock()
+            .unwrap()
+            .set_style_json(id, style_json.as_bytes())
+            .map_err(|error| Error::from_reason(format!("Failed to parse style: {error}")))
     }
 
     #[napi]
@@ -298,10 +298,8 @@ impl TestGpuixRenderer {
     /// Returns accumulated destroyed IDs from all destroyElement ops.
     #[napi]
     pub fn apply_batch(&self, json: String) -> Result<Vec<f64>> {
-        let ops: Vec<serde_json::Value> = serde_json::from_str(&json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse batch: {}", e)))?;
         let mut tree = self.tree.lock().unwrap();
-        apply_batch_to_tree(&mut tree, &ops).map_err(Error::from_reason)
+        apply_batch_to_tree(&mut tree, json.as_bytes()).map_err(Error::from_reason)
     }
 
     // ── Test-specific methods ────────────────────────────────────────

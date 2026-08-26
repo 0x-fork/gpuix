@@ -37,7 +37,7 @@ use wasm_bindgen::JsCast as _;
 
 use crate::custom_elements::{CustomElementRegistry, CustomRenderContext};
 use crate::element_tree::EventPayload;
-use crate::retained_tree::RetainedTree;
+use crate::retained_tree::{RetainedTree, StyleTable};
 use crate::style::StyleDesc;
 use crate::text::{selectable_text, selection_frame_reset, SharedSelection};
 use crate::theme::Theme;
@@ -959,11 +959,11 @@ impl GpuixRenderer {
     #[napi]
     pub fn set_style(&self, id: f64, style_json: String) -> Result<()> {
         let id = to_element_id(id)?;
-        let style: StyleDesc = serde_json::from_str(&style_json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse style: {}", e)))?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.set_style(id, style);
-        Ok(())
+        self.tree
+            .lock()
+            .unwrap()
+            .set_style_json(id, style_json.as_bytes())
+            .map_err(|error| Error::from_reason(format!("Failed to parse style: {error}")))
     }
 
     #[napi]
@@ -1041,10 +1041,9 @@ impl GpuixRenderer {
     /// Acquires the tree mutex ONCE for the entire batch.
     #[napi]
     pub fn apply_batch(&self, json: String) -> Result<Vec<f64>> {
-        let ops: Vec<serde_json::Value> = serde_json::from_str(&json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse batch: {}", e)))?;
         let mut tree = self.tree.lock().unwrap();
-        let destroyed = apply_batch_to_tree(&mut tree, &ops).map_err(Error::from_reason)?;
+        let destroyed =
+            apply_batch_to_tree(&mut tree, json.as_bytes()).map_err(Error::from_reason)?;
         drop(tree);
         self.request_invalidate()?;
         Ok(destroyed)
@@ -2064,14 +2063,14 @@ impl WebGpuixRenderer {
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = setStyle)]
     pub fn set_style(&self, id: f64, style_json: String) -> Result<(), wasm_bindgen::JsValue> {
-        let style = serde_json::from_str(&style_json).map_err(|error| {
-            wasm_bindgen::JsValue::from_str(&format!("Failed to parse style: {error}"))
-        })?;
+        let id = web_element_id(id)?;
         self.tree
             .lock()
             .unwrap()
-            .set_style(web_element_id(id)?, style);
-        Ok(())
+            .set_style_json(id, style_json.as_bytes())
+            .map_err(|error| {
+                wasm_bindgen::JsValue::from_str(&format!("Failed to parse style: {error}"))
+            })
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = setText)]
@@ -2142,10 +2141,7 @@ impl WebGpuixRenderer {
         &self,
         json: String,
     ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
-        let ops: Vec<serde_json::Value> = serde_json::from_str(&json).map_err(|error| {
-            wasm_bindgen::JsValue::from_str(&format!("Failed to parse batch: {error}"))
-        })?;
-        let destroyed = apply_batch_to_tree(&mut self.tree.lock().unwrap(), &ops)
+        let destroyed = apply_batch_to_tree(&mut self.tree.lock().unwrap(), json.as_bytes())
             .map_err(|error| wasm_bindgen::JsValue::from_str(&error))?;
         notify_web();
         Ok(web_number_array(destroyed))
@@ -3486,7 +3482,10 @@ pub(crate) fn build_element(
         state.is_valid().then(|| {
             let frame = state.frame(ctx.now);
             *ctx.motion_active |= frame.active;
-            let mut resolved = element.style.clone().unwrap_or_default();
+            // `Arc<StyleDesc>` is shared, so the animated frame is applied to a
+            // copy. Mutating through the pointer would restyle every element
+            // that declared the same style.
+            let mut resolved = element.style.as_deref().cloned().unwrap_or_default();
             frame.style.apply_to(&mut resolved);
             resolved
         })
@@ -3494,7 +3493,7 @@ pub(crate) fn build_element(
         ctx.motion_states.remove(&id);
         None
     };
-    let style = animated_style.as_ref().or(element.style.as_ref());
+    let style = animated_style.as_ref().or(element.style.as_deref());
 
     // Inheritable style resolves once here so both built-ins and custom
     // elements see the same cascade.
@@ -3684,7 +3683,7 @@ fn build_virtual_list(
     });
     let mut list =
         gpui::list(list_state, render_item).with_sizing_behavior(gpui::ListSizingBehavior::Auto);
-    if let Some(style) = element.style.as_ref() {
+    if let Some(style) = element.style.as_deref() {
         list = apply_styles(list, style);
     }
     list.into_any_element()
@@ -4520,7 +4519,7 @@ pub(crate) fn emit_event_full(
 /// Parsed batch operation — typed enum for atomic validation.
 /// All ops are parsed and validated BEFORE any tree mutation occurs.
 /// This prevents partial application on malformed batches.
-enum BatchOp {
+enum BatchOp<'a> {
     CreateElement {
         id: u64,
         element_type: String,
@@ -4541,9 +4540,16 @@ enum BatchOp {
         child_id: u64,
         before_id: u64,
     },
+    /// The payload stays as raw JSON until apply time.
+    ///
+    /// Two reasons. A parsed `StyleDesc` is ~1.4 KB, and a `Vec<BatchOp>` is as
+    /// wide as its widest variant, so inlining one made a 220k-op mount reserve
+    /// over 300 MB before it parsed a single op. And the tree hash-conses
+    /// styles by content, so it needs the bytes: hashing ~110 bytes is far
+    /// cheaper than building 80 `Option` fields and throwing 99.8% of them away.
     SetStyle {
         id: u64,
-        style: StyleDesc,
+        style: &'a serde_json::value::RawValue,
     },
     SetText {
         id: u64,
@@ -4564,114 +4570,316 @@ enum BatchOp {
     },
 }
 
-/// Parse all batch ops from JSON into typed enums.
-/// Returns Err on the first invalid op — no tree mutation has occurred yet.
-type BatchResult<T> = std::result::Result<T, String>;
+/// A batch failure. The message names the op index, so it survives the trip
+/// back to JS as a plain `Error`.
+pub type BatchResult<T> = std::result::Result<T, String>;
 
-fn parse_batch_ops(ops: &[serde_json::Value]) -> BatchResult<Vec<BatchOp>> {
-    let mut parsed = Vec::with_capacity(ops.len());
+/// Decode the batch straight from its JSON bytes into `Vec<BatchOp>`.
+///
+/// There is deliberately no `Vec<serde_json::Value>` in between. That tree cost
+/// a `String` per key and per value, every payload was then deep-cloned out of
+/// it, and `from_value` parsed the clone a second time, so one style was
+/// allocated three times. A 220k-op mount made 1.5M allocations that way.
+///
+/// Everything the `Value` version guaranteed still holds, and each one is
+/// load-bearing:
+///
+/// * an unknown opcode is a hard error, not a skipped op. Silently ignoring one
+///   would let a JS/Rust version skew desync the tree instead of throwing
+/// * ids go through `raw_element_id`, so non-finite, negative, fractional and
+///   out-of-safe-range values are still rejected
+/// * `hasHandler` is accepted as a bool or a number
+/// * errors still name the op index. `serde_json` reports a byte offset, which
+///   is useless when you are chasing a desync
+fn parse_batch_ops(bytes: &[u8]) -> BatchResult<Vec<BatchOp<'_>>> {
+    serde_json::from_slice::<BatchOps>(bytes)
+        .map(|batch| batch.0)
+        .map_err(|error| format!("Failed to parse batch: {error}"))
+}
 
-    for (i, op) in ops.iter().enumerate() {
-        let arr = op
-            .as_array()
-            .ok_or_else(|| format!("Batch op {i} is not an array"))?;
-        let op_name = arr
-            .first()
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| format!("Batch op {i} missing op name string"))?;
+struct BatchOps<'a>(Vec<BatchOp<'a>>);
 
-        let batch_op = match op_name {
-            "createElement" => BatchOp::CreateElement {
-                id: batch_id(arr, 1, i)?,
-                element_type: batch_str(arr, 2, i)?,
-            },
-            "destroyElement" => BatchOp::DestroyElement {
-                id: batch_id(arr, 1, i)?,
-            },
-            "appendChild" => BatchOp::AppendChild {
-                parent_id: batch_id(arr, 1, i)?,
-                child_id: batch_id(arr, 2, i)?,
-            },
-            "removeChild" => BatchOp::RemoveChild {
-                parent_id: batch_id(arr, 1, i)?,
-                child_id: batch_id(arr, 2, i)?,
-            },
-            "insertBefore" => BatchOp::InsertBefore {
-                parent_id: batch_id(arr, 1, i)?,
-                child_id: batch_id(arr, 2, i)?,
-                before_id: batch_id(arr, 3, i)?,
-            },
-            "setStyle" => {
-                let style: StyleDesc = batch_decode(arr, 2, i)
-                    .map_err(|error| format!("Batch op {i} setStyle parse error: {error}"))?;
-                BatchOp::SetStyle {
-                    id: batch_id(arr, 1, i)?,
-                    style,
+impl<'de> serde::Deserialize<'de> for BatchOps<'de> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct OpsVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for OpsVisitor {
+            type Value = BatchOps<'de>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an array of mutation tuples")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> std::result::Result<BatchOps<'de>, A::Error> {
+                let mut ops = Vec::with_capacity(seq.size_hint().unwrap_or(64));
+                loop {
+                    // The index is attached here because this is the only place
+                    // that knows it.
+                    let index = ops.len();
+                    match seq.next_element::<BatchOp<'de>>() {
+                        Ok(Some(op)) => ops.push(op),
+                        Ok(None) => break,
+                        Err(error) => {
+                            return Err(serde::de::Error::custom(format!(
+                                "Batch op {index}: {error}"
+                            )))
+                        }
+                    }
                 }
+                Ok(BatchOps(ops))
             }
-            "setText" => BatchOp::SetText {
-                id: batch_id(arr, 1, i)?,
-                content: batch_str(arr, 2, i)?,
-            },
-            "setEventListener" => {
-                let has_handler = arr
-                    .get(3)
-                    .and_then(|v| v.as_bool().or_else(|| v.as_u64().map(|n| n != 0)))
-                    .ok_or_else(|| {
-                        format!(
-                            "Batch op {i} setEventListener missing/invalid hasHandler at index 3"
-                        )
-                    })?;
-                BatchOp::SetEventListener {
-                    id: batch_id(arr, 1, i)?,
-                    event_type: batch_str(arr, 2, i)?,
-                    has_handler,
-                }
-            }
-            "setRoot" => BatchOp::SetRoot {
-                id: batch_id(arr, 1, i)?,
-            },
-            "setCustomProp" => BatchOp::SetCustomProp {
-                id: batch_id(arr, 1, i)?,
-                key: batch_str(arr, 2, i)?,
-                value: batch_payload(arr, 3, i)?,
-            },
-            "setCustomPropValue" => BatchOp::SetCustomProp {
-                id: batch_id(arr, 1, i)?,
-                key: batch_str(arr, 2, i)?,
-                value: arr
-                    .get(3)
-                    .cloned()
-                    .ok_or_else(|| format!("Batch op {i} missing custom prop value"))?,
-            },
-            _ => {
-                return Err(format!("Batch op {i} unknown operation: {op_name:?}"));
-            }
-        };
-        parsed.push(batch_op);
+        }
+
+        deserializer.deserialize_seq(OpsVisitor)
     }
+}
 
-    Ok(parsed)
+/// A string argument, borrowed from the input when the JSON has no escapes.
+///
+/// The owned copy happens exactly once, on the way into the `BatchOp`. The
+/// `Value` path allocated twice: into `Value::String`, then into the op.
+struct StrArg<'a>(std::borrow::Cow<'a, str>);
+
+impl<'de> serde::Deserialize<'de> for StrArg<'de> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        use std::borrow::Cow;
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = StrArg<'de>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a string")
+            }
+            fn visit_borrowed_str<E: serde::de::Error>(
+                self,
+                v: &'de str,
+            ) -> std::result::Result<StrArg<'de>, E> {
+                Ok(StrArg(Cow::Borrowed(v)))
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<StrArg<'de>, E> {
+                Ok(StrArg(Cow::Owned(v.to_owned())))
+            }
+            fn visit_string<E: serde::de::Error>(
+                self,
+                v: String,
+            ) -> std::result::Result<StrArg<'de>, E> {
+                Ok(StrArg(Cow::Owned(v)))
+            }
+        }
+        deserializer.deserialize_str(V)
+    }
+}
+
+/// A legacy `setCustomProp` payload: a JSON string gets decoded, anything else
+/// is taken as-is. `setCustomPropValue` skips this and stores the raw value.
+struct LegacyPropArg(serde_json::Value);
+
+impl<'de> serde::Deserialize<'de> for LegacyPropArg {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if let serde_json::Value::String(encoded) = &value {
+            return Ok(LegacyPropArg(
+                serde_json::from_str(encoded).unwrap_or_else(|_| value.clone()),
+            ));
+        }
+        Ok(LegacyPropArg(value))
+    }
+}
+
+/// `hasHandler` arrives as a bool from the reconciler and as a non-negative
+/// integer from hand-written batches. That is exactly what `as_bool()` then
+/// `as_u64()` accepted before, so a negative or fractional number stays an
+/// error rather than quietly meaning `true`.
+struct BoolArg(bool);
+
+impl<'de> serde::Deserialize<'de> for BoolArg {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = BoolArg;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a boolean or a non-negative integer")
+            }
+            fn visit_bool<E: serde::de::Error>(self, v: bool) -> std::result::Result<BoolArg, E> {
+                Ok(BoolArg(v))
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> std::result::Result<BoolArg, E> {
+                Ok(BoolArg(v != 0))
+            }
+        }
+        deserializer.deserialize_any(V)
+    }
+}
+
+fn next_arg<'de, A, T>(seq: &mut A, what: &str) -> std::result::Result<T, A::Error>
+where
+    A: serde::de::SeqAccess<'de>,
+    T: serde::Deserialize<'de>,
+{
+    seq.next_element()?
+        .ok_or_else(|| serde::de::Error::custom(format!("missing {what}")))
+}
+
+/// Read an element id. Ids cross napi as JS numbers, so they are read as `f64`
+/// and validated exactly as `batch_id` did.
+fn next_id<'de, A: serde::de::SeqAccess<'de>>(
+    seq: &mut A,
+    what: &str,
+) -> std::result::Result<u64, A::Error> {
+    let raw: f64 = next_arg(seq, what)?;
+    raw_element_id(raw).map_err(serde::de::Error::custom)
+}
+
+impl<'de> serde::Deserialize<'de> for BatchOp<'de> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        struct V;
+
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = BatchOp<'de>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a [opcode, ...args] mutation tuple")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> std::result::Result<BatchOp<'de>, A::Error> {
+                let name: StrArg<'de> = next_arg(&mut seq, "op name")?;
+                let op = match name.0.as_ref() {
+                    "createElement" => BatchOp::CreateElement {
+                        id: next_id(&mut seq, "id")?,
+                        element_type: next_arg::<A, StrArg>(&mut seq, "element type")?
+                            .0
+                            .into_owned(),
+                    },
+                    "destroyElement" => BatchOp::DestroyElement {
+                        id: next_id(&mut seq, "id")?,
+                    },
+                    "appendChild" => BatchOp::AppendChild {
+                        parent_id: next_id(&mut seq, "parent id")?,
+                        child_id: next_id(&mut seq, "child id")?,
+                    },
+                    "removeChild" => BatchOp::RemoveChild {
+                        parent_id: next_id(&mut seq, "parent id")?,
+                        child_id: next_id(&mut seq, "child id")?,
+                    },
+                    "insertBefore" => BatchOp::InsertBefore {
+                        parent_id: next_id(&mut seq, "parent id")?,
+                        child_id: next_id(&mut seq, "child id")?,
+                        before_id: next_id(&mut seq, "before id")?,
+                    },
+                    "setStyle" => BatchOp::SetStyle {
+                        id: next_id(&mut seq, "id")?,
+                        style: next_arg(&mut seq, "style")?,
+                    },
+                    "setText" => BatchOp::SetText {
+                        id: next_id(&mut seq, "id")?,
+                        content: next_arg::<A, StrArg>(&mut seq, "text")?.0.into_owned(),
+                    },
+                    "setEventListener" => BatchOp::SetEventListener {
+                        id: next_id(&mut seq, "id")?,
+                        event_type: next_arg::<A, StrArg>(&mut seq, "event type")?.0.into_owned(),
+                        has_handler: next_arg::<A, BoolArg>(&mut seq, "hasHandler")?.0,
+                    },
+                    "setRoot" => BatchOp::SetRoot {
+                        id: next_id(&mut seq, "id")?,
+                    },
+                    "setCustomProp" => BatchOp::SetCustomProp {
+                        id: next_id(&mut seq, "id")?,
+                        key: next_arg::<A, StrArg>(&mut seq, "prop key")?.0.into_owned(),
+                        value: next_arg::<A, LegacyPropArg>(&mut seq, "custom prop value")?.0,
+                    },
+                    "setCustomPropValue" => BatchOp::SetCustomProp {
+                        id: next_id(&mut seq, "id")?,
+                        key: next_arg::<A, StrArg>(&mut seq, "prop key")?.0.into_owned(),
+                        value: next_arg(&mut seq, "custom prop value")?,
+                    },
+                    other => {
+                        return Err(serde::de::Error::custom(format!(
+                            "unknown operation: {other:?}"
+                        )))
+                    }
+                };
+                // Trailing arguments are tolerated, as they were when the op was
+                // an indexed array.
+                while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+                Ok(op)
+            }
+        }
+
+        deserializer.deserialize_seq(V)
+    }
+}
+
+/// Turn one raw `setStyle` payload into a shared style.
+///
+/// The reconciler always sends an object. A legacy batch can send the same
+/// object as a JSON *string*, so that is unwrapped to the bytes the interner
+/// should see. Anything else, `null` included, is handed to `StyleDesc` and
+/// rejected there. Doing this here, rather than in the deserializer, keeps the
+/// raw bytes available for the content hash.
+fn intern_style_payload(
+    styles: &mut StyleTable,
+    payload: &serde_json::value::RawValue,
+) -> BatchResult<Arc<StyleDesc>> {
+    // A `RawValue` always holds exactly one complete JSON value, so this is
+    // never empty and never a fragment.
+    let raw = payload.get().trim();
+    if raw.starts_with('"') {
+        let encoded: String = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+        styles.intern(encoded.as_bytes())
+    } else {
+        styles.intern(raw.as_bytes())
+    }
+}
+
+/// Resolve every `setStyle` payload in the batch, in op order.
+///
+/// This is the last fallible step, so it runs before the apply loop and borrows
+/// only the style table. The borrow checker then proves no element was touched
+/// when it returns `Err`, which is what makes a batch atomic. An earlier
+/// version interned inside the apply loop, so a malformed style at the end of a
+/// batch left everything before it applied and then threw.
+fn resolve_styles(styles: &mut StyleTable, ops: &[BatchOp<'_>]) -> BatchResult<Vec<Arc<StyleDesc>>> {
+    let mut resolved = Vec::new();
+    for (index, op) in ops.iter().enumerate() {
+        if let BatchOp::SetStyle { style, .. } = op {
+            let shared = intern_style_payload(styles, style)
+                .map_err(|error| format!("Batch op {index} setStyle parse error: {error}"))?;
+            resolved.push(shared);
+        }
+    }
+    Ok(resolved)
 }
 
 /// Apply a batch of mutation tuples to a RetainedTree.
 /// Shared between GpuixRenderer::apply_batch and TestGpuixRenderer::apply_batch.
 /// Returns accumulated destroyed IDs (as f64) from all destroyElement ops.
 ///
-/// ATOMIC: all ops are parsed and validated first. If any op is malformed,
-/// the tree is left unchanged and an error is returned. This prevents
-/// partial application that could desync JS and Rust state.
+/// ATOMIC: the batch is decoded and every style is resolved before a single
+/// element is touched. If any op is malformed the tree is left unchanged and an
+/// error is returned. Nothing after that point can fail, so JS and Rust cannot
+/// desync when a batch is retried.
 ///
 /// Batch format: JSON array of tuples [opcode, ...args].
 /// See GpuixRenderer::apply_batch for opcode documentation.
-pub(crate) fn apply_batch_to_tree(
-    tree: &mut RetainedTree,
-    ops: &[serde_json::Value],
-) -> BatchResult<Vec<f64>> {
-    // Phase 1: parse and validate all ops (no mutation).
-    let parsed = parse_batch_ops(ops)?;
+///
+/// Public so `examples/bench_serde.rs` times this exact function. A replica in
+/// the bench would drift, and the numbers would then describe code nobody runs.
+pub fn apply_batch_to_tree(tree: &mut RetainedTree, bytes: &[u8]) -> BatchResult<Vec<f64>> {
+    // Phase 1: decode. No mutation.
+    let parsed = parse_batch_ops(bytes)?;
 
-    // Phase 2: apply all validated ops to the tree.
+    // Phase 2: resolve styles. Touches the style table only; a failure here
+    // sweeps back out whatever this call interned.
+    let styles = resolve_styles(&mut tree.styles, &parsed)
+        .inspect_err(|_| tree.styles.sweep())?;
+    let mut styles = styles.into_iter();
+
+    // Phase 3: apply. Cannot fail.
     let mut destroyed_ids: Vec<f64> = Vec::new();
     for batch_op in parsed {
         match batch_op {
@@ -4701,8 +4909,9 @@ pub(crate) fn apply_batch_to_tree(
             } => {
                 tree.insert_before(parent_id, child_id, before_id);
             }
-            BatchOp::SetStyle { id, style } => {
-                tree.set_style(id, style);
+            BatchOp::SetStyle { id, .. } => {
+                let shared = styles.next().expect("one resolved style per setStyle op");
+                tree.set_style(id, shared);
             }
             BatchOp::SetText { id, content } => {
                 tree.set_text(id, content);
@@ -4723,53 +4932,12 @@ pub(crate) fn apply_batch_to_tree(
         }
     }
 
+    // Release styles nothing references any more. Without this a dragged
+    // element, which produces a distinct style every frame, would grow the
+    // table for as long as the app runs.
+    tree.styles.maybe_sweep();
+
     Ok(destroyed_ids)
-}
-
-/// Extract a u64 element ID from a batch tuple at the given index.
-fn batch_id(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> BatchResult<u64> {
-    let value = arr
-        .get(idx)
-        .and_then(|value| value.as_f64())
-        .ok_or_else(|| format!("Batch op {op_idx} missing id at index {idx}"))?;
-    raw_element_id(value)
-}
-
-/// A style or custom-prop payload. Objects land as JSON. Legacy batches
-/// still send a JSON string and get decoded here.
-fn batch_payload(
-    arr: &[serde_json::Value],
-    idx: usize,
-    op_idx: usize,
-) -> BatchResult<serde_json::Value> {
-    let value = arr
-        .get(idx)
-        .ok_or_else(|| format!("Batch op {op_idx} missing value at index {idx}"))?;
-    if let Some(encoded) = value.as_str() {
-        match serde_json::from_str(encoded) {
-            Ok(parsed) => Ok(parsed),
-            Err(_) => Ok(serde_json::Value::String(encoded.to_string())),
-        }
-    } else {
-        Ok(value.clone())
-    }
-}
-
-fn batch_decode<T: serde::de::DeserializeOwned>(
-    arr: &[serde_json::Value],
-    idx: usize,
-    op_idx: usize,
-) -> BatchResult<T> {
-    let value = batch_payload(arr, idx, op_idx)?;
-    serde_json::from_value(value).map_err(|error| error.to_string())
-}
-
-/// Extract a String from a batch tuple at the given index.
-fn batch_str(arr: &[serde_json::Value], idx: usize, op_idx: usize) -> BatchResult<String> {
-    arr.get(idx)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| format!("Batch op {op_idx} missing string at index {idx}"))
 }
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -5055,5 +5223,261 @@ mod highlight_cache_tests {
         let (_, changed) =
             resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, true).expect("resolves");
         assert_eq!(changed, None, "and only once");
+    }
+}
+
+/// The `applyBatch` protocol. This is the surface JS talks to, so every rule it
+/// relies on is asserted here against real JSON bytes rather than through a
+/// hand-built `Vec<BatchOp>`.
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+    use crate::retained_tree::STYLE_SWEEP_FLOOR;
+
+    fn apply(tree: &mut RetainedTree, json: &str) -> BatchResult<Vec<f64>> {
+        apply_batch_to_tree(tree, json.as_bytes())
+    }
+
+    /// Everything a mutation can reach, so an unwanted partial apply shows up
+    /// as a diff instead of hiding in a field the test forgot to read.
+    fn describe(tree: &RetainedTree) -> String {
+        let mut ids: Vec<_> = tree.elements.keys().copied().collect();
+        ids.sort_unstable();
+        let mut out = format!("root={:?}\n", tree.root_id);
+        for id in ids {
+            let element = &tree.elements[&id];
+            let mut events: Vec<_> = element.events.iter().cloned().collect();
+            events.sort();
+            let mut props: Vec<_> = element.custom_props.iter().collect();
+            props.sort_by(|(a, _), (b, _)| a.cmp(b));
+            out += &format!(
+                "{id} type={} text={:?} style={:?} children={:?} parent={:?} events={events:?} props={props:?} rev={}/{}\n",
+                element.element_type,
+                element.content,
+                element.style.as_deref(),
+                element.children,
+                element.parent,
+                element.subtree_revision,
+                element.search_revision,
+            );
+        }
+        out
+    }
+
+    /// The regression test for batch atomicity. `intern_style_payload` used to
+    /// run inside the apply loop, so this batch created the element, set its
+    /// text, and only then threw — leaving JS to retry against a tree that had
+    /// already moved.
+    #[test]
+    fn a_malformed_style_applies_nothing_at_all() {
+        let mut tree = RetainedTree::new();
+        apply(&mut tree, r#"[["createElement",1,"div"],["setRoot",1]]"#).expect("valid batch");
+        let before = describe(&tree);
+        let styles_before = tree.styles.len();
+
+        let error = apply(
+            &mut tree,
+            r#"[["createElement",2,"div"],["setText",2,"changed"],["setStyle",2,123]]"#,
+        )
+        .expect_err("a malformed style must reject the batch");
+
+        assert_eq!(describe(&tree), before, "the tree must be untouched");
+        assert_eq!(
+            tree.styles.len(),
+            styles_before,
+            "the failed batch must not leave styles interned"
+        );
+        assert!(error.contains("setStyle"), "{error}");
+    }
+
+    /// A style that fails halfway through a long batch is unfindable without
+    /// its index; serde reports a byte offset, which names nothing.
+    #[test]
+    fn a_style_error_names_its_op_index() {
+        let mut tree = RetainedTree::new();
+        let error = apply(
+            &mut tree,
+            r#"[["createElement",1,"div"],["setStyle",1,{"color":"red"}],["setStyle",1,{"color":5}]]"#,
+        )
+        .expect_err("a bad style rejects the batch");
+        assert!(
+            error.starts_with("Batch op 2 setStyle parse error:"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_legacy_string_encoded_style_still_applies() {
+        let mut tree = RetainedTree::new();
+        apply(
+            &mut tree,
+            r#"[["createElement",1,"div"],["setStyle",1,"{\"color\":\"red\"}"]]"#,
+        )
+        .expect("a JSON-string style is legacy, not invalid");
+        assert_eq!(
+            tree.elements[&1].style.as_deref().unwrap().color.as_deref(),
+            Some("red")
+        );
+    }
+
+    /// `null` is not "no style". Treating it as `{}` would silently clear every
+    /// declared property instead of telling JS it sent something wrong.
+    #[test]
+    fn a_null_style_is_an_error() {
+        let mut tree = RetainedTree::new();
+        let error = apply(&mut tree, r#"[["createElement",1,"div"],["setStyle",1,null]]"#)
+            .expect_err("null is not a style");
+        assert!(error.contains("Batch op 1 setStyle parse error:"), "{error}");
+        assert!(tree.elements.is_empty(), "and the batch stays atomic");
+    }
+
+    /// Skipping an unknown opcode would let a JS/Rust version skew desync the
+    /// tree quietly. It has to throw.
+    #[test]
+    fn an_unknown_opcode_is_an_error() {
+        let mut tree = RetainedTree::new();
+        let error = apply(&mut tree, r#"[["teleportElement",1]]"#).expect_err("unknown opcode");
+        assert!(error.contains("unknown operation"), "{error}");
+        assert!(tree.elements.is_empty());
+    }
+
+    /// Every op that takes an id must validate it. A fractional or oversized id
+    /// would truncate into a *different* element, which is a silent desync.
+    #[test]
+    fn an_invalid_id_is_rejected_in_every_id_position() {
+        let templates = [
+            r#"[["createElement",ID,"div"]]"#,
+            r#"[["destroyElement",ID]]"#,
+            r#"[["appendChild",ID,2]]"#,
+            r#"[["appendChild",1,ID]]"#,
+            r#"[["removeChild",ID,2]]"#,
+            r#"[["removeChild",1,ID]]"#,
+            r#"[["insertBefore",ID,2,3]]"#,
+            r#"[["insertBefore",1,ID,3]]"#,
+            r#"[["insertBefore",1,2,ID]]"#,
+            r#"[["setStyle",ID,{}]]"#,
+            r#"[["setText",ID,"x"]]"#,
+            r#"[["setEventListener",ID,"click",true]]"#,
+            r#"[["setRoot",ID]]"#,
+            r#"[["setCustomProp",ID,"k",1]]"#,
+            r#"[["setCustomPropValue",ID,"k",1]]"#,
+        ];
+        // 1e999 overflows f64, 9007199254740992 is Number.MAX_SAFE_INTEGER + 1.
+        let bad_ids = ["-1", "1.5", "9007199254740992", "1e999"];
+
+        for template in templates {
+            for bad in bad_ids {
+                let json = template.replace("ID", bad);
+                let mut tree = RetainedTree::new();
+                let error = apply(&mut tree, &json).expect_err(&format!("{json} must be rejected"));
+                assert!(error.contains("Batch op 0"), "{json}: {error}");
+                assert!(tree.elements.is_empty(), "{json} mutated the tree");
+                assert_eq!(tree.root_id, None, "{json} mutated the root");
+            }
+        }
+    }
+
+    /// The reconciler sends a bool; hand-written batches send 0 or 1. Anything
+    /// else used to mean `true`, so `-1` silently registered a listener.
+    #[test]
+    fn has_handler_takes_a_bool_or_a_non_negative_integer() {
+        for (payload, expected) in [("true", true), ("false", false), ("1", true), ("0", false)] {
+            let mut tree = RetainedTree::new();
+            let json = format!(
+                r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#
+            );
+            apply(&mut tree, &json).expect("bool or non-negative integer");
+            assert_eq!(
+                tree.elements[&1].events.contains("click"),
+                expected,
+                "hasHandler {payload}"
+            );
+        }
+
+        for payload in ["-1", "0.5"] {
+            let mut tree = RetainedTree::new();
+            let json = format!(
+                r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#
+            );
+            apply(&mut tree, &json).expect_err(&format!("hasHandler {payload} is not a bool"));
+        }
+    }
+
+    #[test]
+    fn a_malformed_op_tuple_is_an_error() {
+        let cases = [
+            (r#"[42]"#, "a non-array op"),
+            (r#"[["createElement",1]]"#, "a missing argument"),
+            (r#"[[7,1,"div"]]"#, "a non-string op name"),
+        ];
+        for (json, what) in cases {
+            let mut tree = RetainedTree::new();
+            let error = apply(&mut tree, json).expect_err(what);
+            assert!(error.starts_with("Failed to parse batch:"), "{what}: {error}");
+            assert!(tree.elements.is_empty(), "{what} mutated the tree");
+        }
+    }
+
+    /// The single-op entry points sweep too. Without that,
+    /// `for (...) renderer.setStyle(1, ...)` grows the table forever.
+    #[test]
+    fn repeated_direct_set_style_keeps_the_table_bounded() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".to_string());
+        for frame in 0..10_000 {
+            let payload = format!(r#"{{"left":{frame}}}"#);
+            tree.set_style_json(1, payload.as_bytes()).expect("valid style");
+            assert!(
+                tree.styles.len() <= STYLE_SWEEP_FLOOR,
+                "frame {frame} left {} styles interned",
+                tree.styles.len()
+            );
+        }
+    }
+
+    /// Interning keys on raw bytes, so re-ordered keys are two `Arc`s. They are
+    /// still the same style, and a repaint per key order would be a real cost
+    /// on any app that builds style objects conditionally.
+    #[test]
+    fn a_reordered_style_does_not_repaint() {
+        let mut tree = RetainedTree::new();
+        apply(
+            &mut tree,
+            r#"[["createElement",1,"div"],["setStyle",1,{"color":"red","left":10}]]"#,
+        )
+        .expect("valid batch");
+        let revision = tree.elements[&1].subtree_revision;
+
+        apply(&mut tree, r#"[["setStyle",1,{"left":10,"color":"red"}]]"#).expect("valid batch");
+        assert_eq!(
+            tree.elements[&1].subtree_revision, revision,
+            "the same style in another key order is not a change"
+        );
+    }
+
+    /// Three ways an interned style loses its last element reference.
+    #[test]
+    fn a_style_is_released_when_nothing_references_it() {
+        let mut tree = RetainedTree::new();
+        apply(&mut tree, r#"[["createElement",1,"div"]]"#).expect("valid batch");
+
+        // Set on an id that does not exist: nothing keeps the style alive.
+        apply(&mut tree, r#"[["setStyle",99,{"color":"red"}]]"#).expect("missing ids are ignored");
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 0, "a style nobody took must be released");
+
+        apply(&mut tree, r#"[["setStyle",1,{"color":"red"}]]"#).expect("valid batch");
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 1);
+
+        // Replaced.
+        apply(&mut tree, r#"[["setStyle",1,{"color":"blue"}]]"#).expect("valid batch");
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 1, "the replaced style must be released");
+
+        // Destroyed.
+        apply(&mut tree, r#"[["destroyElement",1]]"#).expect("valid batch");
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 0);
     }
 }

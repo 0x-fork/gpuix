@@ -16,7 +16,8 @@
 //! ```text
 //!   tmp/batch-fixture.json
 //!        │
-//!        ├─ serde_json ──► Vec<Value> ──► clone ──► from_value ──► StyleDesc   (today)
+//!        ├─ apply_batch_to_tree ──► Vec<BatchOp> ──► RetainedTree              (shipped)
+//!        ├─ serde_json ──► Vec<Value> ──► clone ──► from_value ──► StyleDesc   (the old path)
 //!        ├─ serde_json ──► Vec<Op<StyleDesc>>                                  (typed)
 //!        ├─ serde_json ──► Vec<Op<CompactStyle>>                               (compact)
 //!        └─ rmp_serde  ──► Vec<Op<CompactStyle>>                               (compact + msgpack)
@@ -385,7 +386,7 @@ impl<'de> Deserialize<'de> for Str<'de> {
 //
 // The wire shape is a tuple: `["setStyle", 42, { … }]`. Deserializing it
 // straight into this enum removes both intermediate `serde_json::Value` trees
-// that `apply_batch` builds today.
+// that `apply_batch` used to build.
 
 #[allow(dead_code)]
 enum Op<'a, S> {
@@ -469,8 +470,10 @@ impl<'de, S: Deserialize<'de>> Deserialize<'de> for Op<'de, S> {
 
 // ── Compact retained element ─────────────────────────────────────────
 //
-// `RetainedElement` today is dominated by one field: `Option<StyleDesc>` is
-// inline, so every element pays the full style size even when it has no style.
+// `RetainedElement` used to be dominated by one field: `Option<StyleDesc>` was
+// inline, so every element paid the full style size even when it had no style.
+// It now holds an `Arc<StyleDesc>`; the row below measures the version this
+// benchmark argued for.
 // Add `String` element types, a `HashSet<String>` of event names and a
 // `HashMap<String, Value>` of custom props and one node costs more than a
 // kilobyte before it holds any content.
@@ -637,9 +640,9 @@ fn verify(fat: &RetainedTree, compact: &CompactTree) {
 
 // ── Benchmark bodies ─────────────────────────────────────────────────
 
-/// Exactly what `renderer.rs` does today: a `Vec<Value>` tree, then a deep
-/// clone of each style payload, then a second parse into `StyleDesc`.
-fn decode_today(json: &str) -> usize {
+/// The path `renderer.rs` used before the typed decode: a `Vec<Value>` tree,
+/// then a deep clone of each style payload, then a second parse into `StyleDesc`.
+fn decode_old_path(json: &str) -> usize {
     let ops: Vec<serde_json::Value> = serde_json::from_str(json).expect("parse batch");
     for op in &ops {
         let Some(array) = op.as_array() else { continue };
@@ -685,43 +688,15 @@ where
 
 // ── Tree construction ────────────────────────────────────────────────
 
-fn build_fat_tree(json: &str) -> RetainedTree {
-    let ops: Vec<serde_json::Value> = serde_json::from_str(json).expect("parse batch");
+/// The real production path: `parse_batch_ops` then the apply loop.
+///
+/// This calls `apply_batch_to_tree` itself rather than replaying the ops by
+/// hand, so the numbers describe shipped code. An earlier version of this bench
+/// used a hand-written replica and hid the fact that `BatchOp` inlined a
+/// 1.4 KB `StyleDesc`, which made the real `Vec<BatchOp>` reserve 300 MB.
+fn build_fat_tree(bytes: &[u8]) -> RetainedTree {
     let mut tree = RetainedTree::new();
-    for op in &ops {
-        let Some(array) = op.as_array() else { continue };
-        let Some(name) = array.first().and_then(|v| v.as_str()) else { continue };
-        let id = |index: usize| array.get(index).and_then(|v| v.as_u64()).unwrap_or(0);
-        match name {
-            "createElement" => tree.create_element(
-                id(1),
-                array[2].as_str().unwrap_or_default().to_owned(),
-            ),
-            "appendChild" => tree.append_child(id(1), id(2)),
-            "removeChild" => tree.remove_child(id(1), id(2)),
-            "insertBefore" => tree.insert_before(id(1), id(2), id(3)),
-            "setStyle" => {
-                let style: StyleDesc =
-                    serde_json::from_value(array[2].clone()).expect("style");
-                tree.set_style(id(1), style);
-            }
-            "setText" => {
-                tree.set_text(id(1), array[2].as_str().unwrap_or_default().to_owned())
-            }
-            "setEventListener" => tree.set_event_listener(
-                id(1),
-                array[2].as_str().unwrap_or_default().to_owned(),
-                array.get(3).and_then(|v| v.as_bool()).unwrap_or(false),
-            ),
-            "setCustomPropValue" | "setCustomProp" => tree.set_custom_prop(
-                id(1),
-                array[2].as_str().unwrap_or_default().to_owned(),
-                array.get(3).cloned().unwrap_or(serde_json::Value::Null),
-            ),
-            "setRoot" => tree.root_id = Some(id(1)),
-            _ => {}
-        }
-    }
+    gpuix_native::apply_batch_to_tree(&mut tree, bytes).expect("apply batch");
     tree
 }
 
@@ -929,7 +904,7 @@ fn time<T>(name: &str, iterations: usize, mut run: impl FnMut() -> T) -> Measure
 
 fn print_results(rows: &[Measurement], baseline_ms: f64) {
     println!(
-        "| decode path | median | vs today | heap churn | allocations | strings borrowed | unescaped |"
+        "| decode path | median | vs shipped | heap churn | allocations | strings borrowed | unescaped |"
     );
     println!("|---|---:|---:|---:|---:|---:|---:|");
     for row in rows {
@@ -1006,11 +981,11 @@ fn main() {
         std::mem::size_of::<StyleProp>()
     );
     println!(
-        "| `RetainedElement` | {} B | the style is inline, so an unstyled node pays for it too |",
+        "| `RetainedElement` | {} B | shipped: the style is one `Arc`, so an unstyled node pays 8 B |",
         std::mem::size_of::<gpuix_native::retained_tree::RetainedElement>()
     );
     println!(
-        "| `RetainedElement` + `Arc<StyleDesc>` | {} B | one field changed |",
+        "| bench replica + `Arc<StyleDesc>` | {} B | the same shape, measured standalone |",
         std::mem::size_of::<PointerStyleElement<std::sync::Arc<StyleDesc>>>()
     );
     println!(
@@ -1038,8 +1013,16 @@ fn main() {
     println!("## Decode\n");
     reset_interners();
     let mut rows = vec![
-        time("today — Vec<Value> + clone + from_value", iterations, || {
-            decode_today(&json)
+        // The shipped path, end to end, minus only the napi String copy:
+        // `serde_json` to `Vec<Value>`, then `parse_batch_ops`, then the apply
+        // loop. Everything below it is a proposal; this row is production.
+        time("REAL apply_batch_to_tree (parse + apply)", iterations, || {
+            let mut tree = RetainedTree::new();
+            gpuix_native::apply_batch_to_tree(&mut tree, json.as_bytes()).expect("apply");
+            tree.elements.len()
+        }),
+        time("the old path — Vec<Value> + clone + from_value", iterations, || {
+            decode_old_path(&json)
         }),
         time("Vec<Value>, no clone", iterations, || decode_no_clone(&json)),
         time("typed JSON ► StyleDesc", iterations, || {
@@ -1081,7 +1064,7 @@ fn main() {
     println!("## Retained tree memory\n");
     reset_interners();
     let fat_start = heap_mark();
-    let fat = build_fat_tree(&json);
+    let fat = build_fat_tree(json.as_bytes());
     let fat_heap = heap_since(fat_start);
     let fat_elements = fat.elements.len();
 
@@ -1111,7 +1094,7 @@ fn main() {
     println!("| tree | elements | live heap | per element | note |");
     println!("|---|---:|---:|---:|---|");
     println!(
-        "| `RetainedTree` (today) | {} | {:.1} MB | {} B | `HashMap<u64, RetainedElement>` |",
+        "| `RetainedTree` (shipped) | {} | {:.1} MB | {} B | `FxHashMap<u64, RetainedElement>` |",
         fat_elements,
         fat_heap.live as f64 / 1e6,
         fat_heap.live as usize / fat_elements.max(1),

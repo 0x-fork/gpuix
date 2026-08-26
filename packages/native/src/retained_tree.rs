@@ -7,13 +7,25 @@
 /// All IDs are u64 — JS generates them with an incrementing counter,
 /// passes them as numbers across napi (no string allocation).
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use crate::style::StyleDesc;
 
 pub struct RetainedElement {
     pub id: u64,
     pub element_type: String,
-    pub style: Option<StyleDesc>,
+    /// Shared, not owned. `StyleDesc` is ~1.4 KB, and holding it inline made an
+    /// unstyled element pay for a style it does not have: `RetainedElement` was
+    /// 1624 bytes, and the `HashMap` stores values inline, so the whole table
+    /// was that wide. Behind an `Arc` the record is 248 bytes.
+    ///
+    /// The pointer is also shared between every element that declared the same
+    /// style. A 10k-turn chat has 59 320 `setStyle` ops and 90 distinct styles.
+    ///
+    /// Read it with `.as_deref()` to get `Option<&StyleDesc>`. Never mutate
+    /// through it; `Arc` has no `DerefMut`, so the compiler enforces that.
+    pub style: Option<Arc<StyleDesc>>,
     pub content: Option<String>,
     pub events: HashSet<String>,
     pub children: Vec<u64>,
@@ -58,8 +70,107 @@ impl RetainedElement {
     }
 }
 
+/// The element map, keyed by the u64 counter JS allocates.
+///
+/// Deliberately not the std hasher. `mark_changed` probes this map once per
+/// ancestor hop on every append, insert, style and text mutation, and
+/// `build_virtual_list` probes it twice per child on every frame. The keys come
+/// from our own counter, never from user input, so SipHash only costs time.
+pub type ElementMap = rustc_hash::FxHashMap<u64, RetainedElement>;
+
+/// One hash-consed style: the raw JSON that produced it, and the shared value.
+///
+/// The raw bytes are kept so a hash hit can be confirmed by comparing content.
+/// A 64-bit hash collides eventually, and a collision here would paint one
+/// element with another element's style, which is a bug nobody would find.
+struct InternedStyle {
+    raw: Box<[u8]>,
+    style: Arc<StyleDesc>,
+}
+
+/// Below this many entries a sweep is not worth thinking about, so the table
+/// never sweeps on a small app just because it grew from one style to two.
+pub(crate) const STYLE_SWEEP_FLOOR: usize = 64;
+
+/// Styles shared by content. Keyed by a hash of the raw payload, with a bucket
+/// per key so collisions are resolved by comparing bytes.
+///
+/// Interning happens here, on arrival, rather than in the protocol. JS cannot
+/// do it safely: `commitUpdate` resends the full style on every commit, and a
+/// dragged element produces a distinct style every frame, so a JS-owned table
+/// would grow without bound and the update path would send a definition plus a
+/// reference where it sends one op today.
+///
+/// Separate from the element tree so `resolve_styles` can borrow it alone. That
+/// is what makes a batch atomic: interning is the only fallible step, and the
+/// borrow checker proves it cannot have touched an element.
+#[derive(Default)]
+pub struct StyleTable {
+    entries: rustc_hash::FxHashMap<u64, Vec<InternedStyle>>,
+    /// Entries currently held. Tracked rather than summed, so `maybe_sweep` is
+    /// O(1) on the commits that do not sweep.
+    count: usize,
+    /// `count` right after the last sweep.
+    swept_at: usize,
+}
+
+impl StyleTable {
+    /// Parse a style payload, reusing the shared value when the same bytes
+    /// arrived before. Hashing ~110 bytes is far cheaper than building the
+    /// ~80 `Option` fields of a `StyleDesc`.
+    pub fn intern(&mut self, raw: &[u8]) -> Result<Arc<StyleDesc>, String> {
+        let mut hasher = rustc_hash::FxHasher::default();
+        raw.hash(&mut hasher);
+        let key = hasher.finish();
+        if let Some(bucket) = self.entries.get(&key) {
+            if let Some(hit) = bucket.iter().find(|entry| &*entry.raw == raw) {
+                return Ok(hit.style.clone());
+            }
+        }
+        let style: StyleDesc = serde_json::from_slice(raw).map_err(|error| error.to_string())?;
+        let shared = Arc::new(style);
+        self.entries.entry(key).or_default().push(InternedStyle {
+            raw: raw.into(),
+            style: shared.clone(),
+        });
+        self.count += 1;
+        Ok(shared)
+    }
+
+    /// Drop interned styles no element references any more.
+    ///
+    /// This is what makes the table safe on an interactive app. A drag creates
+    /// one style per frame; each is released once the element stops referencing
+    /// it. `strong_count == 1` means the table holds the last reference, so
+    /// nothing can be reading it.
+    pub fn sweep(&mut self) {
+        let mut live = 0;
+        self.entries.retain(|_, bucket| {
+            bucket.retain(|entry| Arc::strong_count(&entry.style) > 1);
+            live += bucket.len();
+            !bucket.is_empty()
+        });
+        self.count = live;
+        self.swept_at = live;
+    }
+
+    /// Sweep only once the table has doubled since the last one, so the scan is
+    /// amortized to O(1) per interned style and the table stays within 2x the
+    /// live style count (or `STYLE_SWEEP_FLOOR`, whichever is larger).
+    pub fn maybe_sweep(&mut self) {
+        if self.count >= self.swept_at.saturating_mul(2).max(STYLE_SWEEP_FLOOR) {
+            self.sweep();
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.count
+    }
+}
+
 pub struct RetainedTree {
-    pub elements: HashMap<u64, RetainedElement>,
+    pub elements: ElementMap,
+    pub styles: StyleTable,
     /// The root element ID set by appendChildToContainer.
     pub root_id: Option<u64>,
     next_revision: u64,
@@ -68,10 +179,23 @@ pub struct RetainedTree {
 impl RetainedTree {
     pub fn new() -> Self {
         Self {
-            elements: HashMap::new(),
+            elements: ElementMap::default(),
+            styles: StyleTable::default(),
             root_id: None,
             next_revision: 1,
         }
+    }
+
+    /// Intern a raw style payload and assign it, then keep the table bounded.
+    ///
+    /// The single-op entry points go through here so none of them can forget
+    /// the sweep. `apply_batch_to_tree` resolves its styles up front instead,
+    /// because it must do so before it mutates anything.
+    pub fn set_style_json(&mut self, id: u64, raw: &[u8]) -> Result<(), String> {
+        let style = self.styles.intern(raw)?;
+        self.set_style(id, style);
+        self.styles.maybe_sweep();
+        Ok(())
     }
 
     pub fn create_element(&mut self, id: u64, element_type: String) {
@@ -208,10 +332,20 @@ impl RetainedTree {
         self.mark_changed(parent_id);
     }
 
-    pub fn set_style(&mut self, id: u64, style: StyleDesc) {
+    /// Takes an interned style. Pointer identity is the fast path and covers
+    /// every resend, because `StyleTable::intern` returns the same `Arc` for
+    /// the same bytes. It is not sufficient on its own: interning keys on raw
+    /// bytes, so `{"color":"red","width":10}` and `{"width":10,"color":"red"}`
+    /// are two `Arc`s holding the same style. Only a pointer miss pays for the
+    /// ~80-field compare, which is what decides whether this repaints.
+    pub fn set_style(&mut self, id: u64, style: Arc<StyleDesc>) {
         let mut changed = false;
         if let Some(element) = self.elements.get_mut(&id) {
-            if element.style.as_ref() != Some(&style) {
+            let same = element
+                .style
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &style) || **current == *style);
+            if !same {
                 element.style = Some(style);
                 changed = true;
             }
@@ -480,15 +614,98 @@ mod tests {
     fn style_does_not_move_search_revision() {
         let mut tree = tree_with_child();
         let search = tree.elements[&1].search_revision;
-        tree.set_style(
-            3,
-            StyleDesc {
-                color: Some("#fff".to_string()),
-                ..Default::default()
-            },
-        );
+        let style = tree.styles.intern(br##"{"color":"#fff"}"##).unwrap();
+        tree.set_style(3, style);
         assert_eq!(tree.elements[&1].search_revision, search);
         assert!(tree.elements[&1].subtree_revision > 0);
+    }
+
+    // ── Style interning ──────────────────────────────────────────────
+
+    #[test]
+    fn equal_style_bytes_share_one_allocation() {
+        let mut tree = tree_with_child();
+        let first = tree.styles.intern(br#"{"color":"red"}"#).unwrap();
+        let second = tree.styles.intern(br#"{"color":"red"}"#).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(tree.styles.len(), 1);
+
+        let other = tree.styles.intern(br#"{"color":"blue"}"#).unwrap();
+        assert!(!Arc::ptr_eq(&first, &other));
+        assert_eq!(tree.styles.len(), 2);
+    }
+
+    /// Re-sending the same style must not repaint. `commitUpdate` resends the
+    /// full style on every commit, so without this every commit would dirty
+    /// every element it touched.
+    #[test]
+    fn resending_the_same_style_is_not_a_change() {
+        let mut tree = tree_with_child();
+        let style = tree.styles.intern(br#"{"color":"red"}"#).unwrap();
+        tree.set_style(3, style);
+        let revision = tree.elements[&3].subtree_revision;
+
+        let same = tree.styles.intern(br#"{"color":"red"}"#).unwrap();
+        tree.set_style(3, same);
+        assert_eq!(tree.elements[&3].subtree_revision, revision);
+
+        let different = tree.styles.intern(br#"{"color":"blue"}"#).unwrap();
+        tree.set_style(3, different);
+        assert!(tree.elements[&3].subtree_revision > revision);
+    }
+
+    /// The table must not grow without bound. A dragged element produces a
+    /// distinct style every frame, so the sweep is what keeps this safe.
+    #[test]
+    fn sweep_releases_styles_no_element_references() {
+        let mut tree = tree_with_child();
+        for frame in 0..50 {
+            let payload = format!(r#"{{"left":{frame}}}"#);
+            let style = tree.styles.intern(payload.as_bytes()).unwrap();
+            tree.set_style(3, style);
+            tree.styles.sweep();
+            assert_eq!(
+                tree.styles.len(),
+                1,
+                "frame {frame} leaked a style"
+            );
+        }
+    }
+
+    #[test]
+    fn sweep_keeps_a_style_two_elements_still_use() {
+        let mut tree = tree_with_child();
+        let style = tree.styles.intern(br#"{"color":"red"}"#).unwrap();
+        tree.set_style(2, style.clone());
+        tree.set_style(3, style);
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 1);
+
+        let replacement = tree.styles.intern(br#"{"color":"blue"}"#).unwrap();
+        tree.set_style(3, replacement);
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 2, "element 2 still holds red");
+
+        let replacement = tree.styles.intern(br#"{"color":"blue"}"#).unwrap();
+        tree.set_style(2, replacement);
+        tree.styles.sweep();
+        assert_eq!(tree.styles.len(), 1, "red is now unreferenced");
+    }
+
+    /// Sharing must never let one element's animation restyle another.
+    #[test]
+    fn a_shared_style_is_never_mutated_through() {
+        let mut tree = tree_with_child();
+        let style = tree.styles.intern(br#"{"color":"red"}"#).unwrap();
+        tree.set_style(2, style.clone());
+        tree.set_style(3, style);
+
+        // This is what the motion path does: copy out, then mutate the copy.
+        let mut animated = tree.elements[&3].style.as_deref().cloned().unwrap();
+        animated.color = Some("green".to_string());
+
+        assert_eq!(tree.elements[&2].style.as_ref().unwrap().color.as_deref(), Some("red"));
+        assert_eq!(tree.elements[&3].style.as_ref().unwrap().color.as_deref(), Some("red"));
     }
 
     /// A nested declaration appearing changes which subtrees an ancestor skips,
