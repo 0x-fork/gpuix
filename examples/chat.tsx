@@ -1887,5 +1887,8 @@ if (isEntryPoint) {
     trafficLightX: 16,
     trafficLightY: 17,
     debugFrameOverlay: 'full',
+    // An agent launching this to check its own work must not take the keyboard
+    // away from whoever is typing. Automation needs no focus.
+    focus: process.env.GPUIX_BACKGROUND !== '1',
   })
 }

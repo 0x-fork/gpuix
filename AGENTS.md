@@ -1210,10 +1210,30 @@ Mark targets with `testId`. Then either:
 - `launch({ command, args })` against a child process. The app serves commands
   on stdin only when stdin is a **pipe**
 
+**Always pass `focus: false` when you start a window to check your own work.**
+The user is doing something else. A window that activates on launch takes the
+keyboard mid-sentence, once per iteration, and there is no reason for it:
+`click()` and `screenshot()` never need focus. Wire the entry file so the flag
+comes from the environment, then set it in `launch({ env })`, so a human run
+still behaves normally.
+
+```tsx
+render(<App />, { focus: process.env.GPUIX_BACKGROUND !== '1' })
+```
+
+`fill()` and `press()` do **not** work against `launch()`. The live renderer has
+no `simulateKeystrokes`, so they throw `keystrokes are not live yet`. That is
+unrelated to focus. Use `createTestRoot()` for anything that types.
+
 ```ts
 import { launch } from '@gpuix/react/automation'
 
-const app = await launch({ command: 'bun', args: ['chat.tsx'], cwd: 'examples' })
+const app = await launch({
+  command: 'bun',
+  args: ['chat.tsx'],
+  cwd: 'examples',
+  env: { GPUIX_BACKGROUND: '1' },
+})
 await app.getByTestId('sidebar-collapse').waitFor({ timeoutMs: 30_000 })
 await app.screenshot({ path: 'tmp/chat.png' })
 

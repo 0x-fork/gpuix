@@ -440,6 +440,12 @@ nothing on screen.
 render(<App />, { title: 'Notes', focus: false })
 ```
 
+**Turn this on whenever a coding agent runs your app.** An agent that starts
+the app to check its work will otherwise yank the window in front of whatever
+you are doing, mid-sentence, once per iteration. With `focus: false` the agent
+still gets a real GPU-rendered window it can screenshot and click, and you keep
+your editor. See [Let an agent drive the app](#let-an-agent-drive-the-app).
+
 `activateWindow()` brings the window forward and focuses it. It is the only way
 to reveal a `show: false` window. Reach it from any component with
 `useGpuixRequired()`:
@@ -465,6 +471,74 @@ The process still gets a **Dock icon** on macOS. GPUI sets the regular
 activation policy, so there is no menu-bar-agent mode yet. For a real
 background daemon, run the app from a `launchd` agent in
 `~/Library/LaunchAgents/`; launchd never activates the process.
+
+### Let an agent drive the app
+
+Make focus opt-in through the environment, so a human run behaves normally and
+an agent run stays out of the way:
+
+```tsx
+render(<App />, {
+  title: 'Notes',
+  focus: process.env.GPUIX_BACKGROUND !== '1',
+})
+```
+
+```bash
+bun app.tsx                      # you: window comes to the front
+GPUIX_BACKGROUND=1 bun app.tsx   # agent: window opens behind your editor
+```
+
+`launch()` passes `env` straight through, so an agent script sets it once and
+every screenshot, click, and assertion runs on a window that never interrupts
+you:
+
+```ts
+import { launch } from '@gpuix/react/automation'
+
+const app = await launch({
+  command: 'bun',
+  args: ['app.tsx'],
+  env: { GPUIX_BACKGROUND: '1' },
+})
+
+await app.getByTestId('bump').waitFor()
+await app.getByTestId('bump').click()
+await app.screenshot({ path: 'tmp/after-click.png' })
+await app.close()
+```
+
+Focus is the only thing that changes. **Automation does not need focus.**
+`click()` hits the last painted bounds and `screenshot()` reads the GPU
+surface, so both work while the window sits behind your editor, and even on a
+`show: false` window that is not on screen at all.
+
+```
+  agent ──►  launch({ env: { GPUIX_BACKGROUND: '1' } })
+                │
+                ▼
+          GPU window renders and paints, but never activates
+                │
+                ├──►  getByTestId(..).click()   ✓  hits the last painted bounds
+                ├──►  screenshot({ path })      ✓  reads the GPU surface
+                ├──►  fill() / press()          ✗  keystrokes are not live yet
+                └──►  close()
+
+  you   ──►  keep typing, your editor stays frontmost the whole time
+```
+
+Two limits to know before you rely on it:
+
+- **Keyboard input does not reach a launched process.** `fill()` and `press()`
+  throw `keystrokes are not live yet`, because the live renderer implements no
+  `simulateKeystrokes`. This is not about focus; it fails on a focused window
+  too. Use `createTestRoot()` when a check needs typing
+- **Linux ignores `focus`**, so an agent there still gets a focused window
+
+Prefer `createTestRoot()` when you can. It opens **no window at all**, so
+nothing can steal focus and keyboard input works. Reach for `launch()` plus
+`focus: false` when the check needs a real window, real GPU paint, or a real
+process.
 
 ### flushSync
 
