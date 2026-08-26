@@ -317,12 +317,13 @@ self-accepted for Fast Refresh. The callback then remounts on top of a
 successful refresh and wipes every hook. This looks exactly like Fast Refresh
 being broken, and it is not.
 
-**Never run `bun run build` in `packages/react` while the web dev server is up.**
-That script is `rm -rf dist && tsc`, and `packages/react/dist` is inside the dev
-server's module graph. Deleting it under a running server permanently corrupts
-its registry: every page load then fails with `Failed to load bundled module
-'packages/react/dist/index.js'`, even after a hard reload. Only a server restart
-clears it. Rebuild the library first, then start the server.
+**Never delete `packages/react/dist` while the web dev server is up.** That
+folder is inside the dev server's module graph, so removing it under a running
+server permanently corrupts the registry: every page load then fails with
+`Failed to load bundled module 'packages/react/dist/index.js'`, even after a
+hard reload, and only a server restart clears it. Any `rm -rf dist` / `rimraf
+dist` step in `packages/react` counts. Rebuild the library first, then start the
+server.
 
 ## Custom elements are invisible to automation unless they say otherwise
 
@@ -334,12 +335,24 @@ their own. `<img>`, `<svg>`, `<anchored>`, `<diff>` and `<markdown>` do not.
 
 Add `el.child(crate::automation::bounds_tracker(ctx.id, None))` to any new custom
 element whose root is a `relative()` div. The tracker is `absolute().size_full()`,
-so it needs a positioned parent.
+so it needs a positioned parent. Pass `Some(selectable)` instead of `None` when
+the element also owns a selection-start region; the editor uses `Some(false)` so
+a drag moves the caret instead of starting a document selection.
 
-GPUI's browser IME conduit is a **`<textarea>`**, not an `<input>`. Match it with
-the attribute alone (`IME_MIRROR_SELECTOR` in `automation/client.ts`). A tag-
-qualified selector silently turns every browser keystroke into
-`GPUI browser input is unavailable`.
+## Browser keyboard input goes through GPUI's hidden element
+
+A GPUI web app has two event surfaces. The `<canvas>` takes pointer events.
+A hidden `[data-gpui-input]` element appended to `<body>` takes **every keyboard
+and IME event**: `gpui_web`'s `listen_input` attaches `keydown` / `keyup` there,
+not to the window or the canvas. Dispatching a synthetic `KeyboardEvent` at that
+element is therefore the only way automation can type into a browser app.
+
+**Match it by attribute only** (`IME_MIRROR_SELECTOR` in `automation/client.ts`).
+It used to be an `<input>`; [zed-industries/zed#63201](https://github.com/zed-industries/zed/pull/63201)
+replaced it with a `<textarea>` because a single-line input strips newlines from
+an assigned value and desynchronises the mirror from the document. Our
+tag-qualified selector was never updated, so after that submodule bump every
+browser keystroke failed. A tag-qualified selector will do it again.
 
 ## Virtualized React children re-enter through `cx.processor`
 

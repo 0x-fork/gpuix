@@ -106,25 +106,10 @@ pub fn selection_frame_reset(selection: SharedSelection) -> impl IntoElement {
 
 /// Record a selection-start region from an element's painted box.
 ///
-/// Called from `bounds_tracker` so the region is the same box automation
-/// already uses. Last painted region that contains the point wins.
+/// Only `bounds_tracker` calls this, so a start region is always the same box
+/// automation already uses. Last painted region that contains the point wins.
 pub fn record_start_region(bounds: Bounds<gpui::Pixels>, selectable: bool) {
     START_REGIONS.with(|r| r.borrow_mut().push(StartRegion { bounds, selectable }));
-}
-
-/// Overlay that records this element's box as a selection-start region.
-///
-/// The parent must be positioned (`relative` is enough). Used by native
-/// inputs, which do not go through `bounds_tracker`.
-pub fn selection_start_region(selectable: bool) -> impl IntoElement {
-    canvas(
-        |_, _, _| (),
-        move |bounds, _, _, _| {
-            record_start_region(bounds, selectable);
-        },
-    )
-    .absolute()
-    .size_full()
 }
 
 /// Last painted start region that contains `position`.

@@ -882,7 +882,21 @@ export function browserKeystrokeInit(
   }
 }
 
-/** The hidden element GPUI's browser platform appends to `<body>` for IME. */
+/**
+ * The hidden element GPUI's browser platform appends to `<body>`.
+ *
+ * A GPUI web app has two event surfaces: the `<canvas>` takes pointer events,
+ * and this element takes **every keyboard and IME event**. `gpui_web` attaches
+ * its `keydown` / `keyup` listeners here, not to the window or the canvas, so
+ * dispatching a synthetic `KeyboardEvent` at this element is the only way to
+ * type into a browser GPUIX app.
+ *
+ * Match on the attribute alone. The element used to be an `<input>` and is now
+ * a `<textarea>`, because a single-line input strips newlines from an assigned
+ * value and would desynchronise the mirror from the document. See
+ * zed-industries/zed#63201 and `gpui_web/src/ime_mirror.rs`. A tag-qualified
+ * selector silently turns every keystroke into an "unavailable" error.
+ */
 export const IME_MIRROR_SELECTOR = "[data-gpui-input]"
 
 function dispatchBrowserKeystroke({
@@ -894,16 +908,15 @@ function dispatchBrowserKeystroke({
   type: "keydown" | "keyup"
   isHeld?: boolean
 }): void {
-  // GPUI's IME conduit is a `<textarea>`, not an `<input>`: a single-line
-  // input silently strips newlines from an assigned value, which would make
-  // the mirror text disagree with the document. See `gpui_web/src/ime_mirror.rs`.
-  // Match on the attribute alone so a future tag change cannot silently turn
-  // every keystroke into "GPUI browser input is unavailable".
-  const input = document.querySelector(IME_MIRROR_SELECTOR)
-  if (!input) {
-    throw new AutomationError("Unsupported", "GPUI browser input is unavailable")
+  const mirror = document.querySelector(IME_MIRROR_SELECTOR)
+  if (!mirror) {
+    throw new AutomationError(
+      "Unsupported",
+      `No GPUI keyboard target: nothing matches "${IME_MIRROR_SELECTOR}". ` +
+        "Call this only after render() has painted a frame in a browser page."
+    )
   }
-  input.dispatchEvent(new KeyboardEvent(type, browserKeystrokeInit(keystroke, isHeld)))
+  mirror.dispatchEvent(new KeyboardEvent(type, browserKeystrokeInit(keystroke, isHeld)))
 }
 
 export function browserRendererAsTest(
