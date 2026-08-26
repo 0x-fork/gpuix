@@ -960,6 +960,42 @@ GPUIX sets `restrict_scroll_to_axis` on that path. Native
 Turn on `debugFrameOverlay: 'full'` while you scroll. The overlay is **draw
 time**. `8.3 MS` is about 120 Hz.
 
+### Pannable surfaces must cull
+
+`<virtual-list>` is the only thing that virtualizes. A surface where **you** own
+the offset — a timeline, a node graph, a map — places its children absolutely,
+so GPUI builds and lays out **every** retained child on every frame. Nothing
+skips them for you.
+
+`memo` and culling fix different halves, and only one of them is the draw:
+
+```
+memo(Layer)  ►  cuts React work and the applyBatch mutations
+cull in JS   ►  cuts GPUI build, Taffy layout, and paint
+```
+
+You already know the offset, so the visible window is a `useMemo` away:
+
+```tsx
+const visible = useMemo(() => {
+  const from = scrollX / pxPerSecond
+  const to = (scrollX + viewportWidth) / pxPerSecond
+  return clips.filter((clip) => clip.start <= to && clip.start + clip.duration >= from)
+}, [clips, scrollX, pxPerSecond, viewportWidth])
+```
+
+The timeline example measures both, on 3,259 clips across 26 tracks:
+
+| Wheel pan, one full frame | p50 |
+|---|---|
+| Culled | **7.7 ms** |
+| `memo` only, no culling | **92 ms** |
+
+> [!IMPORTANT]
+> A perf sample must include `renderer.flush()`. Without it you time the React
+> update and none of the GPUI build, layout, and paint that follows. The
+> `memo`-only number above looks like **0.6 ms** if you forget.
+
 ## Text input
 
 `<input>` and `<textarea>` use GPUI's platform input handler. They support a
@@ -1247,13 +1283,22 @@ color, or a solid hover color. A `#00000000` child on a blurred window punches
 through Metal to the desktop.
 
 A `div` that paints a fill, or that is positioned, blocks clicks and hovers
-behind it. The wheel still reaches the ancestor scroller, the same as in a
-browser, so a pannable canvas can place its items absolutely and keep panning.
+behind it. The **wheel still passes**, so a pannable canvas can place its items
+absolutely and keep panning.
 
-Set **`pointerEvents: "auto"`** on the rare element that must swallow the wheel
-too, like a modal backdrop. Set `pointerEvents: "none"` to pass every hit
-through. `<anchored>` occludes by default and has its own `occlude` prop, so
-menus and tooltips need neither.
+Set **`pointerEvents: "auto"`** on an element that must swallow the wheel too,
+like a modal backdrop. `<anchored>` occludes by default and has its own
+`occlude` prop, so menus and tooltips need neither.
+
+> [!IMPORTANT]
+> The wheel does not bubble the way DOM events do. GPUI hit-tests one flat list
+> of painted boxes, so the wheel reaches **any** scroller behind the element,
+> not only an ancestor. An absolute card floating over an unrelated scroll pane
+> will scroll that pane. Give a real overlay `pointerEvents: "auto"`.
+
+`pointerEvents: "none"` means the element inserts **no hitbox**, so it blocks
+nothing behind it. It does not disable the listeners on that same element, and
+it does not inherit, so children keep their own hitboxes.
 
 ## Text selection
 
@@ -1532,7 +1577,8 @@ text imports no longer need a runtime flag.
 
 | Event | Props | Payload fields |
 |-------|-------|----------------|
-| Click | `onClick` | `x`, `y`, `clickCount`, `isRightClick`, `modifiers` |
+| Click | `onClick` | `x`, `y`, `clickCount`, `isRightClick`, `modifiers` — primary button only |
+| Aux click | `onAuxClick` | Same fields, for the non-primary buttons |
 | Mouse down | `onMouseDown` | `x`, `y`, `button`, `clickCount`, `modifiers` |
 | Mouse up | `onMouseUp` | `x`, `y`, `button`, `clickCount`, `modifiers` |
 | Mouse enter | `onMouseEnter` | `hovered` |
@@ -1578,6 +1624,13 @@ not exist yet when the press happens, so it never arms capture, and a release
 past the window edge is lost. Only the pressed element receives moves while the
 gesture runs, and only the hovered element receives them otherwise, so the cost
 is one event per pointer move.
+
+Capture arms on the **left** button only. A right-button drag is not captured,
+so it ends when the pointer leaves the element.
+
+`onClick` is the primary button too, like the DOM. Use **`onAuxClick`** for the
+others, and read `event.isRightClick`. `onMouseDown` and `onMouseUp` see every
+button through `event.button` (`0` left, `1` middle, `2` right).
 
 ## Supported Styles
 
@@ -1931,6 +1984,25 @@ Selection has its own helper. Listeners are registered during **paint**, so
 ```ts
 expect(renderer.dragSelect(20, 30, 900, 300)).toBe('first line\nsecond line')
 ```
+
+### Assert numbers, not pixels
+
+For a stateful surface, paint the state you want to assert into a **readout**
+element and read it with `textContent()`. A screenshot tells you that something
+changed; a readout tells you what, and the failure message names the number.
+
+```tsx
+<text testId="readout">{`x=${scrollX} y=${scrollY} zoom=${zoom} sel=${selected}`}</text>
+```
+
+```ts
+const readout = await app.getByTestId('readout').textContent()
+expect(readout).toBe('x=140 y=60 zoom=24 sel=clip-7')
+```
+
+Every test in [`examples/timeline.test.tsx`](./examples/timeline.test.tsx) works
+this way, including the drag, trim, snap, and zoom gestures. Keep the screenshot
+as well, for a human to look at after the run.
 
 Screenshots land in `packages/react/screenshots/` and `examples/screenshots/`,
 both gitignored, so they can be inspected after a run without adding a binary

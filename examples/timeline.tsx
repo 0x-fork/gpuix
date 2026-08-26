@@ -101,6 +101,7 @@ const FOOTER_HEIGHT = 34
 const ROW_HEIGHT = 34
 const CAPTION_ROW_HEIGHT = 30
 const AUDIO_ROW_HEIGHT = 56
+const COLLAPSED_ROW_HEIGHT = 18
 const CLIP_INSET = 3
 const TRIM_HANDLE_WIDTH = 7
 const SNAP_PX = 6
@@ -176,12 +177,16 @@ function buildGeometry(args: {
   pxPerSecond: number
   viewportWidth: number
   bodyHeight: number
+  /** Collapsed tracks shrink to a header strip and hold no clips. */
+  collapsed: ReadonlySet<string>
 }): Geometry {
   const rows: Geometry['rows'] = []
   const rowTops = new Map<string, number>()
   let top = 0
   for (const track of args.project.tracks) {
-    const height = rowHeight(track)
+    const height = args.collapsed.has(track.id)
+      ? COLLAPSED_ROW_HEIGHT
+      : rowHeight(track)
     rows.push({ track, top, height })
     rowTops.set(track.id, top)
     top += height
@@ -282,7 +287,10 @@ function previewClip(args: {
     const sourceTop = geometry.rowTops.get(source.trackId) ?? 0
     const sourceCenter = sourceTop + rowHeightOf(geometry, source.trackId) / 2
     const track = trackAtContentY(geometry, sourceCenter + (drag.y - drag.originY))
-    const wanted = Math.max(0, source.start + deltaSeconds)
+    // A clip never leaves the project. Without the upper bound a fast drag
+    // parks it past the last frame, where nothing can reach it again.
+    const maxStart = Math.max(0, project.durationSeconds - source.duration)
+    const wanted = clamp(source.start + deltaSeconds, 0, maxStart)
     const candidates = snapCandidates({
       project,
       trackId: track.id,
@@ -306,10 +314,11 @@ function previewClip(args: {
       : endSnap.guide !== null
         ? endSnap.seconds - source.duration
         : wanted
-    const guide = useStart ? startSnap.guide : endSnap.guide
+    const clamped = clamp(start, 0, maxStart)
     return {
-      clip: { ...source, trackId: track.id, start: Math.max(0, start) },
-      guide,
+      clip: { ...source, trackId: track.id, start: clamped },
+      // A snap that the clamp overrode is not a snap the user can see.
+      guide: clamped === start ? (useStart ? startSnap.guide : endSnap.guide) : null,
     }
   }
 
@@ -355,11 +364,12 @@ function previewClip(args: {
 }
 
 /** Clip ids whose painted rectangle overlaps the marquee, in window space. */
-function marqueeHits(
-  drag: DragState,
-  geometry: Geometry,
+function marqueeHits(args: {
+  drag: DragState
+  geometry: Geometry
   project: Project
-): Set<string> {
+}): Set<string> {
+  const { drag, geometry, project } = args
   const left = Math.min(drag.originX, drag.x)
   const right = Math.max(drag.originX, drag.x)
   const top = Math.min(drag.originY, drag.y)
@@ -820,8 +830,9 @@ export function TimelineApp(props: TimelineAppProps = {}) {
         pxPerSecond: viewport.pxPerSecond,
         viewportWidth,
         bodyHeight,
+        collapsed,
       }),
-    [project, viewport.pxPerSecond, viewportWidth, bodyHeight]
+    [project, viewport.pxPerSecond, viewportWidth, bodyHeight, collapsed]
   )
 
   const panelHeight = RULER_HEIGHT + bodyHeight + FOOTER_HEIGHT
@@ -933,11 +944,13 @@ export function TimelineApp(props: TimelineAppProps = {}) {
     [beginDrag]
   )
 
+  /** Window x to a project time, clamped inside the project. */
   const secondsAtWindowX = useCallback((x: number) => {
     const state = live.current
-    return Math.max(
+    return clamp(
+      (x - state.geometry.gridLeft + state.viewport.scrollX) / state.viewport.pxPerSecond,
       0,
-      (x - state.geometry.gridLeft + state.viewport.scrollX) / state.viewport.pxPerSecond
+      state.project.durationSeconds
     )
   }, [])
 
@@ -1024,7 +1037,13 @@ export function TimelineApp(props: TimelineAppProps = {}) {
         }))
       }
       if (current.kind === 'marquee') {
-        setSelection(marqueeHits(current, state.geometry, state.project))
+        setSelection(
+          marqueeHits({
+            drag: current,
+            geometry: state.geometry,
+            project: state.project,
+          })
+        )
       }
     }
     note(`dragend:${current.kind}`)

@@ -1633,6 +1633,46 @@ describeNative("events", () => {
       expect(deltas).toEqual([-80])
     })
 
+    it("lets an absolute sibling pass the wheel to a scroller below it", () => {
+      // BlockMouseExceptScroll is not DOM ancestor bubbling: it lets every
+      // scroll hitbox behind the element take the wheel, including one that
+      // is not an ancestor. An overlay that must not do this needs
+      // `pointerEvents: "auto"`.
+      function OverlayOverScroller() {
+        return (
+          <div style={{ width: 320, height: 200, position: "relative" }}>
+            <div style={{ width: 320, height: 200, overflowY: "scroll" }}>
+              <div style={{ height: 900, backgroundColor: "#1e1e2e" }}>
+                <text>tall</text>
+              </div>
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: 320,
+                height: 200,
+                backgroundColor: "#101010",
+              }}
+            >
+              <text>card</text>
+            </div>
+          </div>
+        )
+      }
+
+      testRoot.render(<OverlayOverScroller />)
+      const scroller = testRoot.renderer
+        .findByType("div")
+        .find((d) => d.style.overflowY === "scroll")!
+      testRoot.renderer.nativeSimulateScrollWheel(160, 100, 0, -80)
+
+      const offset = testRoot.renderer.getScrollOffset(scroller.id)
+      expect(offset).not.toBeNull()
+      expect(offset![1]).toBeLessThan(0)
+    })
+
     it("stops the wheel at a child with pointerEvents auto", () => {
       const deltas: number[] = []
 

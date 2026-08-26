@@ -383,6 +383,12 @@ describeNative('timeline example', () => {
 
     const events = await app.getByTestId('events').textContent()
     expect(events).toBe(`dragstart:move:${clip.id} dragend:move`)
+
+    // A clip parked past the last frame could never be reached again.
+    const moved = await selectionOf(app)
+    expect(moved!.start + moved!.duration).toBeLessThanOrEqual(
+      project.durationSeconds + 0.001
+    )
     await app.close()
   })
 
@@ -400,6 +406,20 @@ describeNative('timeline example', () => {
 
     const events = await app.getByTestId('events').textContent()
     expect(events).toBe('dragstart:scrub dragend:scrub')
+    await app.close()
+  })
+
+  it('stops the playhead at both ends of the project', async () => {
+    const root = mount()
+    const app = await connectTest(root.renderer)
+
+    // Past the last frame, not merely past the window edge.
+    const pastTheEnd = HEADER_WIDTH + project.durationSeconds * PX_PER_SECOND + 500
+    await app.mouse.drag(RULER_POINT, { x: pastTheEnd, y: RULER_POINT.y }, { steps: 3 })
+    expect(Number((await readout(app)).head)).toBe(project.durationSeconds)
+
+    await app.mouse.drag(RULER_POINT, { x: -4000, y: RULER_POINT.y }, { steps: 3 })
+    expect(Number((await readout(app)).head)).toBe(0)
     await app.close()
   })
 
@@ -454,12 +474,22 @@ describeNative('timeline example', () => {
     const app = await connectTest(root.renderer)
 
     const before = await readout(app)
+    const rowBefore = await app.getByTestId(`track-header-${TOP_TRACK}`).bounds()
+    const belowBefore = await app.getByTestId(`track-header-${SECOND_TRACK}`).bounds()
+
     await app.getByTestId(`track-header-${TOP_TRACK}`).click()
+
     const after = await readout(app)
+    const rowAfter = await app.getByTestId(`track-header-${TOP_TRACK}`).bounds()
+    const belowAfter = await app.getByTestId(`track-header-${SECOND_TRACK}`).bounds()
 
     expect(Number(after.clips.split('/')[0])).toBeLessThan(
       Number(before.clips.split('/')[0])
     )
+    // The row shrinks and everything under it moves up, so a collapsed track
+    // costs a header strip instead of an empty band.
+    expect(rowAfter.height).toBeLessThan(rowBefore.height)
+    expect(belowAfter.y).toBeLessThan(belowBefore.y)
     await app.close()
   })
 })

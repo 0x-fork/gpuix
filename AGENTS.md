@@ -255,9 +255,9 @@ wheel  ►  notify GpuixView  ►  render()  ►  Taffy on visible rows  ►  pa
 
 If scroll is smooth on empty padding and slow or stuck on text, a filled
 child is stealing the wheel. `occlude()` is **BlockMouse**. It stops the
-hit test. The parent list never sees the event. In-flow fills must use
-`block_mouse_except_scroll()`. Keep `occlude()` for absolute/fixed overlays
-and `pointerEvents: "auto"`.
+hit test. The parent list never sees the event. Every painted or positioned
+`div` must use `block_mouse_except_scroll()`. `occlude()` is reserved for
+`pointerEvents: "auto"` and for `<anchored>`, which sets it itself.
 
 The chat "jank" over code and tables was the Y-to-X remap above, not the
 tick loop. After that fix, remaining cost is Taffy on fat visible rows.
@@ -431,8 +431,17 @@ rows need a **solid** fill too, not a transparent idle state.
 
 Any `div` that paints a fill, or that is positioned, uses
 **BlockMouseExceptScroll**. Clicks and hovers stop, the wheel still reaches the
-ancestor scroller. Only `pointerEvents: "auto"` uses **BlockMouse** and steals
-the wheel. `pointerEvents: "none"` opts out of both.
+scroll hitboxes behind it. Only `pointerEvents: "auto"` uses **BlockMouse** and
+steals the wheel.
+
+That is not DOM bubbling. GPUI hitboxes are one flat painted list, so the wheel
+reaches **any** scroller behind the element, not only an ancestor. An absolute
+card over an unrelated scroller scrolls it. Give a real overlay
+`pointerEvents: "auto"`.
+
+`pointerEvents: "none"` means this element inserts **no hitbox**, so nothing
+behind it is blocked. It does not disable the listeners on the element itself,
+and it does not inherit.
 
 Absolute used to steal the wheel too. That made a pannable canvas impossible:
 every absolutely placed item ended the hit test before the ancestor's pan

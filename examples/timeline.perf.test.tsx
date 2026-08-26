@@ -2,10 +2,16 @@
  * Timeline performance regression. Times mount, wheel pan, and drag move.
  *
  * The question this answers: does a pannable editing surface stay cheap when
- * React owns the scroll offset? A pan is a React render, so the two numbers
- * that matter are the pan with culling on (the clip list changes, so the
- * memoized layer re-renders) and with culling off (only the translating
- * wrapper's style changes, so the layer is skipped).
+ * React owns the scroll offset?
+ *
+ * **Every measured sample must include a `flush()`.** A pannable surface has no
+ * virtualizer, so GPUI rebuilds and lays out every retained child each frame.
+ * `dispatchScrollWheel()` alone measures the React update and hides that. The
+ * first version of this file did exactly that and reported 0.6ms for the case
+ * that actually costs about 100ms.
+ *
+ * That is the whole point of the cull-on / cull-off pair: `memo(ClipLayer)`
+ * removes the React work, and only culling removes the GPUI work.
  *
  * Excluded from `bun run test` by the `*.perf.test.tsx` glob, because these
  * budgets assume an unclamped M-series CPU.
@@ -37,14 +43,17 @@ const WHEEL_AT = { x: 700, y: 600 }
 
 const BUDGET = {
   mountMs: 400,
-  panP95Ms: 10,
-  panMaxMs: 24,
-  // A drag sample is deliberately more expensive than a pan sample:
-  // `nativeSimulateMouseMove` flushes before and after the event, so each one
-  // includes two complete GPUI paints. Compare drag numbers to each other,
-  // never to the pan numbers, which dispatch the wheel without a flush.
-  dragP95Ms: 20,
-  dragMaxMs: 36,
+  // Pan and drag samples both include one full GPUI paint, so they are
+  // comparable. A drag also runs the snap search over every clip.
+  panP95Ms: 18,
+  panMaxMs: 34,
+  dragP95Ms: 22,
+  dragMaxMs: 40,
+  // Culling off is the control, not a supported configuration: GPUI lays out
+  // all 3,200 clips every frame. The budget only has to catch an order of
+  // magnitude, so that the cull-on numbers cannot quietly become this.
+  noCullP95Ms: 400,
+  noCullMaxMs: 600,
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -113,6 +122,9 @@ function panSamples(root: TestRoot): number[] {
       direction * 24,
       direction * 12
     )
+    // The wheel only marks the view dirty. Without this the sample is the
+    // React update and none of the GPUI build, layout or paint that follows.
+    root.renderer.flush()
     const elapsed = performance.now() - started
     if (index >= WARMUP) samples.push(elapsed)
   }
@@ -146,11 +158,18 @@ describeNative('timeline performance', () => {
   })
 
   it('pans with culling off', () => {
-    // Every clip stays mounted, so `memo(ClipLayer)` skips the whole subtree
-    // and the wheel changes three styles. Slower to draw, cheaper in React.
+    // `memo(ClipLayer)` skips the whole subtree, so the wheel changes three
+    // styles and costs almost no React time. GPUI still builds and lays out
+    // every retained clip, so the draw is an order of magnitude worse. This is
+    // why a pannable surface has to cull: memo fixes the JS half only.
     const root = mount(false)
     root.renderer.flush()
-    report('pan cull=off', panSamples(root))
+    expectBudget({
+      label: 'pan cull=off',
+      samples: panSamples(root),
+      p95Max: BUDGET.noCullP95Ms,
+      maxMax: BUDGET.noCullMaxMs,
+    })
   })
 
   it('drags a clip across the timeline', () => {
@@ -172,7 +191,9 @@ describeNative('timeline performance', () => {
     const samples: number[] = []
     for (let index = 0; index < WARMUP + SAMPLES; index += 1) {
       const started = performance.now()
-      root.renderer.nativeSimulateMouseMove(startX + index * 3, startY, 0)
+      // One flush per sample, same as the pan, so the two are comparable.
+      root.renderer.dispatchMouseMove(startX + index * 3, startY, 0)
+      root.renderer.flush()
       const elapsed = performance.now() - started
       if (index >= WARMUP) samples.push(elapsed)
     }

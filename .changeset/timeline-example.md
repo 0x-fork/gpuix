@@ -16,4 +16,6 @@ Two patterns in it are worth copying.
 
 **A drag needs no overlay.** Each clip and each trim handle listens for `onMouseDown`, `onMouseMove`, and `onMouseUp`, which arms GPUI's pointer capture, so a release past the window edge still ends the gesture. A full-window overlay mounted on the press cannot: capture is armed by the press, and the overlay does not exist yet.
 
-`examples/timeline.test.tsx` drives all of it through the automation API, and `examples/timeline.perf.test.tsx` times mount, pan, and drag on a 3,200-clip project.
+**A pannable surface has to cull.** `<virtual-list>` is the only thing that virtualizes; a surface that owns its own offset places children absolutely, so GPUI lays out every retained child every frame. `memo` removes the React work, and only culling removes the draw. On 3,259 clips across 26 tracks, one wheel frame costs **7.7ms** culled and **92ms** with `memo` alone.
+
+`examples/timeline.test.tsx` drives all of it through the automation API, and `examples/timeline.perf.test.tsx` times mount, pan, and drag.
