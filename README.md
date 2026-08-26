@@ -387,7 +387,34 @@ terminal.
 | `windowBackground` | `"opaque"` (default), `"transparent"`, `"blurred"` | Window fill. `"blurred"` is the macOS vibrancy backdrop |
 | `trafficLightX` / `trafficLightY` | pixels | Traffic-light origin. Waku uses `(16, 17)` |
 | `transparent` | boolean | Same as `windowBackground: "transparent"` when that option is unset |
+| `appName` | string | Name inside the macOS application menu, in `Hide X` and `Quit X`. Defaults to `title` |
 Call it again after a save and it remounts the tree on the same window.
+
+### The macOS menu bar
+
+GPUIX installs the application menu bar for you, so a fresh app already answers
+`⌘Q`, `⌘H`, `⌥⌘H`, `⌘M`, and `⌘W`. Without it `NSApp.mainMenu` is nil, macOS
+paints an empty menu bar, and those shortcuts do not exist at all: AppKit only
+provides them through menu items.
+
+```
+Apple    <appName>                Window
+         ├ Services               ├ (AppKit window tiling)
+         ├ Hide <appName>   ⌘H    ├ Minimize          ⌘M
+         ├ Hide Others     ⌥⌘H    ├ Zoom
+         ├ Show All               ├ Close Window      ⌘W
+         └ Quit <appName>   ⌘Q    └ (open windows)
+```
+
+The **title of the application menu comes from the executable**, not from
+`appName`. macOS reads it from the running binary, so `bun app.tsx` shows `bun`
+during development and a `bun build --compile` binary shows its own file name.
+Only a real `.app` bundle can change it. The items inside the menu do use
+`appName`.
+
+There is **no Edit menu**, on purpose. A menu key equivalent is consumed by
+AppKit before the window sees the key event, so an Edit menu carrying `⌘C`
+would take the keystroke away from text selection and from `<input>`.
 
 Use **`render()`**, not `createRenderer()`, in the app entry. `bun --hot`
 re-runs the whole file on save. `createRenderer()` plus `init()` would then
@@ -2353,6 +2380,8 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [x] Native `hover` and `active` styles
 - [x] Window title (`setWindowTitle`)
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)
+- [x] macOS menu bar with the standard shortcuts (`appName`)
+- [ ] App-declared menus and menu callbacks
 - [x] Last window close quits the process
 - [x] Debug frame overlay (`debugFrameOverlay` / `setDebugFrameOverlay`)
 - [ ] Canvas element

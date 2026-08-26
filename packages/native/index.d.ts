@@ -489,6 +489,11 @@ export interface WindowInsets {
 
 export interface WindowOptions {
   title?: string
+  /**
+   * The name macOS shows in the application menu, and in its "Hide" and
+   * "Quit" items. Defaults to `title`.
+   */
+  appName?: string
   width?: number
   height?: number
   minWidth?: number

@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod automation;
 mod color;
 mod custom_elements;

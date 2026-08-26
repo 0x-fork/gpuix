@@ -51,6 +51,23 @@ pub(crate) fn init_key_bindings(cx: &mut gpui::App) {
     ]);
 }
 
+/// The Window menu items act on the focused window, and the root element is the
+/// only place in GPUIX that has one. `crate::app_menu` owns everything else.
+#[cfg(target_os = "macos")]
+fn with_window_menu_actions(root: gpui::Div) -> gpui::Div {
+    use crate::app_menu::{CloseWindow, MinimizeWindow, ZoomWindow};
+    use gpui::prelude::*;
+
+    root.on_action(|_: &MinimizeWindow, window, _cx| window.minimize_window())
+        .on_action(|_: &ZoomWindow, window, _cx| window.zoom_window())
+        .on_action(|_: &CloseWindow, window, _cx| window.remove_window())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn with_window_menu_actions(root: gpui::Div) -> gpui::Div {
+    root
+}
+
 /// Parse a CSS font-weight value (string or number) into a GPUI FontWeight.
 /// Accepts named keywords ("bold", "semibold"), numeric strings ("700"),
 /// and raw numbers (700). Falls back to 400 (normal) for unrecognized values.
@@ -747,6 +764,7 @@ impl GpuixRenderer {
         let width = options.width.unwrap_or(800.0);
         let height = options.height.unwrap_or(600.0);
         let title = options.title.clone().unwrap_or_else(|| "GPUIX".to_string());
+        let app_name = options.app_name.clone().unwrap_or_else(|| title.clone());
         let window_options = options.clone();
 
         let platform = Rc::new(gpui_macos::MacPlatform::new_embedded());
@@ -766,6 +784,9 @@ impl GpuixRenderer {
         let app_handle = app.run_embedded(move |cx: &mut gpui::App| {
             init_key_bindings(cx);
             crate::custom_elements::input::init(cx);
+            // After the other bindings: `set_menus` reads key equivalents out of
+            // the keymap, so every binding must exist before it runs.
+            crate::app_menu::init(&app_name, cx);
             let bounds = gpui::Bounds::centered(
                 None,
                 gpui::size(gpui::px(width as f32), gpui::px(height as f32)),
@@ -3414,10 +3435,11 @@ impl gpui::Render for GpuixView {
         // longer on screen.
         let result = {
             use gpui::prelude::*;
-            gpui::div()
+            let root = gpui::div()
                 .size_full()
                 .on_action(|_: &FocusNext, window, cx| window.focus_next(cx))
-                .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx))
+                .on_action(|_: &FocusPrevious, window, cx| window.focus_prev(cx));
+            with_window_menu_actions(root)
                 .child(selection_frame_reset(self.selection.clone()))
                 .child(crate::automation::bounds_frame_reset())
                 .child(result)
@@ -5041,6 +5063,9 @@ pub struct DebugFrameOverlayStats {
 #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct WindowOptions {
     pub title: Option<String>,
+    /// The name macOS shows in the application menu, and in its "Hide" and
+    /// "Quit" items. Defaults to `title`.
+    pub app_name: Option<String>,
     pub width: Option<f64>,
     pub height: Option<f64>,
     pub min_width: Option<f64>,
@@ -5062,6 +5087,7 @@ impl Default for WindowOptions {
     fn default() -> Self {
         Self {
             title: Some("GPUIX".to_string()),
+            app_name: None,
             width: Some(800.0),
             height: Some(600.0),
             min_width: None,

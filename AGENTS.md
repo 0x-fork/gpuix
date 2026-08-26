@@ -345,6 +345,39 @@ so it needs a positioned parent. Pass `Some(selectable)` instead of `None` when
 the element also owns a selection-start region; the editor uses `Some(false)` so
 a drag moves the caret instead of starting a document selection.
 
+## A macOS menu item owns its shortcut, so the window never sees it
+
+`crate::app_menu` installs the App and Window menus during `init_macos`. GPUI
+does not do this on its own: `NSApp.mainMenu` stays nil, macOS paints an empty
+menu bar, and `⌘Q`, `⌘H`, `⌘M` and `⌘W` do not exist, because AppKit only
+provides them through menu items.
+
+**Never add an Edit menu carrying `⌘C` / `⌘V` / `⌘X` / `⌘A`.** AppKit consumes a
+key equivalent before the window sees the key event, so those items would take
+the keystroke away from the selection listener in `text::paint` and from the
+per-focus clipboard handling in `custom_elements::input`. An Edit menu needs
+those handlers moved into GPUI actions first.
+
+`gpui::App::set_menus` reads each shortcut out of the keymap, so bind the keys
+**before** you call it. Window-level items (`MinimizeWindow`, `ZoomWindow`,
+`CloseWindow`) go through `with_window_menu_actions` on the root element in
+`GpuixView::render`, because a `Window` exists nowhere else; app-level ones
+(`Quit`, `Hide`, `HideOthers`, `ShowAll`) are `cx.on_action` globals.
+
+Two things real AppKit decides for you. The **title of the application menu is
+the executable name**, not the `Menu` name you pass, so `bun app.tsx` shows
+`bun`; only a `.app` bundle changes it. And the menu named `Window` is handed to
+`setWindowsMenu:`, which prepends AppKit's own tiling items, `Enter Full Screen`
+included. Do not add that item yourself.
+
+Verify with the accessibility tree, not a screenshot. The system menu bar is
+outside the window, so GPUIX automation cannot see it.
+
+```bash
+osascript -e 'tell application "System Events" to tell (first process whose unix id is PID) \
+  to get name of every menu bar item of menu bar 1'
+```
+
 ## Browser keyboard input goes through GPUI's hidden element
 
 A GPUI web app has two event surfaces. The `<canvas>` takes pointer events.
@@ -1015,6 +1048,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] Headless Select, Combobox, Tooltip
 - [x] `setWindowTitle`
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)
+- [x] macOS menu bar (`crate::app_menu`, `appName`)
 - [x] Last window close quits the process
 - [x] Debug frame overlay (`setDebugFrameOverlay`)
 
