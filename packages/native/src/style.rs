@@ -244,10 +244,10 @@ pub fn should_occlude(style: &StyleDesc) -> bool {
 /// Map a CSS `cursor` keyword onto a GPUI cursor. Unknown keywords return
 /// `None` so the property is ignored, like every other invalid style value.
 ///
-/// `nwse-resize` and `nesw-resize` follow the macOS implementation, not the
-/// GPUI doc comments: `ResizeUpLeftDownRight` is the NorthWest/SouthEast
-/// cursor, so it is `nwse-resize`. The two doc comments in `platform.rs`
-/// name the opposite CSS values.
+/// `ResizeUpLeftDownRight` is the NorthWest/SouthEast cursor on every backend,
+/// so it is `nwse-resize`. GPUI's doc comments and its browser backend named
+/// the opposite CSS values until the pinned fork corrected them, so do not
+/// "fix" this pair back by reading an older GPUI.
 pub fn parse_cursor(name: &str) -> Option<gpui::CursorStyle> {
     use gpui::CursorStyle;
     Some(match name {
