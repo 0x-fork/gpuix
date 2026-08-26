@@ -108,6 +108,9 @@ thread_local! {
     static WEB_APP: RefCell<Option<gpui::ApplicationHandle>> = const { RefCell::new(None) };
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     static WEB_WINDOW: RefCell<Option<gpui::WindowHandle<GpuixView>>> = const { RefCell::new(None) };
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    static PENDING_DEBUG_OVERLAY: RefCell<Option<gpui::DebugFrameOverlayMode>> =
+        const { RefCell::new(None) };
     /// Shared scroll handles — GpuixView writes here during render(),
     /// platform-local handlers read from here for programmatic scroll control.
     /// ScrollHandle is Rc<RefCell<...>> so its methods (set_offset, offset,
@@ -120,19 +123,24 @@ thread_local! {
     static VIRTUAL_LIST_STATES: RefCell<HashMap<u64, gpui::ListState>> = RefCell::new(HashMap::new());
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-pub(crate) fn parse_debug_frame_overlay_mode(mode: &str) -> Result<gpui::DebugFrameOverlayMode> {
+fn parse_debug_frame_overlay_mode_str(
+    mode: &str,
+) -> std::result::Result<gpui::DebugFrameOverlayMode, String> {
     match mode {
         "hidden" => Ok(gpui::DebugFrameOverlayMode::Hidden),
         "minimal" => Ok(gpui::DebugFrameOverlayMode::Minimal),
         "full" => Ok(gpui::DebugFrameOverlayMode::Full),
-        other => Err(Error::from_reason(format!(
+        other => Err(format!(
             "Unknown debug frame overlay mode {other:?}. Use hidden, minimal, or full."
-        ))),
+        )),
     }
 }
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub(crate) fn parse_debug_frame_overlay_mode(mode: &str) -> Result<gpui::DebugFrameOverlayMode> {
+    parse_debug_frame_overlay_mode_str(mode).map_err(Error::from_reason)
+}
+
 pub(crate) fn debug_frame_overlay_mode_name(mode: gpui::DebugFrameOverlayMode) -> &'static str {
     match mode {
         gpui::DebugFrameOverlayMode::Hidden => "hidden",
@@ -1631,7 +1639,10 @@ fn start_web_app(
     let app = gpui_platform::single_threaded_web().run_embedded(move |cx| {
         init_key_bindings(cx);
         crate::custom_elements::input::init(cx);
-        let window = cx.open_window(Default::default(), |_window, cx| {
+        let window = cx.open_window(Default::default(), |window, cx| {
+            if let Some(mode) = PENDING_DEBUG_OVERLAY.with(|pending| pending.borrow_mut().take()) {
+                window.set_debug_frame_overlay_mode(mode);
+            }
             cx.new(|_| {
                 GpuixView::new(
                     tree,
@@ -2194,6 +2205,36 @@ impl WebGpuixRenderer {
             let now_ms = view.clock.resume();
             cx.notify();
             now_ms
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setDebugFrameOverlay)]
+    pub fn set_debug_frame_overlay(&self, mode: String) -> Result<String, wasm_bindgen::JsValue> {
+        let mode = parse_debug_frame_overlay_mode_str(&mode)
+            .map_err(|error| wasm_bindgen::JsValue::from_str(&error))?;
+        // Graphics init is async. render() sets the overlay before WEB_WINDOW exists.
+        if WEB_WINDOW.with(|window| window.borrow().is_none()) {
+            PENDING_DEBUG_OVERLAY.with(|pending| *pending.borrow_mut() = Some(mode));
+            return Ok(debug_frame_overlay_mode_name(mode).to_string());
+        }
+        update_web_window(move |_view, window, cx| {
+            window.set_debug_frame_overlay_mode(mode);
+            cx.notify();
+            debug_frame_overlay_mode_name(window.debug_frame_overlay_mode()).to_string()
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getDebugFrameOverlay)]
+    pub fn get_debug_frame_overlay(&self) -> Result<String, wasm_bindgen::JsValue> {
+        if WEB_WINDOW.with(|window| window.borrow().is_none()) {
+            let pending = PENDING_DEBUG_OVERLAY.with(|pending| *pending.borrow());
+            return Ok(debug_frame_overlay_mode_name(
+                pending.unwrap_or(gpui::DebugFrameOverlayMode::Hidden),
+            )
+            .to_string());
+        }
+        update_web_window(|_view, window, _cx| {
+            debug_frame_overlay_mode_name(window.debug_frame_overlay_mode()).to_string()
         })
     }
 }
