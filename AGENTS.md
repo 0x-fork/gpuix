@@ -4,19 +4,38 @@
 
 Not **remorses**? Do not open a pull request. Open an issue. See [External contributors](#external-contributors).
 
+## GPUIX is a thin layer on GPUI
+
+**Read the GPUI docs and the GPUI source before you write native code.** `zed/crates/gpui`
+is checked out in this repository. `gpui::ListState`, `gpui::div`, `gpui::Window` and the
+rest are the real API; GPUIX only translates a React tree into calls on them.
+
+Do not invent behaviour on top of GPUI. If a GPUIX element needs something GPUI does not
+do, the order is:
+
+1. Find the GPUI API that already does it. Search `zed/crates/gpui` for the symbol
+2. Search `zed-industries/zed` issues and PRs. Someone may have shipped it already
+3. Fix it in the `remorses/zed` fork as a normal GPUI change, and bump the submodule
+4. Only then, add GPUIX code
+
+**Never paper over GPUI in `packages/native`.** A workaround that re-applies state after
+GPUI computed it, patches a value GPUI owns, or reaches around a GPUI invariant will break
+on the next submodule bump and is very hard to debug. When such a change is unavoidable,
+it must state in a comment what GPUI does, why that is not what GPUIX needs, and which
+GPUI call makes it safe.
+
+Prefer the smallest translation. Fewer moving parts is more important than matching any
+other framework's behaviour.
+
 ## Project Goal
 
 GPUIX enables building **native GPU-accelerated desktop applications** using **React and TypeScript**, powered by [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (Zed's rendering framework).
 
 Instead of Electron/web rendering, your React components render directly to the GPU via Metal/Vulkan.
 
-## Stay close to HTML
+## Mouse capture is armed by the press
 
-GPUIX should feel like **HTML and the DOM**. Agents already know `onMouseDown` / `onMouseMove` / `onMouseUp`, flexbox, and `setPointerCapture`. Prefer those names over a GPUI-only primitive.
-
-Do **not** fight GPUI or work around it. If GPUI is different from the DOM, follow GPUI. The goal is the lowest complexity and the highest performance. Do not add HTML machinery that GPUI does not need.
-
-A `div` with `onMouseDown`, `onMouseMove`, and `onMouseUp` keeps move and up after the pointer leaves the hitbox. That is HTML `setPointerCapture`, applied automatically when the same node listens for down and move.
+A `div` with `onMouseDown`, `onMouseMove`, and `onMouseUp` keeps move and up after the pointer leaves the hitbox. GPUIX arms that automatically when the same node listens for down and move, using GPUI's window-level mouse listeners.
 
 Put all three on the element the user grabs. Capture is armed by the **press**, so an overlay mounted during that press never arms it, and a release past the window edge is lost. `examples/timeline.tsx` drags clips, trims edges, scrubs, and marquee-selects with no overlay at all.
 
