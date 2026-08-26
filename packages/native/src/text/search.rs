@@ -37,7 +37,6 @@ pub struct HighlightSpec {
     pub radius: f32,
 }
 
-/// Every `highlight` spec declared by one element.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HighlightSet {
     pub specs: Vec<HighlightSpec>,
@@ -48,8 +47,8 @@ impl HighlightSet {
     /// yields `None`, so nothing resolves and nothing paints.
     pub fn parse(value: &serde_json::Value, theme: &crate::theme::Theme) -> Option<Self> {
         let items = match value {
-            serde_json::Value::Array(items) => items.clone(),
-            serde_json::Value::Object(_) => vec![value.clone()],
+            serde_json::Value::Array(items) => items.as_slice(),
+            serde_json::Value::Object(_) => std::slice::from_ref(value),
             _ => return None,
         };
         let specs: Vec<HighlightSpec> = items
@@ -173,7 +172,7 @@ fn fold(text: &str) -> (String, Vec<u32>) {
 /// A boundary that falls inside a surrogate pair has no character boundary here,
 /// so it is rejected rather than snapped: silently moving a caller's range is
 /// worse than telling them it was wrong.
-pub fn utf16_range_to_bytes(text: &str, start: usize, end: usize) -> Option<Range<usize>> {
+fn utf16_range_to_bytes(text: &str, start: usize, end: usize) -> Option<Range<usize>> {
     if start >= end {
         return None;
     }
@@ -222,20 +221,23 @@ pub struct NativeHighlight {
     pub offsets: Vec<usize>,
 }
 
-thread_local! {
-    /// Next ordinal per `(declaration, spec)` this frame.
-    static NATIVE_CURSOR: RefCell<HashMap<(usize, usize), usize>> =
-        RefCell::new(HashMap::new());
+/// Per-frame native match numbering.
+#[derive(Default)]
+struct NativeOrdinals {
+    /// Next ordinal per `(declaration, spec)`.
+    cursor: HashMap<(usize, usize), usize>,
     /// Ordinals already handed to a run, so a row gpui paints twice keeps the
     /// numbers it had the first time instead of advancing the cursor again.
-    static NATIVE_ASSIGNED: RefCell<HashMap<(usize, usize, Arc<str>), usize>> =
-        RefCell::new(HashMap::new());
+    assigned: HashMap<(usize, usize, Arc<str>), usize>,
+}
+
+thread_local! {
+    static NATIVE: RefCell<NativeOrdinals> = RefCell::new(NativeOrdinals::default());
 }
 
 /// Clear the per-frame native match numbering. Called by the frame reset.
 pub fn native_frame_reset() {
-    NATIVE_CURSOR.with(|cursor| cursor.borrow_mut().clear());
-    NATIVE_ASSIGNED.with(|assigned| assigned.borrow_mut().clear());
+    NATIVE.with(|state| *state.borrow_mut() = NativeOrdinals::default());
 }
 
 fn native_start(
@@ -245,19 +247,18 @@ fn native_start(
     count: usize,
     offset: usize,
 ) -> usize {
-    let slot = (declaration, spec, key.clone());
-    if let Some(start) = NATIVE_ASSIGNED.with(|assigned| assigned.borrow().get(&slot).copied()) {
-        return start;
-    }
-    let start = NATIVE_CURSOR.with(|cursor| {
-        let mut cursor = cursor.borrow_mut();
-        let next = cursor.entry((declaration, spec)).or_insert(offset);
+    NATIVE.with(|state| {
+        let state = &mut *state.borrow_mut();
+        let slot = (declaration, spec, key.clone());
+        if let Some(start) = state.assigned.get(&slot) {
+            return *start;
+        }
+        let next = state.cursor.entry((declaration, spec)).or_insert(offset);
         let start = *next;
         *next += count;
+        state.assigned.insert(slot, start);
         start
-    });
-    NATIVE_ASSIGNED.with(|assigned| assigned.borrow_mut().insert(slot, start));
-    start
+    })
 }
 
 /// Washes for a string a native element is about to paint.
@@ -308,7 +309,7 @@ pub fn washes_for_native_run(key: &Arc<str>, text: &str, native: &NativeHighligh
 ///
 /// `folded` and `fold_map` come from [`fold`] and are cached with the group, so
 /// a keystroke never re-folds text that did not change.
-pub fn matches_in(
+fn matches_in(
     text: &str,
     folded: &str,
     fold_map: &[u32],
@@ -368,10 +369,9 @@ impl Group {
     }
 }
 
-/// One subtree's groups in document order.
 #[derive(Debug, Default)]
 pub struct GroupList {
-    pub groups: Vec<Arc<Group>>,
+    groups: Vec<Group>,
 }
 
 impl GroupList {
@@ -435,7 +435,7 @@ pub fn group_id(tree: &RetainedTree, id: u64) -> Option<u64> {
     Some(first)
 }
 
-fn collect_into(tree: &RetainedTree, id: u64, is_root: bool, out: &mut Vec<Arc<Group>>) {
+fn collect_into(tree: &RetainedTree, id: u64, is_root: bool, out: &mut Vec<Group>) {
     let Some(element) = tree.elements.get(&id) else {
         return;
     };
@@ -446,10 +446,10 @@ fn collect_into(tree: &RetainedTree, id: u64, is_root: bool, out: &mut Vec<Arc<G
     // declaration sits directly on a text node, which the mutation API allows
     // even though JSX always wraps.
     if let Some(content) = element.content.as_ref().filter(|text| !text.is_empty()) {
-        out.push(Arc::new(Group::new(
+        out.push(Group::new(
             vec![(crate::text::selection_key(id, 0), 0..content.len())],
             content.clone(),
-        )));
+        ));
     }
 
     let mut pending: Vec<(Arc<str>, Range<usize>)> = Vec::new();
@@ -479,15 +479,12 @@ fn collect_into(tree: &RetainedTree, id: u64, is_root: bool, out: &mut Vec<Arc<G
 fn flush(
     parts: &mut Vec<(Arc<str>, Range<usize>)>,
     text: &mut String,
-    out: &mut Vec<Arc<Group>>,
+    out: &mut Vec<Group>,
 ) {
     if parts.is_empty() {
         return;
     }
-    out.push(Arc::new(Group::new(
-        std::mem::take(parts),
-        std::mem::take(text),
-    )));
+    out.push(Group::new(std::mem::take(parts), std::mem::take(text)));
 }
 
 // ── Resolution ───────────────────────────────────────────────────────
@@ -551,7 +548,6 @@ pub struct Wash {
 #[derive(Debug, Default)]
 pub struct ResolvedHighlights {
     by_key: HashMap<Arc<str>, Vec<Wash>>,
-    pub total: usize,
 }
 
 impl ResolvedHighlights {
@@ -564,7 +560,6 @@ impl ResolvedHighlights {
 pub fn colorize(matches: &MatchSet, set: &HighlightSet) -> ResolvedHighlights {
     let mut out = ResolvedHighlights {
         by_key: HashMap::with_capacity(matches.by_key.len()),
-        total: matches.total,
     };
     for (key, entries) in &matches.by_key {
         let washes = entries
@@ -674,9 +669,11 @@ mod tests {
         matches_in(text, &folded, &map, spec)
     }
 
-    /// Locate, then colour. Tests assert on the painted washes.
-    fn washes(groups: &GroupList, set: &HighlightSet) -> ResolvedHighlights {
-        colorize(&resolve(groups, set), set)
+    /// Locate, then colour. Tests assert on the painted washes and the count.
+    fn washes(groups: &GroupList, set: &HighlightSet) -> (ResolvedHighlights, usize) {
+        let matches = resolve(groups, set);
+        let total = matches.total;
+        (colorize(&matches, set), total)
     }
 
     #[test]
@@ -795,8 +792,8 @@ mod tests {
         let set = HighlightSet {
             specs: vec![spec("Hello Tommy")],
         };
-        let resolved = washes(&groups, &set);
-        assert_eq!(resolved.total, 1);
+        let (resolved, total) = washes(&groups, &set);
+        assert_eq!(total, 1);
         assert_eq!(resolved.washes_for("3:0").unwrap()[0].range, 0..6);
         assert_eq!(resolved.washes_for("4:0").unwrap()[0].range, 0..5);
         assert!(resolved.washes_for("5:0").is_none());
@@ -838,8 +835,8 @@ mod tests {
         let mut s = spec("");
         s.query = String::new();
         s.ranges = vec![(6, 11)];
-        let resolved = washes(&groups, &HighlightSet { specs: vec![s] });
-        assert_eq!(resolved.total, 1);
+        let (resolved, total) = washes(&groups, &HighlightSet { specs: vec![s] });
+        assert_eq!(total, 1);
         assert_eq!(resolved.washes_for("4:0").unwrap()[0].range, 0..5);
     }
 
@@ -848,8 +845,8 @@ mod tests {
         let groups = GroupList::collect(&interpolated_tree(), 1);
         let mut s = spec("l");
         s.active_index = Some(1);
-        let resolved = washes(&groups, &HighlightSet { specs: vec![s] });
-        assert_eq!(resolved.total, 2);
+        let (resolved, total) = washes(&groups, &HighlightSet { specs: vec![s] });
+        assert_eq!(total, 2);
         let washes = resolved.washes_for("3:0").unwrap();
         assert_eq!(washes.len(), 2);
         assert!(!washes[0].active);
@@ -906,7 +903,7 @@ mod tests {
         let groups = GroupList::collect(&tree, 1);
         assert_eq!(groups.groups.len(), 1);
         assert_eq!(
-            washes(&groups, &HighlightSet { specs: vec![spec("fox")] }).total,
+            washes(&groups, &HighlightSet { specs: vec![spec("fox")] }).1,
             1
         );
     }

@@ -186,6 +186,18 @@ pub fn selection_key(element_id: u64, sub: usize) -> Arc<str> {
 }
 
 /// Inputs for [`selectable_text`].
+/// Where a run's highlight washes come from. Never both: retained text is
+/// located once for the whole subtree, while a string generated inside
+/// `render()` is matched against itself.
+#[derive(Clone)]
+pub enum HighlightSource {
+    /// Retained `<text>`. A match can span the several host nodes React makes
+    /// for one interpolated line, because they were merged before matching.
+    Resolved(Arc<super::search::ResolvedHighlights>),
+    /// `<code>`, `<markdown>`, `<diff>`: text the retained tree never sees.
+    Native(Arc<super::search::NativeHighlight>),
+}
+
 pub struct SelectableText {
     /// Element that owns the run, and the run's index within it. The selection
     /// key is derived from these, so nothing has to parse it back apart.
@@ -197,7 +209,6 @@ pub struct SelectableText {
     /// inheriting from ancestor `style` props. Pass `Some(..)` only when the
     /// element owns its own colours, as `<code>` and `<diff>` do.
     pub runs: Option<Vec<TextRun>>,
-    pub key: Arc<str>,
     pub selection: SharedSelection,
     pub wash_color: Hsla,
     /// Paints additional quads under the glyphs before the selection wash:
@@ -214,18 +225,7 @@ pub struct SelectableText {
     /// See [`crate::text::selection::RegisteredText::group`]. `None` for a run
     /// that must never merge with its neighbour, which is every custom element.
     pub group: Option<u64>,
-    /// Resolved highlight washes for this subtree, inherited from the element
-    /// that declared `highlight`. `None` when nothing declared one, which is
-    /// the case in every app that does not use search.
-    ///
-    /// Retained `<text>` uses this: its matches are resolved once per revision
-    /// over the whole subtree, so a match can span the several host nodes React
-    /// makes for one interpolated line.
-    pub highlights: Option<Arc<super::search::ResolvedHighlights>>,
-    /// The unresolved spec, for a run whose text was generated inside
-    /// `render()` and therefore never reached the retained tree. Mutually
-    /// exclusive with `highlights`; see [`super::search::washes_for_native_run`].
-    pub highlight_set: Option<Arc<super::search::NativeHighlight>>,
+    pub highlight: Option<HighlightSource>,
 }
 
 impl SelectableText {
@@ -242,7 +242,6 @@ impl SelectableText {
             sub,
             text,
             runs,
-            key: selection_key(element_id, sub),
             selection,
             wash_color,
             extra_wash: None,
@@ -250,8 +249,7 @@ impl SelectableText {
             on_link: None,
             selectable: true,
             group: None,
-            highlights: None,
-            highlight_set: None,
+            highlight: None,
         }
     }
 }
@@ -265,7 +263,6 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
         sub,
         text,
         runs,
-        key,
         selection,
         wash_color,
         extra_wash,
@@ -273,9 +270,9 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
         on_link,
         selectable,
         group,
-        highlights,
-        highlight_set,
+        highlight,
     } = opts;
+    let key = selection_key(element_id, sub);
 
     let styled = match runs {
         Some(runs) => StyledText::new(text.clone()).with_runs(runs),
@@ -291,17 +288,17 @@ pub fn selectable_text(opts: SelectableText) -> gpui::AnyElement {
             }
             // Search washes sit UNDER the selection wash, so a selection over a
             // match still reads as a selection.
-            match (&highlights, &highlight_set) {
-                (Some(resolved), _) => {
+            match &highlight {
+                Some(HighlightSource::Resolved(resolved)) => {
                     if let Some(washes) = resolved.washes_for(&key) {
                         paint_highlight_washes(&layout, element_id, sub, &text, washes, window);
                     }
                 }
-                (None, Some(native)) => {
+                Some(HighlightSource::Native(native)) => {
                     let washes = super::search::washes_for_native_run(&key, &text, native);
                     paint_highlight_washes(&layout, element_id, sub, &text, &washes, window);
                 }
-                (None, None) => {}
+                None => {}
             }
             if let Some(range) = selectable
                 .then(|| selection.lock().wash_range(&key))

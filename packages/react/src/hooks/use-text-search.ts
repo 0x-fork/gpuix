@@ -139,12 +139,6 @@ function wordCharAt(text: string, start: number): boolean {
 }
 
 /**
- * Non-overlapping `[start, end)` matches of `query` in `text`, in UTF-16 code
- * units. Same contract as the native matcher: leftmost first, non-overlapping,
- * Unicode **lowercasing** (not full case folding, so `ﬀ` does not match `ff`),
- * and a word boundary is any code point that is not a letter, a digit, or `_`.
- */
-/**
  * Lowercase `text` and record, for every folded unit, the index of the original
  * character that produced it.
  *
@@ -167,6 +161,12 @@ function fold(text: string): { folded: string; map: number[] } {
   return { folded, map }
 }
 
+/**
+ * Non-overlapping `[start, end)` matches of `query` in `text`, in UTF-16 code
+ * units. Same contract as the native matcher: leftmost first, non-overlapping,
+ * Unicode **lowercasing** (not full case folding, so `ﬀ` does not match `ff`),
+ * and a word boundary is any code point that is not a letter, a digit, or `_`.
+ */
 export function findRanges(options: FindRangesOptions): Array<[number, number]> {
   const { text, query, caseSensitive = false, wholeWord = false } = options
   if (query.length === 0) return []

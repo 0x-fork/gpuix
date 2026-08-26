@@ -480,7 +480,10 @@ impl RowContext<'_> {
         crate::text::selectable_text(crate::text::SelectableText {
             extra_wash,
             selectable: self.selectable,
-            highlight_set: self.highlight_set.clone(),
+            highlight: self
+                .highlight_set
+                .clone()
+                .map(crate::text::HighlightSource::Native),
             ..crate::text::SelectableText::new(
                 self.element_id,
                 sub,

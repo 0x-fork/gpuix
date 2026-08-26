@@ -4021,7 +4021,11 @@ fn text_content(
     selectable_text(crate::text::SelectableText {
         group: crate::text::search::group_id(ctx.tree, element.id),
         selectable: ctx.inherited.selectable,
-        highlights: ctx.inherited.highlight.clone(),
+        highlight: ctx
+            .inherited
+            .highlight
+            .clone()
+            .map(crate::text::HighlightSource::Resolved),
         ..crate::text::SelectableText::new(
             element.id,
             0,
