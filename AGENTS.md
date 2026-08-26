@@ -350,7 +350,7 @@ so the two namespaces cannot collide.
 that applies only the base styles type-checks the prop, serializes it, and drops
 it. `custom_surface` in `custom_elements/mod.rs` does this for you.
 
-## Bounds: a container uses a tracker, a leaf uses `on_prepainted`
+## Bounds: a container uses a tracker, a leaf uses `on_painted`
 
 `getByTestId(..).click()` needs a recorded box. Two mechanisms, both required:
 
