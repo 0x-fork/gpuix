@@ -892,7 +892,7 @@ The list follows new rows while the user is at the bottom. Scrolling upward paus
 
 ### Scroll anchoring
 
-The list is anchored on a **row**, not on a pixel offset, so inserting rows above the viewport keeps the rows already on screen exactly where they are. A browser does the same, and calls it scroll anchoring.
+The list is anchored on a **row index**, not on a pixel offset. In children mode React reconciles by key, so that index still lands on the same row after a prepend: the rows already on screen stay exactly where they are. A browser does the same, and calls it scroll anchoring.
 
 One exception, also copied from the browser: a top-aligned list that is scrolled to the **very top** stays at the top, so a prepended row is visible.
 
@@ -907,6 +907,19 @@ scrolled down                          pinned to the top
 ```
 
 That is what a todo list or a feed wants: `setItems((current) => [fresh, ...current])` puts the new row on screen. A history pane that loads older pages while the user reads should use `alignment="bottom"` instead, so a page load never moves the text.
+
+**With `itemCount`, the app owns the correction.** There is no key to reconcile against, so the index is all there is. Prepending shifts every row down one slot, and the anchor keeps pointing at the old number, so the content slides by exactly the number of rows you inserted. Move `windowStart` by the same amount:
+
+```tsx
+const prepend = (fresh: Row) => {
+  setRows((current) => [fresh, ...current])
+  // The anchor is an index. One new row above the window means every existing
+  // row moved down one, so the window has to move with it.
+  setWindowStart((start) => (start === 0 ? 0 : start + 1))
+}
+```
+
+Leave `windowStart` at `0` alone; the list is pinned to the top there and the new row should be visible.
 
 ### Programmatic scrolling
 
