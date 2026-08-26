@@ -154,11 +154,25 @@ impl StyleTable {
         self.swept_at = live;
     }
 
-    /// Sweep only once the table has doubled since the last one, so the scan is
-    /// amortized to O(1) per interned style and the table stays within 2x the
-    /// live style count (or `STYLE_SWEEP_FLOOR`, whichever is larger).
-    pub fn maybe_sweep(&mut self) {
-        if self.count >= self.swept_at.saturating_mul(2).max(STYLE_SWEEP_FLOOR) {
+    /// Sweep when the table has grown, or when the tree has shrunk under it.
+    ///
+    /// Growth alone is not enough. After a large mount `swept_at` is large, so
+    /// destroying the root or remounting a smaller app leaves `count` below the
+    /// next threshold forever, and the whole high-water table stays resident.
+    /// Re-interning an existing style does not raise `count`, so nothing would
+    /// ever reclaim it.
+    ///
+    /// `live_elements` closes that. A live style needs at least one element
+    /// holding it, so the live style count can never exceed the element count;
+    /// a table far larger than the tree is therefore mostly dead. After a sweep
+    /// `count <= live_elements`, so this cannot thrash.
+    ///
+    /// Both arms are amortized: each scan is O(entries) and follows at least as
+    /// many interns or as large a collapse.
+    pub fn maybe_sweep(&mut self, live_elements: usize) {
+        let grew = self.count >= self.swept_at.saturating_mul(2).max(STYLE_SWEEP_FLOOR);
+        let tree_shrank = self.count > live_elements.saturating_mul(2).max(STYLE_SWEEP_FLOOR);
+        if grew || tree_shrank {
             self.sweep();
         }
     }
@@ -194,7 +208,8 @@ impl RetainedTree {
     pub fn set_style_json(&mut self, id: u64, raw: &[u8]) -> Result<(), String> {
         let style = self.styles.intern(raw)?;
         self.set_style(id, style);
-        self.styles.maybe_sweep();
+        let live_elements = self.elements.len();
+        self.styles.maybe_sweep(live_elements);
         Ok(())
     }
 
@@ -506,7 +521,10 @@ fn element_to_json(
 
     if include_details {
         if let Some(ref style) = element.style {
-            if let Ok(style_json) = serde_json::to_value(style) {
+            // `as_ref`, not the `Arc`. Serializing the pointer needs serde's
+            // `rc` feature, which we never asked for; it only compiles because
+            // gpui happens to enable it, and would break when gpui stops.
+            if let Ok(style_json) = serde_json::to_value(style.as_ref()) {
                 if let serde_json::Value::Object(ref map) = style_json {
                     let filtered: serde_json::Map<String, serde_json::Value> = map
                         .iter()
@@ -670,6 +688,69 @@ mod tests {
                 "frame {frame} leaked a style"
             );
         }
+    }
+
+    /// A drag through the real entry point, which is the one an app hits.
+    /// Calling `sweep()` by hand would pass even with `maybe_sweep` broken.
+    #[test]
+    fn a_drag_through_set_style_json_stays_bounded() {
+        let mut tree = tree_with_child();
+        for frame in 0..1_000 {
+            let payload = format!(r#"{{"left":{frame}}}"#);
+            tree.set_style_json(3, payload.as_bytes()).unwrap();
+            assert!(
+                tree.styles.len() <= STYLE_SWEEP_FLOOR * 2,
+                "frame {frame} grew the table to {}",
+                tree.styles.len(),
+            );
+        }
+    }
+
+    /// Growth alone never fires again once the tree collapses: `swept_at` stays
+    /// at the high-water mark and `count` cannot climb past it, because
+    /// re-interning an existing style does not add an entry. Destroying the
+    /// tree must reclaim the table anyway.
+    #[test]
+    fn destroying_the_tree_releases_its_styles() {
+        let mut tree = RetainedTree::new();
+        tree.create_element(1, "div".to_string());
+        tree.root_id = Some(1);
+
+        let wide = STYLE_SWEEP_FLOOR * 4;
+        for index in 0..wide {
+            let child = 100 + index as u64;
+            tree.create_element(child, "div".to_string());
+            tree.append_child(1, child);
+            tree.set_style_json(child, format!(r#"{{"left":{index}}}"#).as_bytes())
+                .unwrap();
+        }
+        assert_eq!(tree.styles.len(), wide, "every style is still live");
+
+        tree.destroy_element(1);
+        assert!(tree.elements.is_empty(), "the tree is gone");
+
+        // Exactly what `apply_batch_to_tree` does after a batch that destroyed
+        // the root. Nothing new is interned, so only the element count can
+        // trigger this.
+        let live_elements = tree.elements.len();
+        tree.styles.maybe_sweep(live_elements);
+        assert_eq!(tree.styles.len(), 0, "the destroyed tree kept its styles");
+    }
+
+    /// A style table larger than the tree must not re-sweep on every commit.
+    #[test]
+    fn the_shrink_sweep_does_not_thrash() {
+        let mut tree = RetainedTree::new();
+        for index in 0..(STYLE_SWEEP_FLOOR * 4) {
+            let id = index as u64 + 1;
+            tree.create_element(id, "div".to_string());
+            tree.set_style_json(id, format!(r#"{{"left":{index}}}"#).as_bytes())
+                .unwrap();
+        }
+        let live = tree.styles.len();
+        let live_elements = tree.elements.len();
+        tree.styles.maybe_sweep(live_elements);
+        assert_eq!(tree.styles.len(), live, "a full table must survive a sweep");
     }
 
     #[test]
