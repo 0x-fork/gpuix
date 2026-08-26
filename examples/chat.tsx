@@ -1,9 +1,8 @@
 /**
- * A Waku-style app, rendered directly on the GPU.
+ * The GPUIX chat example, rendered directly on the GPU.
  *
- * Layout, palette, and chrome follow https://github.com/egoist/waku:
- * transparent titlebar, traffic lights in the sidebar, graphite surfaces,
- * composer chips, and the workspace footer. Data is hardcoded.
+ * It demonstrates a transparent titlebar, traffic lights in the sidebar,
+ * graphite surfaces, composer chips, and a workspace footer. Data is hardcoded.
  *
  * Run on desktop: cd examples && bun --hot chat.tsx
  * Run in a browser: bun run web
@@ -199,8 +198,8 @@ const ACCESS = [
 ]
 
 const PROJECTS = [
-  { id: 'waku', label: 'waku' },
   { id: 'gpuix', label: 'gpuix' },
+  { id: 'example-app', label: 'example-app' },
   { id: 'none', label: 'No project' },
 ]
 
@@ -212,11 +211,11 @@ const WORKSPACES = [
 const BRANCHES = [
   { id: 'main', label: 'main' },
   { id: 'feat-selectors', label: 'feat/selectors' },
-  { id: 'waku-clone', label: 'waku-clone' },
+  { id: 'chat-example', label: 'chat-example' },
 ]
 
 const CONVERSATIONS: Conversation[] = [
-  { id: 'c1', title: 'give me a quick overview', group: 'Yesterday', project: 'waku', time: '16m' },
+  { id: 'c1', title: 'give me a quick overview', group: 'Yesterday', project: 'gpuix', time: '16m' },
   {
     id: 'c2',
     title: 'Native SDK vs GPUI comparison',
@@ -235,14 +234,14 @@ const CONVERSATIONS: Conversation[] = [
     id: 'c4',
     title: 'check if any memory optimizatio...',
     group: 'This Month',
-    project: 'waku',
+    project: 'gpuix',
     time: '2d',
   },
 ]
 
-const OVERVIEW = `**Waku** is a native control plane for local coding agents. Rust plus GPUI. One window, no Electron.`
+const OVERVIEW = `**GPUIX** is a React renderer for GPUI, Zed's GPU-accelerated UI framework. It renders native desktop interfaces through Metal, DirectX, or Vulkan. No Electron or web view.`
 
-const ARCHITECTURE = `The desktop is an RPC client. The daemon owns provider sessions over a WebSocket.`
+const ARCHITECTURE = `React sends host mutations through napi-rs. Rust keeps the retained tree and translates it into GPUI elements for each frame.`
 
 const SELECTION = `Selection is rebuilt from the paint pass. Each string registers in document order, so a drag can cross elements.`
 
@@ -297,7 +296,7 @@ const TURNS: Turn[] = [
   { kind: 'user', text: 'give me a quick overview' },
   { kind: 'fold', duration: 'Worked for 10 seconds' },
   { kind: 'markdown', source: OVERVIEW },
-  { kind: 'user', text: 'How does the daemon split from the desktop?' },
+  { kind: 'user', text: 'How does React reach GPUI?' },
   { kind: 'fold', duration: 'Worked for 6 seconds' },
   { kind: 'markdown', source: ARCHITECTURE },
   { kind: 'user', text: 'How does cross-element text selection work?' },
@@ -1772,7 +1771,7 @@ export function ChatApp({
   const [reasoning, setReasoning] = useState('high')
   const [access, setAccess] = useState('full')
   const [mode, setMode] = useState<'build' | 'plan'>('build')
-  const [project, setProject] = useState('waku')
+  const [project, setProject] = useState('gpuix')
   const [workspace, setWorkspace] = useState('local')
   const [branch, setBranch] = useState('main')
 
@@ -1880,7 +1879,7 @@ const isEntryPoint =
 if (isEntryPoint) {
   applyMacCpuThrottleFromEnv()
   render(<ChatApp turnCount={1_000} includeSafeMdx />, {
-    title: 'Waku · 1,000 messages',
+    title: 'GPUIX Chat · 1,000 messages',
     width: 1180,
     height: 820,
     titlebarTransparent: true,

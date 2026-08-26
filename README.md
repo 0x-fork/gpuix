@@ -4,7 +4,7 @@ React bindings for [GPUI](https://github.com/zed-industries/zed/tree/main/crates
 
 Build native GPU-accelerated desktop apps with React and TypeScript. Your components render directly to the GPU via Metal, DirectX, or Vulkan. No Electron, no web views.
 
-![A Waku-style app built with GPUIX](./docs/images/chat-app.png)
+![The GPUIX chat example running natively](./docs/images/chat-app.png)
 
 Everything above is GPUIX: the sidebar, the scrolling list, the composer,
 and native `<markdown>`. Start it with **`bun --hot`** so a save remounts React
@@ -114,7 +114,7 @@ change `@gpuix/react` from `workspace:^` to a version range, and run
 | Example | Run | What it shows |
 |---|---|---|
 | **todo** | `bun run dev` in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) | The starting point: one file, a `<virtual-list>`, a native `<input>`, and an animated sidebar |
-| **chat** | `bun --hot chat.tsx` | A Waku-style app: transparent titlebar, animated sidebar, message list, composer, `<markdown>` |
+| **chat** | `bun --hot chat.tsx` | A GPUIX app: transparent titlebar, animated sidebar, message list, composer, `<markdown>` |
 | **timeline** | `bun --hot timeline.tsx` | A video-editor timeline: clip dragging, edge trimming with snapping, playhead scrubbing, marquee selection, zoom under the pointer, and a two-axis pan with a frozen ruler and track column |
 | **native-text** | `bun --hot native-text.tsx` | The three native text components with a tab switcher |
 | **counter** | `bun --hot counter.tsx` | The smallest possible app: state, events, hover |
@@ -387,7 +387,7 @@ terminal.
 |---|---|---|
 | `titlebarTransparent` | boolean | Hide the native titlebar so the app draws chrome under the traffic lights |
 | `windowBackground` | `"opaque"` (default), `"transparent"`, `"blurred"` | Window fill. `"blurred"` is the macOS vibrancy backdrop |
-| `trafficLightX` / `trafficLightY` | pixels | Traffic-light origin. Waku uses `(16, 17)` |
+| `trafficLightX` / `trafficLightY` | pixels | Traffic-light origin. The chat example uses `(16, 17)` |
 | `transparent` | boolean | Same as `windowBackground: "transparent"` when that option is unset |
 | `appName` | string | Name inside the macOS `Hide X` and `Quit X` items. Defaults to `title` |
 Call it again after a save and it remounts the tree on the same window.
@@ -2217,9 +2217,15 @@ import { launch } from '@gpuix/react/automation'
 
 const app = await launch({ command: 'bun', args: ['examples/chat.tsx'] })
 await app.getByTestId('composer').fill('hello')
+await app.getByTestId('composer').press('enter')
+await app.getByText('hello').waitFor()
 await app.screenshot({ path: 'live.png' })
 await app.close()
 ```
+
+`fill()` and `press()` dispatch through the live GPUI window input pipeline, so
+native `<input>` and `<textarea>` elements receive GPUI's keyboard and IME
+handling instead of a test-only input path.
 
 ## Testing
 

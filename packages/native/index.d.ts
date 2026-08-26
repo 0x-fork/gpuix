@@ -103,6 +103,10 @@ export declare class GpuixRenderer {
    * assert on `highlight` without a screenshot.
    */
   getPaintedHighlights(): Array<HighlightMatch>
+  /** Simulate space-separated keystrokes through the focused element's input pipeline. */
+  simulateKeystrokes(keystrokes: string): void
+  simulateKeyDown(keystroke: string, isHeld?: boolean | undefined | null): void
+  simulateKeyUp(keystroke: string): void
   /** `modifiers` uses the `press()` syntax: "cmd", "cmd-shift", "alt". */
   simulateClick(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
   simulateMouseDown(x: number, y: number, button?: number | undefined | null, modifiers?: string | undefined | null): void
