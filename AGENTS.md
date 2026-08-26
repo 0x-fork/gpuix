@@ -950,6 +950,9 @@ cd packages/react && bun run test
 # Example app tests
 cd examples && bun run test
 
+# Starter todo app, driven through the automation client
+cd example-app && bun run test
+
 # Chat and timeline draw / chrome regressions (excluded from the default run)
 cd examples && bun run test:perf
 

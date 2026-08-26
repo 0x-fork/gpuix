@@ -15,6 +15,7 @@ bun run dev
 |---|---|
 | `bun run dev` | Start the desktop app with hot remount |
 | `bun run build` | Compile a standalone binary into `dist/todo` |
+| `bun run test` | Drive the app through the GPU test renderer with Vitest |
 | `bun run typecheck` | Run `tsc --noEmit` |
 | `bun run web:dev` | Bundle for the browser and serve on `:4173` |
 | `bun run screenshot` | Drive the app with the automation client and write a PNG |
@@ -27,6 +28,7 @@ with `bun run build:web` in `packages/native`.
 
 ```
 app.tsx        the whole app: tokens, icons, data, components, screen
+app.test.tsx   drives the app in-process through the GPU test renderer
 index.html     the browser page. GPUI creates the canvas itself
 web.ts         bundles app.tsx and serves it with isolation headers
 screenshot.ts  drives the app with the automation client and writes a PNG
@@ -44,6 +46,26 @@ assets.d.ts    tells TypeScript that a `.svg` import is a string
 - **`<svg>`** icons tinted through `style.color`
 - **`hover` and `active`** styles applied natively, with no JavaScript round trip
 - **`testId`** props, so the automation client can drive the app
+
+## Testing
+
+`app.test.tsx` mounts `TodoApp` on the GPU test renderer and drives it with the
+same locator API as `screenshot.ts`, but in-process:
+
+```tsx
+const { render, renderer } = createTestRoot({ width: 940, height: 660 })
+render(<TodoApp />)
+const app = await connectTest(renderer)
+
+await app.getByTestId('row-t5').hover()
+await app.getByTestId('delete-t5').click()
+expect(renderer.getPaintedText()).not.toContain('Animate the sidebar with motion.div')
+```
+
+`render()` at the bottom of `app.tsx` sits behind an entry-point check, so
+importing the file does not open a window. `getPaintedText()` returns every
+string painted last frame; the trash button only exists while the row is
+hovered, so `hover()` comes first.
 
 ## Copy it out of this repo
 

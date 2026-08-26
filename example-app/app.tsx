@@ -189,9 +189,18 @@ function SidebarRow({
   )
 }
 
-function Checkbox({ done, onToggle }: { done: boolean; onToggle: () => void }) {
+function Checkbox({
+  done,
+  onToggle,
+  testId,
+}: {
+  done: boolean
+  onToggle: () => void
+  testId?: string
+}) {
   return (
     <div
+      testId={testId}
       onClick={onToggle}
       style={{
         width: 19,
@@ -228,6 +237,7 @@ function TodoRow({
 
   return (
     <div
+      testId={`row-${todo.id}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -245,7 +255,7 @@ function TodoRow({
         hover: { backgroundColor: C.overlay },
       }}
     >
-      <Checkbox done={todo.done} onToggle={onToggle} />
+      <Checkbox done={todo.done} onToggle={onToggle} testId={`toggle-${todo.id}`} />
       <text
         style={{
           flexGrow: 1,
@@ -260,8 +270,13 @@ function TodoRow({
       {todo.starred ? <Icon name="star" size={13} color={C.accent} /> : null}
       {hovered ? (
         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-          <IconButton icon="star" onClick={onStar} color={todo.starred ? C.accent : C.ghost} />
-          <IconButton icon="trash" onClick={onDelete} color={C.ghost} />
+          <IconButton
+            icon="star"
+            testId={`star-${todo.id}`}
+            onClick={onStar}
+            color={todo.starred ? C.accent : C.ghost}
+          />
+          <IconButton icon="trash" testId={`delete-${todo.id}`} onClick={onDelete} color={C.ghost} />
         </div>
       ) : null}
     </div>
@@ -526,12 +541,20 @@ export function TodoApp() {
   )
 }
 
-render(<TodoApp />, {
-  title: 'Todo',
-  width: 940,
-  height: 660,
-  titlebarTransparent: true,
-  windowBackground: 'blurred',
-  trafficLightX: 16,
-  trafficLightY: 17,
-})
+// Only open a window when this file is the program. A test imports `TodoApp`.
+const isEntryPoint =
+  typeof Bun !== 'undefined'
+    ? Bun.isStandaloneExecutable || Bun.main === import.meta.path
+    : typeof window !== 'undefined'
+
+if (isEntryPoint) {
+  render(<TodoApp />, {
+    title: 'Todo',
+    width: 940,
+    height: 660,
+    titlebarTransparent: true,
+    windowBackground: 'blurred',
+    trafficLightX: 16,
+    trafficLightY: 17,
+  })
+}
