@@ -1,6 +1,6 @@
 ---
-'@gpuix/native': patch
-'@gpuix/react': patch
+'@gpuix/native': minor
+'@gpuix/react': minor
 ---
 
 Give every interactive host surface a stable GPUI identity, so the props you can already write actually do something.
@@ -29,6 +29,17 @@ Give every interactive host surface a stable GPUI identity, so the props you can
 </text>
 ```
 
+One behaviour change comes with that. A `<text>` with an opaque `backgroundColor` now **takes mouse hits**, like an HTML element with a background, so it stops clicks and hovers reaching whatever is behind it. The wheel still passes through to a scroll container. The old text builder inserted no hitbox at all, so a filled label was transparent to the pointer. Set `pointerEvents: 'none'` to get the old behaviour back.
+
+**Events reach `<img>`, `<svg>` and `<anchored>`**
+
+Those three declared no supported events, so `onClick`, `onMouseEnter` and `onMouseLeave` type-checked, registered a listener, and never fired. This was the same defect as `<text>`, in three more places.
+
+```tsx
+<img src={avatar} onClick={openProfile} />
+<anchored side="bottom" onMouseLeave={close}>{items}</anchored>
+```
+
 **`active` no longer needs an unrelated click handler**
 
 An `active` style with no `onClick` painted nothing. gpui only inserted the hitbox that tracks the press when the element had some *other* reason for one, so the press was never recorded. Fixed in gpui itself rather than by attaching an empty click listener.
@@ -47,7 +58,20 @@ await app.getByTestId('menu').click()
 
 **Malformed mutations cannot corrupt the tree**
 
-`createElement`, `appendChild` and `applyBatch` are public API, so a hand-written call could reuse a live id, point a parent at a missing child, remove a child through the wrong parent, make an element its own ancestor, or set a missing element as the root. Each of those left a link the renderer walks pointing at nothing or at itself. They are now rejected and logged, and the tree stays walkable. React never produced any of them.
+`createElement`, `appendChild` and `applyBatch` are public API, so a hand-written call could reuse a live id, point a parent at a missing child, remove a child through the wrong parent, make an element its own ancestor, or set a missing element as the root. Each of those left a link the renderer walks pointing at nothing or at itself. React never produced any of them.
+
+A **single-op** call now throws, because there is no batch to half-apply:
+
+```ts
+renderer.appendChild(99, 2)
+// Error: appendChild ignored: parent 99 does not exist
+```
+
+Inside `applyBatch` the same op is **skipped and logged** instead. `applyBatch` runs after React already committed its fiber tree, so aborting the whole batch would drop a commit and leave every later commit on the wrong base. Losing the one op that could never have applied is strictly less damage.
+
+Logging now works at all. Every rejection reports through `log::warn!`, and env_logger's default filter is `error`, so the messages were dropped. The default is now `error,gpuix_native=warn`; `RUST_LOG` still overrides it.
+
+`createElement` returns the ids it destroyed when the id was already live, so those elements' event handlers are released instead of leaking.
 
 **One renderer, one root**
 

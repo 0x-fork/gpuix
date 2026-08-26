@@ -345,6 +345,11 @@ allocation on every node on every frame. Custom elements use
 `ElementId::Name("__gpuix_<kind>_<host id>")`; that is a different enum variant,
 so the two namespaces cannot collide.
 
+**Never call `.id(<index>)` in this crate.** `impl From<usize> for ElementId`
+makes the idiomatic gpui row id an `Integer`, which is the same namespace as a
+host id. Every per-row id here is a formatted name for that reason:
+`__gpuix_diff_line_{ix}`, `__gpuix_md_table_{id}_{sub}`, and the rest.
+
 **Never call `apply_styles` on a stateful root. Call `apply_interactive_styles`.**
 `StyleDesc` carries `hover` and `active` for every element type, so a builder
 that applies only the base styles type-checks the prop, serializes it, and drops

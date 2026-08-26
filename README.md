@@ -2333,10 +2333,14 @@ await app.getByTestId('canvas').wheel(0, 120, { modifiers: 'cmd' })
 await app.getByTestId('clip-8').click({ modifiers: 'shift' })
 ```
 
-`click()` needs painted bounds. **Every element type records them**, including
-`<img>`, `<svg>` and `<anchored>`. An `<anchored>` reports the box of the
-overlay itself, not of the trigger it is anchored to, so `click()` lands on the
-menu even when it is deferred and snapped back inside the window.
+`click()` needs painted bounds. **Every element that accepts `testId` records
+them**, including `<img>`, `<svg>` and `<anchored>`. An `<anchored>` reports the
+box of the overlay itself, not of the trigger it is anchored to, so `click()`
+lands on the menu even when it is deferred and snapped back inside the window.
+
+`<virtual-list>` is the exception, and it takes no `testId`. gpui's list is not
+an interactive element, so it has nothing to record a box against. Put the
+locator on a wrapping `<div>`.
 
 ### Screenshots and clock
 
