@@ -116,6 +116,7 @@ change `@gpuix/react` from `workspace:^` to a version range, and run
 |---|---|---|
 | **todo** | `bun run dev` in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) | The starting point: one file, a `<virtual-list>`, a native `<input>`, and an animated sidebar |
 | **chat** | `bun --hot chat.tsx` | A Waku-style app: transparent titlebar, animated sidebar, message list, composer, `<markdown>` |
+| **timeline** | `bun --hot timeline.tsx` | A video-editor timeline: clip dragging, edge trimming with snapping, playhead scrubbing, marquee selection, zoom under the pointer, and a two-axis pan with a frozen ruler and track column |
 | **native-text** | `bun --hot native-text.tsx` | The three native text components with a tab switcher |
 | **counter** | `bun --hot counter.tsx` | The smallest possible app: state, events, hover |
 | **diff** | `bun --hot diff.tsx` | A diff viewer composed from `<div>` and `<text>` in JS, for comparison |
@@ -648,6 +649,51 @@ function ScrollableList() {
 ```
 
 Per-axis scrolling: use `overflowX: "scroll"` or `overflowY: "scroll"`.
+`overflow: "scroll"` scrolls both axes at once from a single diagonal gesture,
+like a browser.
+
+A flex column stretches its children to the cross axis, so a two-axis container
+needs its rows to state a width. Without one there is nothing to pan on **X**:
+
+```tsx
+<div style={{ width: 260, height: 220, overflow: 'scroll', display: 'flex', flexDirection: 'column' }}>
+  {rows.map((row) => (
+    <div key={row.id} style={{ display: 'flex', width: 810, flexShrink: 0 }}>
+      {row.cells}
+    </div>
+  ))}
+</div>
+```
+
+### Panes that must move together
+
+A native scroll container cannot drive a **frozen header**. GPUI moves the
+container on the wheel frame, and the JavaScript callback that would move the
+header arrives a frame later, so the header tears away during a fast pan.
+
+When two panes must stay locked to the pixel, own the offset in React: put one
+`onScroll` listener on a non-scrolling parent, keep `scrollX` and `scrollY` in
+state, and translate each pane's content with an absolutely positioned wrapper.
+Zed does the same; the editor owns its scroll position and paints the gutter and
+the text from it.
+
+```tsx
+function Pane({ offsetX, children }: { offsetX: number; children: React.ReactNode }) {
+  return (
+    <div style={{ flexGrow: 1, minWidth: 0, overflow: 'hidden', position: 'relative' }}>
+      {/* An empty positioned box still takes hits, so opt it out. */}
+      <div style={{ position: 'absolute', left: -offsetX, top: 0, pointerEvents: 'none' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+```
+
+Keep the moving subtree in a `memo` component whose props do not change during a
+pan. The wheel then costs a handful of style mutations, not one per row. The
+[timeline example](./examples/timeline.tsx) does this for a ruler, a track
+column, and a clip grid.
 
 For programmatic scroll control, use a React ref to get the element's numeric ID, then call the renderer's scroll methods:
 
@@ -1458,10 +1504,27 @@ automatically. A listener alone does not put a `div` in the Tab order; add
 
 A node that listens for both `onMouseDown` and `onMouseMove` **captures the
 pointer**, like HTML [`setPointerCapture`](https://developer.mozilla.org/en-US/docs/Web/API/Element/setPointerCapture).
-`onMouseMove` and `onMouseUp` keep firing after the pointer leaves the hitbox.
-You do not need a full-window overlay or `window` listeners to drag a clip or
-resize a pane. A node with only `onMouseDown` / `onMouseUp` does not capture,
-so a click still ends if you release outside.
+`onMouseMove` and `onMouseUp` keep firing after the pointer leaves the hitbox,
+leaves the parent, and leaves the window. A node with only `onMouseDown` /
+`onMouseUp` does not capture, so a click still ends if you release outside.
+
+Capture is armed by the **press itself**, so put all three listeners on the
+element the user grabs:
+
+```tsx
+<div
+  style={{ cursor: 'grab', active: { cursor: 'grabbing' } }}
+  onMouseDown={(e) => beginDrag(e)}
+  onMouseMove={(e) => moveDrag(e)}
+  onMouseUp={endDrag}
+/>
+```
+
+A full-window overlay mounted on the press cannot replace this. The overlay does
+not exist yet when the press happens, so it never arms capture, and a release
+past the window edge is lost. Only the pressed element receives moves while the
+gesture runs, and only the hovered element receives them otherwise, so the cost
+is one event per pointer move.
 
 ## Supported Styles
 

@@ -16,7 +16,9 @@ GPUIX should feel like **HTML and the DOM**. Agents already know `onMouseDown` /
 
 Do **not** fight GPUI or work around it. If GPUI is different from the DOM, follow GPUI. The goal is the lowest complexity and the highest performance. Do not add HTML machinery that GPUI does not need.
 
-A `div` with `onMouseDown`, `onMouseMove`, and `onMouseUp` keeps move and up after the pointer leaves the hitbox. That is HTML `setPointerCapture`, applied automatically when the same node listens for down and move. Overlay-as-document-listener still works. It is not required.
+A `div` with `onMouseDown`, `onMouseMove`, and `onMouseUp` keeps move and up after the pointer leaves the hitbox. That is HTML `setPointerCapture`, applied automatically when the same node listens for down and move.
+
+Put all three on the element the user grabs. Capture is armed by the **press**, so an overlay mounted during that press never arms it, and a release past the window edge is lost. `examples/timeline.tsx` drags clips, trims edges, scrubs, and marquee-selects with no overlay at all.
 
 ```
 React (TypeScript)  →  napi-rs  →  GPUI (Rust)  →  GPU
@@ -215,6 +217,31 @@ scroller just so it can virtualize.
 vertical wheel onto overflow-x unless `restrict_scroll_to_axis()` is set.
 Every `overflow_x_scroll()` in native code must call that, or the parent
 scroller jumps sideways when the pointer is over `<code>` or a markdown table.
+
+A **two-axis** `overflow: "scroll"` sets `allow_concurrent_scroll`. GPUI's
+default zeroes the smaller of the two deltas, so one diagonal wheel moved one
+axis. A browser moves both, and a two-axis container is exactly where a user
+expects that.
+
+## A frozen header cannot use native scroll
+
+GPUI moves a scroll container on the wheel frame. The `onScroll` callback that
+would move a sibling pane arrives a frame later, so a ruler synced that way
+tears away from its content during a fast pan.
+
+When two panes must stay locked to the pixel, **React owns the offset**: one
+`onScroll` listener on a non-scrolling parent, `scrollX` / `scrollY` in state,
+and one absolutely positioned wrapper per pane carrying the translation. Zed
+does the same; the editor owns its scroll position and paints the gutter and the
+text from it. `examples/timeline.tsx` is the worked example.
+
+Those wrappers must set `pointerEvents: "none"`. A positioned box takes hits
+even with no fill, so otherwise it swallows every press meant for the surface
+behind it. Its children keep their own hitboxes.
+
+Keep the moving subtree in a `memo` component whose props do not change during a
+pan. Then a wheel costs a handful of style mutations instead of one per row.
+`examples/timeline.perf.test.tsx` measures both halves.
 
 ## Scroll cost
 
@@ -817,17 +844,22 @@ cd packages/react && bun run test
 # Example app tests
 cd examples && bun run test
 
-# Chat draw / chrome regression (same suite, file filter)
-cd examples && bun run test chat.perf.test.tsx
+# Chat and timeline draw / chrome regressions (excluded from the default run)
+cd examples && bun run test:perf
 
 # macOS CPU clamp. E-cores, not Chrome 6x. Do not set in CI.
-THROTTLE=utility bun run test chat.perf.test.tsx
+THROTTLE=utility bun run test:perf
 THROTTLE=utility bun profile-chat-scroll.tsx
 THROTTLE=utility bun --hot chat.tsx
 ```
 
-`examples/chat.perf.test.tsx` is the automated profile. It uses `createTestRoot()`,
-not the live window. Assert **p95 draw / flush ms**, not a per-frame FPS floor.
+`examples/chat.perf.test.tsx` and `examples/timeline.perf.test.tsx` are the
+automated profiles. They use `createTestRoot()`, not the live window. Assert
+**p95 draw / flush ms**, not a per-frame FPS floor.
+
+Timeline drag samples are not comparable to timeline pan samples.
+`nativeSimulateMouseMove` flushes before and after the event, so every drag
+sample contains two complete GPUI paints. `dispatchScrollWheel` does not flush.
 
 `THROTTLE` re-execs under `taskpolicy -c`. `utility` is an M1/M2 Air CPU proxy.
 `background` is harsher, closer to a 2019 Intel Mac. GPU and RAM stay on this
