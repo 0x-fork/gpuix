@@ -5,11 +5,11 @@ import fs from "fs"
 import { beforeEach, describe, expect, it } from "vitest"
 import React, { useState } from "react"
 import { createTestRoot, hasNativeTestRenderer, type TestRoot } from "../testing"
-import { bufferSimilarity, isCI } from "./test-utils"
+import { bufferSimilarity, isCI, SHOTS_DIR } from "./test-utils"
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
 
-const IMAGE_FIXTURE_PATH = "/tmp/gpuix-img-fixture.svg"
+const IMAGE_FIXTURE_PATH = `${SHOTS_DIR}/gpuix-img-fixture.svg`
 const SVG_FIXTURE = [
   '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">',
   '<rect x="0" y="0" width="240" height="140" fill="#1e2d59"/>',
@@ -101,8 +101,8 @@ describeNative("custom element: img", () => {
 
       testRoot.render(<ImageScreenshotProbe />)
 
-      const path0 = "/tmp/gpuix-img-0.png"
-      const path1 = "/tmp/gpuix-img-1.png"
+      const path0 = `${SHOTS_DIR}/gpuix-img-0.png`
+      const path1 = `${SHOTS_DIR}/gpuix-img-1.png`
 
       if (fs.existsSync(path0)) fs.unlinkSync(path0)
       if (fs.existsSync(path1)) fs.unlinkSync(path1)
@@ -161,8 +161,8 @@ describeNative("custom element: svg", () => {
 
     testRoot.render(<SvgScreenshotProbe />)
 
-    const beforePath = "/tmp/gpuix-svg-0.png"
-    const afterPath = "/tmp/gpuix-svg-1.png"
+    const beforePath = `${SHOTS_DIR}/gpuix-svg-0.png`
+    const afterPath = `${SHOTS_DIR}/gpuix-svg-1.png`
     if (fs.existsSync(beforePath)) fs.unlinkSync(beforePath)
     if (fs.existsSync(afterPath)) fs.unlinkSync(afterPath)
 

@@ -16,7 +16,7 @@ import React, { useState, useRef } from "react"
 import { createTestRoot, hasNativeTestRenderer } from "../testing"
 import { startFrameLoop } from "../reconciler/renderer.js"
 import type { EventPayload } from "@gpuix/native"
-import { expectScreenshotsDiffer } from "./test-utils"
+import { expectScreenshotsDiffer, SHOTS_DIR } from "./test-utils"
 
 // All tests require the native GPUI test renderer (cargo build with test-support).
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
@@ -453,8 +453,8 @@ describeNative("events", () => {
 
       testRoot.render(<DialogScreenshotProbe />)
 
-      const path0 = "/tmp/gpuix-dialog-0.png"
-      const path1 = "/tmp/gpuix-dialog-1.png"
+      const path0 = `${SHOTS_DIR}/gpuix-dialog-0.png`
+      const path1 = `${SHOTS_DIR}/gpuix-dialog-1.png`
 
       if (fs.existsSync(path0)) fs.unlinkSync(path0)
       if (fs.existsSync(path1)) fs.unlinkSync(path1)
@@ -1278,8 +1278,8 @@ describeNative("events", () => {
       testRoot.render(<ScreenshotProbe />)
 
       // Capture initial state
-      const path0 = "/tmp/gpuix-counter-0.png"
-      const path1 = "/tmp/gpuix-counter-1.png"
+      const path0 = `${SHOTS_DIR}/gpuix-counter-0.png`
+      const path1 = `${SHOTS_DIR}/gpuix-counter-1.png`
 
       // Clean up from previous runs
       if (fs.existsSync(path0)) fs.unlinkSync(path0)
@@ -1338,8 +1338,8 @@ describeNative("events", () => {
         .findByType("div")
         .find((d) => d.events.has("keyDown"))!
 
-      const path0 = "/tmp/gpuix-keydown-0.png"
-      const path1 = "/tmp/gpuix-keydown-1.png"
+      const path0 = `${SHOTS_DIR}/gpuix-keydown-0.png`
+      const path1 = `${SHOTS_DIR}/gpuix-keydown-1.png`
 
       if (fs.existsSync(path0)) fs.unlinkSync(path0)
       if (fs.existsSync(path1)) fs.unlinkSync(path1)
@@ -1393,8 +1393,8 @@ describeNative("events", () => {
 
       testRoot.render(<HoverScreenshotProbe />)
 
-      const path0 = "/tmp/gpuix-hover-0.png"
-      const path1 = "/tmp/gpuix-hover-1.png"
+      const path0 = `${SHOTS_DIR}/gpuix-hover-0.png`
+      const path1 = `${SHOTS_DIR}/gpuix-hover-1.png`
 
       if (fs.existsSync(path0)) fs.unlinkSync(path0)
       if (fs.existsSync(path1)) fs.unlinkSync(path1)
@@ -1866,8 +1866,8 @@ describeNative("events", () => {
 
       testRoot.render(<ScreenshotScroller />)
 
-      const path0 = "/tmp/gpuix-scroll-before.png"
-      const path1 = "/tmp/gpuix-scroll-after.png"
+      const path0 = `${SHOTS_DIR}/gpuix-scroll-before.png`
+      const path1 = `${SHOTS_DIR}/gpuix-scroll-after.png`
 
       if (fs.existsSync(path0)) fs.unlinkSync(path0)
       if (fs.existsSync(path1)) fs.unlinkSync(path1)

@@ -8,11 +8,18 @@ import { expect } from "vitest"
 export const isCI = !!process.env.CI
 
 /** Where visual tests write their PNGs. Kept in the repo (gitignored) rather
- *  than /tmp so the output can actually be looked at after a run. */
+ *  than /tmp so the output can actually be looked at after a run, and because
+ *  `/tmp` does not exist on Windows: native `save()` there fails the whole
+ *  test with `The system cannot find the path specified`.
+ *
+ *  Created on import, so a file that only writes a screenshot needs no
+ *  `beforeAll`. Native never creates the parent directory itself. */
 export const SHOTS_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../screenshots"
 )
+
+fs.mkdirSync(SHOTS_DIR, { recursive: true })
 
 /** Compute byte-level similarity between two buffers (0..1).
  *  For PNGs from the same renderer, identical pixels → identical bytes
