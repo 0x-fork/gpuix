@@ -53,7 +53,7 @@ pub(crate) fn init_key_bindings(cx: &mut gpui::App) {
 /// Parse a CSS font-weight value (string or number) into a GPUI FontWeight.
 /// Accepts named keywords ("bold", "semibold"), numeric strings ("700"),
 /// and raw numbers (700). Falls back to 400 (normal) for unrecognized values.
-fn parse_font_weight(value: &crate::style::FontWeightValue) -> gpui::FontWeight {
+pub(crate) fn parse_font_weight(value: &crate::style::FontWeightValue) -> gpui::FontWeight {
     match value {
         crate::style::FontWeightValue::Num(n) => gpui::FontWeight((*n as f32).clamp(1.0, 1000.0)),
         crate::style::FontWeightValue::Str(s) => {
@@ -3225,10 +3225,7 @@ fn build_virtual_list(
 
 fn unmounted_virtual_row(height: f32) -> gpui::AnyElement {
     use gpui::prelude::*;
-    gpui::div()
-        .h(gpui::px(height.max(1.0)))
-        .w_full()
-        .into_any()
+    gpui::div().h(gpui::px(height.max(1.0))).w_full().into_any()
 }
 
 fn virtual_row_ancestor(tree: &RetainedTree, list_id: u64, element_id: u64) -> Option<u64> {

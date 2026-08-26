@@ -187,14 +187,9 @@ export interface SyntaxTheme {
  * heading scale is a React re-render and needs no native rebuild.
  */
 export interface GpuixMetrics {
-  // Code blocks
+  // Code blocks. Shared by <code> and the markdown fenced block.
   codeTextSize?: number
   codeLineHeight?: number
-  codePaddingX?: number
-  codePaddingY?: number
-  codeRadius?: number
-  codeHeaderPaddingY?: number
-  codeHeaderTextSize?: number
   codeGutterDigitWidth?: number
   codeGutterPaddingRight?: number
   codeGutterMinWidth?: number
@@ -222,6 +217,15 @@ export interface GpuixMetrics {
   mdTableMinColumnWidth?: number
   mdTableMinColumnContent?: number
   mdInlineCodeRadius?: number
+  /**
+   * The fenced-block card. `<code>` paints no card, so these are
+   * markdown-only: style a `<code>` block with its own `style` prop instead.
+   */
+  mdCodePaddingX?: number
+  mdCodePaddingY?: number
+  mdCodeRadius?: number
+  mdCodeHeaderPaddingY?: number
+  mdCodeHeaderTextSize?: number
 }
 
 /**
@@ -353,7 +357,18 @@ export interface SvgProps extends Props {
   source?: string
 }
 
-// Props for the <code> custom element — a syntax-highlighted code block.
+/**
+ * Props for the <code> custom element — a syntax-highlighted code block.
+ *
+ * It paints **no surface of its own**: no fill, border, radius, padding or
+ * language header. `style` is the surface, and `fontFamily`, `fontSize`,
+ * `fontWeight`, `lineHeight` and `color` there beat the theme. Wrap it, or
+ * style it, to get a card.
+ *
+ * Rows are a fixed height, so `fontSize` alone scales that height by the
+ * theme's ratio. Lines never wrap and the block is its own horizontal
+ * scroller, so `whiteSpace` and `overflowX` do nothing.
+ */
 export interface CodeProps extends Props {
   /** The source to display. Rendered one div per line at an exact line height. */
   code?: string
@@ -362,8 +377,6 @@ export interface CodeProps extends Props {
   /** File path, used for extension-based language detection. */
   path?: string
   showLineNumbers?: boolean
-  /** Header strip with the language tag. Defaults to true when `language` is set. */
-  showHeader?: boolean
   theme?: GpuixTheme
 }
 

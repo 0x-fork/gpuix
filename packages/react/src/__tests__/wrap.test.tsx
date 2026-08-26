@@ -256,7 +256,8 @@ describeNative("text wrapping", () => {
     const before = path.join(SHOTS_DIR, "wrap-code-x-before.png")
     const after = path.join(SHOTS_DIR, "wrap-code-x-after.png")
     renderer.captureScreenshot(before)
-    renderer.nativeSimulateScrollWheel(80, 50, -160, 0)
+    // Two rows of 18px from y=8, so the wheel must sit inside that band.
+    renderer.nativeSimulateScrollWheel(80, 20, -160, 0)
     renderer.captureScreenshot(after)
     expectScreenshotsDiffer(before, after)
   })
