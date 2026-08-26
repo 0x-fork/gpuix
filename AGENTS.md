@@ -723,9 +723,26 @@ Load the `changesets` skill for format and rules. If the change fixes a GitHub i
 
 **Never publish from a local machine.** CI is the only release path.
 
-`.github/workflows/ci.yml` builds `@gpuix/native` for every napi target (macOS arm64/x64, Linux x64/arm64, Windows x64/arm64), uploads the `.node` artifacts, then the `publish` job downloads them, runs `napi create-npm-dirs` + `napi artifacts`, and publishes `@gpuix/native` and `@gpuix/react`.
+`.github/workflows/ci.yml` builds `@gpuix/native` for **one target per OS**, uploads the `.node` artifacts, then the `publish` job downloads them, runs `napi create-npm-dirs` + `napi artifacts`, and publishes `@gpuix/native` and `@gpuix/react`.
 
-Each build job also compiles `examples/chat.tsx` with `bun build --compile` against that target's `.node`, and uploads `example-chat-<target>`. On `main`, the publish job attaches those binaries to the `@gpuix/react@x.y.z` GitHub release.
+| OS | Target | Renderer | Features |
+|---|---|---|---|
+| macOS | `aarch64-apple-darwin` | Metal | `test-support` |
+| Linux | `x86_64-unknown-linux-gnu` | Vulkan / wgpu | `--no-default-features` |
+| Windows | `x86_64-pc-windows-msvc` | Direct3D | `test-support` |
+
+Every extra target is a full gpui build, and gpui is most of the wall clock here,
+so the matrix carries the architecture each OS is mostly used on and nothing else.
+**The matrix and `napi.targets` in `packages/native/package.json` must list the
+same set.** A target in one and not the other means the published loader looks for
+a platform package that CI never built. Add a target back when someone asks for it.
+
+Each build job also compiles `examples/chat.tsx` with `bun build --compile` against
+that target's `.node`. A release asset is served as raw bytes, so a download loses
+the executable bit and, on macOS and Linux, arrives with no extension. The job packs
+those two into `example-chat-<target>.tar.gz`, which keeps the mode and names itself.
+Windows ships the `.exe` as it is. On `main`, the publish job attaches them to the
+`@gpuix/react@x.y.z` GitHub release.
 
 Publish order is required. `@gpuix/react` depends on `@gpuix/native` (`workspace:^`). If React publishes first, an install in that window cannot resolve native.
 
@@ -735,7 +752,48 @@ Publish order is required. `@gpuix/react` depends on `@gpuix/native` (`workspace
 
 A local `npm publish` / `bun publish` would ship only the host binary and break every other platform. `prepublishOnly` exits if `CI` is unset.
 
-To release: bump versions via changesets, push to `main`. The publish job skips versions already on npm.
+### Create the GitHub release before CI gets to the publish job
+
+The example binaries are attached by tag, and **the upload step gives up when that
+release does not exist**:
+
+```bash
+if ! gh release view "$TAG" >/dev/null 2>&1; then
+  echo "No GitHub release for ${TAG}, skipping example upload"
+  exit 0
+fi
+```
+
+So a release created afterwards gets **no binaries**, and the only way to add them
+later is to download ~100 MB of artifacts to a laptop and push them back. There is
+no API that attaches an artifact to a release: the assets endpoint wants the raw
+bytes in the request body, and `gh release upload` cannot read stdin
+([cli/cli#5820](https://github.com/cli/cli/issues/5820)). The bytes always move.
+Do not let them move through your machine.
+
+Release order:
+
+1. Consume the changesets, bump both packages, write `CHANGELOG.md`, commit
+2. `git push origin HEAD:main`. CI starts
+3. Tag and create the release **now**, while the six native builds run:
+
+```bash
+git tag '@gpuix/native@0.5.0' && git tag '@gpuix/react@0.5.0'
+git push origin '@gpuix/native@0.5.0' '@gpuix/react@0.5.0'
+gh release create '@gpuix/react@0.5.0' --title '@gpuix/react@0.5.0' \
+  --notes-file /tmp/notes.md --latest
+```
+
+4. CI publishes npm, then uploads `example-chat-*` to that release with `--clobber`
+
+The `publish` job only runs after every build and both test jobs, which is more than
+ten minutes, so step 3 has plenty of slack. Use the current `CHANGELOG.md` section
+as the notes. Never `--draft`, never `--prerelease`.
+
+**If CI fails and you push fixes, re-point the tags.** The tag then names an older
+commit than the one npm was built from. Delete both tags locally and on the remote,
+recreate them on the commit that published, and push again. The upload step matches
+on the tag *name*, so the release itself keeps its notes and its assets.
 
 ## Communication Flow
 

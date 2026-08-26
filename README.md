@@ -124,14 +124,16 @@ change `@gpuix/react` from `workspace:^` to a version range, and run
 The todo app lives in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) and is meant to be copied.
 The rest live in [`examples/`](https://github.com/remorses/gpuix/tree/main/examples). All of them use hardcoded data.
 
-Or download a standalone **chat** build from the [GitHub release](https://github.com/remorses/gpuix/releases). Files are named `example-chat-<target>`. No Bun or Rust install is required.
+Or download a standalone **chat** build from the [GitHub release](https://github.com/remorses/gpuix/releases). No Bun or Rust install is required.
 
 ```bash
-chmod +x example-chat-aarch64-apple-darwin
+tar -xzf example-chat-aarch64-apple-darwin.tar.gz
 ./example-chat-aarch64-apple-darwin
 ```
 
-macOS may block the unsigned binary the first time. Right-click the file, choose **Open**, and confirm. Windows: download `example-chat-x86_64-pc-windows-msvc.exe` and double-click it.
+The archive keeps the executable bit, so there is no `chmod` step. macOS may still block the unsigned binary the first time. Right-click the file, choose **Open**, and confirm.
+
+On Windows, download `example-chat-x86_64-pc-windows-msvc.exe` and double-click it. On Linux, the file is `example-chat-x86_64-unknown-linux-gnu.tar.gz`.
 
 The web example bundles the same React app and reconciler as the desktop chat
 example. wasm-bindgen exposes the mutation interface to the existing retained
