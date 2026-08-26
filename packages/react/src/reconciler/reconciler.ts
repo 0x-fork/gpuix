@@ -80,8 +80,8 @@ export function createRoot(renderer: NativeRenderer): Root {
       })
       container = null
     }
-    detachRoot(renderer)
-    detachRoot(batchedRenderer)
+    detachRoot(renderer, gpuixContainer)
+    detachRoot(batchedRenderer, gpuixContainer)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

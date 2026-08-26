@@ -54,6 +54,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   simulateMouseUp(x: number, y: number, button: number, modifiers?: string): void
   getTreeJson(): string
   getAutomationTree(): string
+  getRetainedElementCount(): number
   getElementBounds(elementId: number): number[] | null
   clockPause(): number
   clockSet(nowMs: number): number
@@ -450,6 +451,12 @@ export class TestRenderer implements NativeRenderer {
 
   getAutomationTree(): string {
     return this.native.getAutomationTree()
+  }
+
+  /** Every element the native tree holds, reachable or not. `toJSON()` walks
+   *  from the root, so only this can see a node that was detached and leaked. */
+  getRetainedElementCount(): number {
+    return this.native.getRetainedElementCount()
   }
 
   getElementBounds(elementId: number): number[] | null {
