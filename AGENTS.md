@@ -356,6 +356,36 @@ For Rust time, `sample` the bun/node pid, or `samply`. GPUI also has
 A `.node` cannot unload. After a native rebuild, restart the app. `bun --hot`
 only remounts React.
 
+### Mutation wire format and tree memory
+
+Do not swap the `applyBatch` codec before reading
+[docs/serialization-benchmark.md](./docs/serialization-benchmark.md). It
+measures both halves on the real `ChatApp` queue, and the answer is that the
+codec is the **smallest** lever.
+
+```bash
+cd examples && TURNS=10000 SAFE_MDX=1 bun run bench:serde
+cd packages/native && cargo run --release --example bench_serde
+```
+
+Four results to keep in mind before touching this path:
+
+- `batch_payload` deep-clones every style payload, then `from_value` parses it
+  again. Today's decode makes **1.76M allocations** for 221k ops
+- `StyleDesc` is **1392 bytes**. Putting it in an enum variant makes the whole
+  `Vec<Op>` 1408 bytes wide, so a typed decode that keeps it is **slower** than
+  the `serde_json::Value` tree it replaces. Box it
+- `RetainedElement` costs **3102 bytes resident**, and `size_of` is 1624 B only
+  because `Option<StyleDesc>` is inline. Moving it behind an `Arc` and sharing
+  the 90 distinct styles drops the tree **5.4x**, and `Deref` keeps
+  `apply_styles` and every custom element unchanged
+- once styles are interned in the protocol, a hand-packed compact style buys
+  **nothing**: only 90 of 221k ops parse a style. Do not write one first
+
+No mainstream JS↔Rust codec deduplicates repeated string **values**. msgpackr
+`useRecords` deduplicates keys, and its output is not plain MessagePack, so
+`rmp_serde` cannot read it. Value dedup has to happen in the protocol.
+
 ## Overlays and icons
 
 Menus, tooltips, and dialogs go through **`SelectContent` / `ComboboxContent` /
@@ -367,10 +397,21 @@ Do not paint `#00000000` over a blurred window. A transparent GPUI quad punches
 through Metal to the desktop. Omit the fill, or use the parent color. Overlay
 rows need a **solid** fill too, not a transparent idle state.
 
-A filled in-flow `div` uses **BlockMouseExceptScroll**. Clicks and hovers stop.
-The parent scroller still gets the wheel. `position: "absolute"` / `"fixed"`
-or `pointerEvents: "auto"` uses **BlockMouse** and steals the wheel too.
-`pointerEvents: "none"` opts out.
+Any `div` that paints a fill, or that is positioned, uses
+**BlockMouseExceptScroll**. Clicks and hovers stop, the wheel still reaches the
+ancestor scroller. Only `pointerEvents: "auto"` uses **BlockMouse** and steals
+the wheel. `pointerEvents: "none"` opts out of both.
+
+Absolute used to steal the wheel too. That made a pannable canvas impossible:
+every absolutely placed item ended the hit test before the ancestor's pan
+listener ran, and HTML does not behave that way either. `<anchored>` has its own
+`occlude` prop, so menus never depended on the old rule.
+
+An absolutely positioned wrapper with **no** fill still takes hits, like an
+empty positioned `div` in a browser. A translating wrapper that only carries a
+scroll offset must set `pointerEvents: "none"`, or it swallows every press meant
+for the surface behind it. Its children keep their own hitboxes:
+`pointerEvents` does not inherit.
 
 Text **selection** still uses window mouse events and text bounds, not hitboxes.
 A drag on a menu over markdown can still start a selection. Do not skip

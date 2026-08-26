@@ -1600,6 +1600,92 @@ describeNative("events", () => {
       expect(offset![1]).toBeLessThan(0)
     })
 
+    it("lets an ancestor take the wheel over an absolutely placed child", () => {
+      // A pannable canvas places every item absolutely: a timeline clip, a
+      // graph node. If absolute stole the wheel, the pan listener never ran.
+      const deltas: number[] = []
+
+      function Canvas() {
+        return (
+          <div
+            style={{ width: 320, height: 200, position: "relative" }}
+            onScroll={(e: EventPayload) => deltas.push(e.deltaY ?? 0)}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: 40,
+                top: 40,
+                width: 120,
+                height: 40,
+                backgroundColor: "#3366ff",
+              }}
+            >
+              <text>clip</text>
+            </div>
+          </div>
+        )
+      }
+
+      testRoot.render(<Canvas />)
+      testRoot.renderer.nativeSimulateScrollWheel(100, 60, 0, -80)
+
+      expect(deltas).toEqual([-80])
+    })
+
+    it("stops the wheel at a child with pointerEvents auto", () => {
+      const deltas: number[] = []
+
+      function ModalOverCanvas() {
+        return (
+          <div
+            style={{ width: 320, height: 200, position: "relative" }}
+            onScroll={(e: EventPayload) => deltas.push(e.deltaY ?? 0)}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: 320,
+                height: 200,
+                backgroundColor: "#101010",
+                pointerEvents: "auto",
+              }}
+            >
+              <text>modal</text>
+            </div>
+          </div>
+        )
+      }
+
+      testRoot.render(<ModalOverCanvas />)
+      testRoot.renderer.nativeSimulateScrollWheel(100, 60, 0, -80)
+
+      expect(deltas).toEqual([])
+    })
+
+    it("reports the modifiers held during a simulated wheel", () => {
+      const held: Array<boolean | undefined> = []
+
+      function ZoomSurface() {
+        return (
+          <div
+            style={{ width: 200, height: 200, backgroundColor: "#101010" }}
+            onScroll={(e: EventPayload) => held.push(e.modifiers?.cmd)}
+          >
+            <text>surface</text>
+          </div>
+        )
+      }
+
+      testRoot.render(<ZoomSurface />)
+      testRoot.renderer.nativeSimulateScrollWheel(100, 100, 0, -40)
+      testRoot.renderer.nativeSimulateScrollWheel(100, 100, 0, -40, "cmd")
+
+      expect(held).toEqual([false, true])
+    })
+
     it("should support overflow-y scroll only", () => {
       function VerticalScroll() {
         return (

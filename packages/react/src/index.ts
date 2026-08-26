@@ -70,6 +70,7 @@ export type {
 // Re-export types
 export type { MotionDivProps, WindowedVirtualListProps } from "./components/index.js"
 export type {
+  CursorValue,
   DebugFrameOverlayMode,
   DebugFrameOverlayStats,
   EdgeInsets,

@@ -1147,10 +1147,14 @@ Give every overlay an **opaque** fill (`#232323`, not `#23232399`).
 color, or a solid hover color. A `#00000000` child on a blurred window punches
 through Metal to the desktop.
 
-A filled in-flow `div` blocks clicks and hovers behind it. The parent
-scroller still gets the wheel. `position: "absolute"` / `"fixed"` or
-`pointerEvents: "auto"` also steals the wheel. Set `pointerEvents: "none"`
-to pass hits through.
+A `div` that paints a fill, or that is positioned, blocks clicks and hovers
+behind it. The wheel still reaches the ancestor scroller, the same as in a
+browser, so a pannable canvas can place its items absolutely and keep panning.
+
+Set **`pointerEvents: "auto"`** on the rare element that must swallow the wheel
+too, like a modal backdrop. Set `pointerEvents: "none"` to pass every hit
+through. `<anchored>` occludes by default and has its own `occlude` prop, so
+menus and tooltips need neither.
 
 ## Text selection
 
@@ -1484,9 +1488,26 @@ CSS-like styling via the `style` prop:
 
 **Spacing:** `padding`, `paddingTop/Right/Bottom/Left`, `margin`, `marginTop/Right/Bottom/Left`
 
-**Position:** `position` (`"relative"` | `"absolute"`), `top`, `right`, `bottom`, `left`
+**Position:** `position` (`"relative"` | `"absolute"` | `"fixed"`), `top`, `right`, `bottom`, `left` — `"fixed"` lays out like `"absolute"`, because GPUI has no scrolling document to be fixed against
 
 **Visual:** `backgroundColor`, `color`, `opacity`, `cursor`, `pointerEvents`, `borderRadius`, `borderTopLeftRadius`, `borderTopRightRadius`, `borderBottomLeftRadius`, `borderBottomRightRadius`, `borderWidth`, `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth`, `borderColor`, `boxShadow`
+
+### Cursors
+
+`cursor` takes the CSS keyword. An unlisted keyword is ignored, like any other
+invalid style value.
+
+| Group | Keywords |
+|---|---|
+| Pointing | `default`, `auto`, `pointer`, `context-menu`, `not-allowed`, `no-drop` |
+| Text | `text`, `vertical-text`, `crosshair` |
+| Dragging | `grab`, `grabbing`, `move`, `all-scroll`, `alias`, `copy` |
+| Resizing | `col-resize`, `row-resize`, `ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`, `n-resize`, `e-resize`, `s-resize`, `w-resize`, `ne-resize`, `nw-resize`, `se-resize`, `sw-resize` |
+
+```tsx
+<div style={{ cursor: 'grab', active: { cursor: 'grabbing' } }} />
+<div style={{ cursor: 'col-resize' }} />
+```
 
 ### Colors
 

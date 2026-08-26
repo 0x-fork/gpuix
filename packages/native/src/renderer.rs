@@ -3489,14 +3489,18 @@ pub(crate) fn build_div(
         }
 
         if crate::style::should_occlude(style) {
-            // BlockMouse (occlude) stops the hit test. The parent scroller
-            // then never sees the wheel. In-flow fills must use
-            // BlockMouseExceptScroll. Keep occlude for overlays that steal
-            // the pointer: absolute, fixed, or pointerEvents: "auto".
-            let steal_scroll =
-                matches!(style.position.as_deref(), Some("absolute") | Some("fixed"))
-                    || style.pointer_events.as_deref() == Some("auto");
-            el = if steal_scroll {
+            // BlockMouse (occlude) stops the hit test, so the parent scroller
+            // never sees the wheel. HTML does not work that way: a wheel over
+            // an absolutely positioned card still scrolls the ancestor. Only
+            // `pointerEvents: "auto"` opts into stealing it. Everything else
+            // uses BlockMouseExceptScroll.
+            //
+            // Absolute used to steal it too. That made a pannable canvas
+            // impossible: every absolutely placed item (a timeline clip, a
+            // graph node) ended the hit test before the pan listener ran.
+            // `<anchored>` still occludes through its own `occlude` prop, so
+            // menus and tooltips are unaffected.
+            el = if style.pointer_events.as_deref() == Some("auto") {
                 el.occlude()
             } else {
                 el.block_mouse_except_scroll()
@@ -3525,6 +3529,10 @@ pub(crate) fn build_div(
 
         if needs_scroll_x && needs_scroll_y {
             el = el.overflow_scroll();
+            // GPUI zeroes the smaller of the two deltas by default, so one
+            // diagonal wheel moves one axis. A browser moves both, and a
+            // two-axis container is exactly where a user expects that.
+            el.style().allow_concurrent_scroll = Some(true);
         } else if needs_scroll_x {
             overflow_x_only = true;
             el = el
@@ -4046,8 +4054,11 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(ml) = style.margin_left {
         el = el.ml(gpui::px(ml as f32));
     }
+    // Taffy has no viewport-fixed position, and GPUI has no scrolling document,
+    // so "fixed" lays out exactly like "absolute". `should_occlude` already
+    // treated the two the same; without this arm a "fixed" box stayed in flow.
     match style.position.as_deref() {
-        Some("absolute") => el = el.absolute(),
+        Some("absolute") | Some("fixed") => el = el.absolute(),
         Some("relative") => el = el.relative(),
         _ => {}
     }
@@ -4168,10 +4179,8 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(opacity) = style.opacity {
         el = el.opacity(opacity as f32);
     }
-    match style.cursor.as_deref() {
-        Some("pointer") => el = el.cursor_pointer(),
-        Some("default") => el = el.cursor_default(),
-        _ => {}
+    if let Some(cursor) = style.cursor.as_deref().and_then(crate::style::parse_cursor) {
+        el = el.cursor(cursor);
     }
     // Overflow: hidden is on the Styled trait, so we handle it here.
     // overflow: "scroll" requires StatefulInteractiveElement — handled in build_div().

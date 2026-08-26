@@ -35,6 +35,41 @@ export interface MotionProps {
   transition?: MotionTransition
 }
 
+/**
+ * CSS `cursor` keywords GPUI can paint. An unlisted keyword is ignored, like
+ * every other invalid style value.
+ */
+export type CursorValue =
+  | "default"
+  | "auto"
+  | "pointer"
+  | "text"
+  | "vertical-text"
+  | "crosshair"
+  | "grab"
+  | "grabbing"
+  | "move"
+  | "all-scroll"
+  | "col-resize"
+  | "row-resize"
+  | "ew-resize"
+  | "ns-resize"
+  | "nwse-resize"
+  | "nesw-resize"
+  | "n-resize"
+  | "e-resize"
+  | "s-resize"
+  | "w-resize"
+  | "ne-resize"
+  | "nw-resize"
+  | "se-resize"
+  | "sw-resize"
+  | "not-allowed"
+  | "no-drop"
+  | "alias"
+  | "copy"
+  | "context-menu"
+
 export interface BoxShadow {
   offsetX: number
   offsetY: number
@@ -119,8 +154,10 @@ export interface StyleDesc {
   overflowX?: string
   overflowY?: string
 
-  cursor?: string
-  /** `"auto"` blocks hits behind this element. `"none"` never does. Unset blocks when the element paints a fill or is absolutely positioned. */
+  cursor?: CursorValue
+  /** `"auto"` blocks hits behind this element **and its wheel**. `"none"` never
+   *  blocks. Unset blocks clicks when the element paints a fill or is
+   *  positioned, but lets the wheel reach the ancestor scroller, like HTML. */
   pointerEvents?: "auto" | "none"
 
   /** "none" opts this element and its subtree out of text selection.
