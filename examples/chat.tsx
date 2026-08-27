@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   useGpuix,
   useWindowInsets,
+  type PublicInstance,
   type StyleDesc,
 } from '@gpuix/react'
 import { SafeMdxRenderer } from 'safe-mdx'
@@ -778,7 +779,7 @@ const Transcript = memo(function Transcript({
 }: {
   turns: Turn[]
   includeSafeMdx?: boolean
-  listRef?: React.Ref<{ id: number }>
+  listRef?: React.Ref<PublicInstance>
 }) {
   return (
     <virtual-list
@@ -1513,10 +1514,9 @@ function flattenMdxTable(children: React.ReactNode): {
   const cells: React.ReactElement[] = []
   for (const [rowIndex, row] of rows.entries()) {
     for (let col = 0; col < cols; col++) {
-      const cell = row[col]
       cells.push(
-        cell
-          ? React.cloneElement(cell, { key: `${rowIndex}-${col}` })
+        col < row.length
+          ? React.cloneElement(row[col]!, { key: `${rowIndex}-${col}` })
           : <div key={`pad-${rowIndex}-${col}`} />
       )
     }
@@ -1728,14 +1728,37 @@ function parseMdx(source: string) {
   return tree
 }
 
-export function SafeMdxContent({ source }: { source: string }) {
+export function SafeMdxContent({
+  source,
+  onLinkClick,
+}: {
+  source: string
+  onLinkClick?: (href: string) => void
+}) {
   const mdast = useMemo(() => parseMdx(source), [source])
+  const components = useMemo(
+    () =>
+      onLinkClick
+        ? {
+            ...SAFE_MDX_COMPONENTS,
+            a: ({ children, href }) => (
+              <div
+                style={{ display: 'flex', flexDirection: 'row', cursor: href ? 'pointer' : undefined }}
+                onClick={() => href && onLinkClick(href)}
+              >
+                <MdxInline style={{ color: C.accent }}>{children}</MdxInline>
+              </div>
+            ),
+          }
+        : SAFE_MDX_COMPONENTS,
+    [onLinkClick]
+  )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', minWidth: 0 }}>
       <SafeMdxRenderer
         markdown={source}
         mdast={mdast}
-        components={SAFE_MDX_COMPONENTS}
+        components={components}
         renderNode={(node) => {
           if (node.type !== 'code') return undefined
           return <CodeBlock code={node.value} language={node.lang ?? undefined} showLineNumbers />
@@ -1776,7 +1799,7 @@ export function ChatApp({
   const [branch, setBranch] = useState('main')
 
   const [turns, setTurns] = useState(() => expandTurns(turnCount))
-  const listRef = useRef<{ id: number } | null>(null)
+  const listRef = useRef<PublicInstance | null>(null)
   const skipScroll = useRef(true)
   const { renderer } = useGpuix()
   const { ime } = useWindowInsets()
