@@ -1094,6 +1094,32 @@ function Results({ rows }: { rows: Result[] }) {
 
 `scrollTo`, `scrollToItem`, and `getScrollOffset` all support virtual lists.
 
+On a virtual list, `scrollToItem` takes an optional **pixel offset** and the
+list reports its logical anchor:
+
+```tsx
+renderer.scrollToItem(listId, index, offsetInItem)  // offset in px, may be negative
+renderer.getListScrollTop(listId)  // [itemIndex, offsetInItemPx, viewportHeightPx] or null
+```
+
+A **negative offset anchors the viewport top above the row**, and the next
+layout resolves it against real measured heights. That is the tool for
+infinite-scroll history: while the reader waits in a loading row, read
+`getListScrollTop`, commit the fetched page, then re-anchor on the message
+that was under the loading row with a negative offset. The message stays at
+the same pixel while the new rows are measured above it —
+`examples/infinite-chat.tsx` is the worked example.
+
+An `itemIndex` equal to the item count is gpui's **at-end sentinel**: a
+bottom-aligned list resting at its very end. A reader waiting at a trailing
+loading row usually sits there, and the viewport height in the same tuple is
+what converts that into a position relative to the trailing rows
+(`EDGE_HEIGHT - viewportHeight` in the example).
+
+Virtual-list `scrollToItem` calls are applied on the **next render, after
+that frame's child splice**, so an index computed against a just-committed
+child list is never shifted twice.
+
 ### Performance model
 
 | Work | Plain scroll container | `<virtual-list>` children | `<virtual-list>` + `itemCount` |
