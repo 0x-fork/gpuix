@@ -80,23 +80,23 @@ fn caret_visible(ms_since_activity: u64) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PressIntent {
     SelectAll,
+    SelectWord,
     ExtendSelection,
     PlaceCaret,
 }
 
 impl PressIntent {
     fn arms_drag(self) -> bool {
-        !matches!(self, Self::SelectAll)
+        matches!(self, Self::ExtendSelection | Self::PlaceCaret)
     }
 }
 
 fn press_intent(click_count: usize, shift: bool) -> PressIntent {
-    if click_count >= 2 {
-        PressIntent::SelectAll
-    } else if shift {
-        PressIntent::ExtendSelection
-    } else {
-        PressIntent::PlaceCaret
+    match click_count {
+        n if n >= 3 => PressIntent::SelectAll,
+        2 => PressIntent::SelectWord,
+        _ if shift => PressIntent::ExtendSelection,
+        _ => PressIntent::PlaceCaret,
     }
 }
 
@@ -1136,6 +1136,12 @@ impl TextEditorState {
                 self.move_to(0, cx);
                 self.select_to(self.content.len(), cx);
             }
+            PressIntent::SelectWord => {
+                let index = self.index_for_mouse_position(event.position);
+                let range = crate::text::selection::word_range(&self.content, index);
+                self.move_to(range.start, cx);
+                self.select_to(range.end, cx);
+            }
             PressIntent::ExtendSelection => {
                 self.select_to(self.index_for_mouse_position(event.position), cx);
             }
@@ -1187,8 +1193,13 @@ impl TextEditorState {
         let Some(bounds) = self.last_bounds else {
             return position;
         };
+        let x = if self.multiline {
+            position.x.clamp(bounds.left(), bounds.right() - px(0.5))
+        } else {
+            position.x
+        };
         point(
-            position.x.clamp(bounds.left(), bounds.right() - px(0.5)),
+            x,
             position.y.clamp(bounds.top(), bounds.bottom() - px(0.5)),
         )
     }
@@ -2062,14 +2073,15 @@ mod tests {
     }
 
     #[test]
-    fn multi_click_selects_all_and_does_not_arm_drag() {
+    fn multi_click_selects_word_then_all_and_does_not_arm_drag() {
         assert_eq!(press_intent(1, false), PressIntent::PlaceCaret);
         assert_eq!(press_intent(1, true), PressIntent::ExtendSelection);
-        assert_eq!(press_intent(2, false), PressIntent::SelectAll);
+        assert_eq!(press_intent(2, false), PressIntent::SelectWord);
+        assert_eq!(press_intent(2, true), PressIntent::SelectWord);
         assert_eq!(press_intent(3, false), PressIntent::SelectAll);
-        assert_eq!(press_intent(2, true), PressIntent::SelectAll);
         assert!(press_intent(1, false).arms_drag());
         assert!(press_intent(1, true).arms_drag());
         assert!(!press_intent(2, false).arms_drag());
+        assert!(!press_intent(3, false).arms_drag());
     }
 }

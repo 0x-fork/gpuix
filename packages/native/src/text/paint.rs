@@ -593,7 +593,10 @@ fn register_down_listener(window: &mut Window, selection: &SharedSelection) {
 /// One window-level move and up listener for the frame.
 ///
 /// These are independent of the anchor run, so virtualization cannot remove
-/// the listener that owns the active drag.
+/// the listener that owns the active drag. The reset canvas is the first root
+/// child, so gpui's reverse bubble order runs these last. Do not stop
+/// propagation on mouse-up elsewhere, or a drag and its edge-scroll timer
+/// stay armed.
 fn register_drag_listeners(
     window: &mut Window,
     selection: &SharedSelection,

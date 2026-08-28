@@ -192,6 +192,30 @@ describeNative("native text editors", () => {
     expect(testRoot.renderer.getAllText()).not.toContain("Value: ab")
   })
 
+  it("does not coalesce typing after 700ms", () => {
+    function TextInput() {
+      const [text, setText] = useState("")
+      return (
+        <div style={{ width: 400, height: 100 }}>
+          <input
+            value={text}
+            style={{ width: 300, height: 40 }}
+            onChange={(event: EventPayload) => setText(event.value ?? "")}
+          />
+          <text>{`Value: ${text}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<TextInput />)
+    const input = testRoot.renderer.findByType("input")[0]
+    testRoot.renderer.nativeSimulateKeystrokes(input.id, "a")
+    testRoot.renderer.advanceTime(800)
+    testRoot.renderer.nativeSimulateKeystrokes(input.id, "b cmd-z")
+
+    expect(testRoot.renderer.getAllText()).toContain("Value: a")
+  })
+
   it("undoes contiguous backward deletion as one edit", () => {
     function TextInput() {
       const [text, setText] = useState("abcd")

@@ -160,7 +160,7 @@ fn selection_scroll_step(
     if height <= 0.0 {
         return 0.0;
     }
-    let edge = SELECTION_SCROLL_EDGE_PX.min(height / 3.0);
+    let edge = SELECTION_SCROLL_EDGE_PX.min(height / 6.0);
     if edge <= 0.0 {
         return 0.0;
     }
@@ -3476,8 +3476,16 @@ impl GpuixView {
             return;
         }
 
-        crate::text::paint::update_drag_at(&self.selection, position);
+        let before = entry.state.logical_scroll_top();
+        let selection_moved = crate::text::paint::update_drag_at(&self.selection, position);
         entry.state.scroll_by(gpui::px(step));
+        let after = entry.state.logical_scroll_top();
+        let list_moved =
+            after.item_ix != before.item_ix || after.offset_in_item != before.offset_in_item;
+        if !selection_moved && !list_moved {
+            self.stop_selection_scroll();
+            return;
+        }
         cx.notify();
         self.schedule_selection_scroll(cx);
     }
@@ -3647,7 +3655,7 @@ impl gpui::Render for GpuixView {
         // longer on screen.
         let result = {
             use gpui::prelude::*;
-            let drag_move_view = cx.entity();
+            let drag_move_view = cx.weak_entity();
             let drag_end_view = drag_move_view.clone();
             let root = gpui::div()
                 .size_full()
@@ -3657,12 +3665,16 @@ impl gpui::Render for GpuixView {
                 .child(selection_frame_reset(
                     self.selection.clone(),
                     move |position, app| {
-                        drag_move_view.update(app, |view, cx| {
-                            view.on_selection_mouse_move(position, cx)
-                        });
+                        drag_move_view
+                            .update(app, |view, cx| {
+                                view.on_selection_mouse_move(position, cx)
+                            })
+                            .ok();
                     },
                     move |app| {
-                        drag_end_view.update(app, |view, _cx| view.stop_selection_scroll());
+                        drag_end_view
+                            .update(app, |view, _cx| view.stop_selection_scroll())
+                            .ok();
                     },
                 ))
                 .child(crate::automation::bounds_frame_reset())
