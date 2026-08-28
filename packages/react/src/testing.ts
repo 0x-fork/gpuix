@@ -59,6 +59,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   clockSet(nowMs: number): number
   clockFastForward(deltaMs: number): number
   clockResume(): number
+  advanceTime(milliseconds: number): void
   getRootId(): number | null
   getWindowSize(): { width: number; height: number }
   getAllText(): string[]
@@ -425,6 +426,11 @@ export class TestRenderer implements NativeRenderer {
 
   clockResume(): number {
     return this.native.clockResume()
+  }
+
+  /** Advance GPUI's deterministic executor and run all timers now due. */
+  advanceTime(milliseconds: number): void {
+    this.native.advanceTime(milliseconds)
   }
 
   focusElement(elementId: number): void {
