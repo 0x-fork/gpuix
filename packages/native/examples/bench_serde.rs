@@ -393,7 +393,6 @@ enum Op<'a, S> {
     CreateElement { id: u64, kind: Str<'a> },
     DestroyElement { id: u64 },
     AppendChild { parent: u64, child: u64 },
-    RemoveChild { parent: u64, child: u64 },
     InsertBefore { parent: u64, child: u64, before: u64 },
     SetStyle { id: u64, style: S },
     SetText { id: u64, content: Str<'a> },
@@ -430,7 +429,6 @@ impl<'de, S: Deserialize<'de>> Visitor<'de> for OpVisitor<S> {
             "createElement" => Op::CreateElement { id: next(&mut seq)?, kind: next(&mut seq)? },
             "destroyElement" => Op::DestroyElement { id: next(&mut seq)? },
             "appendChild" => Op::AppendChild { parent: next(&mut seq)?, child: next(&mut seq)? },
-            "removeChild" => Op::RemoveChild { parent: next(&mut seq)?, child: next(&mut seq)? },
             "insertBefore" => Op::InsertBefore {
                 parent: next(&mut seq)?,
                 child: next(&mut seq)?,
@@ -444,7 +442,7 @@ impl<'de, S: Deserialize<'de>> Visitor<'de> for OpVisitor<S> {
                 has_handler: next(&mut seq)?,
             },
             "setRoot" => Op::SetRoot { id: next(&mut seq)? },
-            "setCustomPropValue" | "setCustomProp" => Op::SetCustomProp {
+            "setCustomProp" => Op::SetCustomProp {
                 id: next(&mut seq)?,
                 key: next(&mut seq)?,
                 value: next(&mut seq)?,
@@ -807,7 +805,7 @@ fn build_pointer_style_tree<P: Clone + From<StyleDesc>>(
                     element.events.insert(array[2].as_str().unwrap_or_default().to_owned());
                 }
             }
-            "setCustomPropValue" | "setCustomProp" => {
+            "setCustomProp" => {
                 if let Some(element) = tree.get_mut(&id(1)) {
                     element.custom_props.insert(
                         array[2].as_str().unwrap_or_default().to_owned(),

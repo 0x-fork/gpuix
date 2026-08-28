@@ -560,23 +560,10 @@ export interface AnchoredProps extends Props {
   occlude?: boolean
 }
 
-/// Interface for the renderer that receives mutations from the reconciler.
-/// Implemented by the real napi GpuixRenderer and by TestRenderer (which
-/// delegates to native TestGpuixRenderer for tests).
+/// Native renderer transport. React sends one atomic batch per commit.
 export interface NativeRenderer {
-  createElement(id: number, elementType: string): void
-  destroyElement(id: number): Array<number>
-  appendChild(parentId: number, childId: number): void
-  removeChild(parentId: number, childId: number): void
-  insertBefore(parentId: number, childId: number, beforeId: number): void
-  setStyle(id: number, styleJson: string | object): void
-  setText(id: number, content: string): void
-  setEventListener(id: number, eventType: string, hasHandler: boolean): void
-  setRoot(id: number): void
-  commitMutations(): void
-  setCustomProp(id: number, key: string, valueJson: string | object | number | boolean | null): void
-  /** Apply a batch of mutations in a single FFI call. Returns destroyed IDs. */
-  applyBatch?(json: string): Array<number>
+  /** Apply one React commit. Returns every element id destroyed by the batch. */
+  applyBatch(json: string): Array<number>
 
   // ── Focus API ──────────────────────────────────────────────────
   focusElement?(elementId: number): void
@@ -622,6 +609,20 @@ export interface NativeRenderer {
   getDebugFrameOverlayStats?(): DebugFrameOverlayStats
 }
 
+/** Commit-phase facade used only by the React host config. */
+export interface MutationRenderer {
+  createElement(id: number, elementType: string): void
+  destroyElement(id: number): Array<number>
+  appendChild(parentId: number, childId: number): void
+  insertBefore(parentId: number, childId: number, beforeId: number): void
+  setStyle(id: number, style: object): void
+  setText(id: number, content: string): void
+  setEventListener(id: number, eventType: string, hasHandler: boolean): void
+  setRoot(id: number): void
+  setCustomProp(id: number, key: string, value: object | string | number | boolean | null): void
+  flushMutations(): void
+}
+
 export type DebugFrameOverlayMode = "hidden" | "minimal" | "full"
 
 export interface EdgeInsets {
@@ -659,7 +660,7 @@ export interface ElementIdAllocator {
 // can both use id 1. Ids come from an allocator that lives with the
 // NativeRenderer, so a remount on the same renderer cannot reuse them.
 export interface Container {
-  renderer: NativeRenderer
+  renderer: MutationRenderer
   ids: ElementIdAllocator
   eventHandlers: EventHandlerMap
 }

@@ -70,7 +70,6 @@ export function createRoot(renderer: NativeRenderer): Root {
     eventHandlers: new Map(),
   }
   attachRoot(renderer, gpuixContainer)
-  attachRoot(batchedRenderer, gpuixContainer)
 
   const cleanup = (): void => {
     if (container) {
@@ -81,7 +80,6 @@ export function createRoot(renderer: NativeRenderer): Root {
       container = null
     }
     detachRoot(renderer, gpuixContainer)
-    detachRoot(batchedRenderer, gpuixContainer)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,7 +105,7 @@ export function createRoot(renderer: NativeRenderer): Root {
       reconciler.updateContainer(
         React.createElement(
           GpuixContext.Provider,
-          { value: { renderer: batchedRenderer } },
+          { value: { renderer } },
           node
         ),
         activeContainer,

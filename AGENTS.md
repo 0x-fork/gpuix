@@ -634,15 +634,13 @@ The 10k chat mount was 850ms. profano said:
 React was not the problem. The batch **stringified every style and theme**, then
 stringified the queue, then Rust parsed each escaped string again.
 
-Queue **raw objects**. Opcode `setCustomPropValue` carries a raw JSON value.
-`setCustomProp` still means a JSON **string** (legacy). A raw `"top"` or
-`"true"` on `setCustomProp` is parsed as JSON and throws. That is why the
-composer Selects died after the first applyBatch change: `<anchored side="top">`
-never committed.
+Queue **raw objects**. `setStyle` and `setCustomProp` both carry raw JSON values.
+Never encode either value before the outer batch is stringified. Doing so adds
+a second parse and turns strings such as `"top"` into nested JSON.
 
 ```ts
 queue.push(['setStyle', id, styleObject])
-queue.push(['setCustomPropValue', id, 'side', 'top'])
+queue.push(['setCustomProp', id, 'side', 'top'])
 ```
 
 After a JS reconciler change, **build `@gpuix/react`**. `examples/` and
@@ -1162,7 +1160,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] napi-rs FFI bindings and RetainedTree
 - [x] Style mapping, including native `hover` / `active`
 - [x] Mouse, keyboard, focus, scroll, and click-outside events
-- [x] `commitMutations()` stores the view entity and calls `cx.notify()`
+- [x] Atomic `applyBatch()` mutation transport
 - [x] GPU-backed test renderer
 - [x] Native `<input>` and `<textarea>`
 - [x] `<img>` (local raster/SVG) and `<svg>` (tintable monochrome icons)

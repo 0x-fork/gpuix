@@ -7,9 +7,7 @@
 //! Desktop lifecycle:
 //!   const renderer = new GpuixRenderer(eventCallback)
 //!   renderer.init({ title: 'My App', width: 800, height: 600 })
-//!   renderer.createElement(1, "div")     // mutations from React reconciler
-//!   renderer.appendChild(0, 1)
-//!   renderer.commitMutations()           // signal batch complete
+//!   renderer.applyBatch(json)             // one atomic React commit
 //!   setTimeout(function loop() {         // drive AppKit on macOS
 //!     if (!renderer.tick()) process.exit(0)
 //!     setTimeout(loop, 8)
@@ -1050,117 +1048,6 @@ impl GpuixRenderer {
         Ok(())
     }
 
-    // ── Mutation API ─────────────────────────────────────────────────
-
-    #[napi]
-    pub fn create_element(&self, id: f64, element_type: String) -> Result<()> {
-        let id = to_element_id(id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.create_element(id, element_type);
-        Ok(())
-    }
-
-    /// Destroy an element and all descendants. Returns array of destroyed IDs
-    /// so JS can clean up event handlers for the entire subtree.
-    #[napi]
-    pub fn destroy_element(&self, id: f64) -> Result<Vec<f64>> {
-        let id = to_element_id(id)?;
-        let mut tree = self.tree.lock().unwrap();
-        let destroyed = tree.destroy_element(id);
-        Ok(destroyed.iter().map(|&id| id as f64).collect())
-    }
-
-    #[napi]
-    pub fn append_child(&self, parent_id: f64, child_id: f64) -> Result<()> {
-        let parent_id = to_element_id(parent_id)?;
-        let child_id = to_element_id(child_id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.append_child(parent_id, child_id);
-        Ok(())
-    }
-
-    #[napi]
-    pub fn remove_child(&self, parent_id: f64, child_id: f64) -> Result<()> {
-        let parent_id = to_element_id(parent_id)?;
-        let child_id = to_element_id(child_id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.remove_child(parent_id, child_id);
-        Ok(())
-    }
-
-    #[napi]
-    pub fn insert_before(&self, parent_id: f64, child_id: f64, before_id: f64) -> Result<()> {
-        let parent_id = to_element_id(parent_id)?;
-        let child_id = to_element_id(child_id)?;
-        let before_id = to_element_id(before_id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.insert_before(parent_id, child_id, before_id);
-        Ok(())
-    }
-
-    #[napi]
-    pub fn set_style(&self, id: f64, style_json: String) -> Result<()> {
-        let id = to_element_id(id)?;
-        self.tree
-            .lock()
-            .unwrap()
-            .set_style_json(id, style_json.as_bytes())
-            .map_err(|error| Error::from_reason(format!("Failed to parse style: {error}")))
-    }
-
-    #[napi]
-    pub fn set_text(&self, id: f64, content: String) -> Result<()> {
-        let id = to_element_id(id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.set_text(id, content);
-        Ok(())
-    }
-
-    #[napi]
-    pub fn set_event_listener(&self, id: f64, event_type: String, has_handler: bool) -> Result<()> {
-        let id = to_element_id(id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.set_event_listener(id, event_type, has_handler);
-        Ok(())
-    }
-
-    /// Set the root element (called from appendChildToContainer).
-    #[napi]
-    pub fn set_root(&self, id: f64) -> Result<()> {
-        let id = to_element_id(id)?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.root_id = Some(id);
-        Ok(())
-    }
-
-    /// Set a custom prop on an element (for non-div/text elements like input, editor, diff).
-    /// Key is the prop name, value is JSON-encoded.
-    #[napi]
-    pub fn set_custom_prop(&self, id: f64, key: String, value_json: String) -> Result<()> {
-        let id = to_element_id(id)?;
-        let value: serde_json::Value = serde_json::from_str(&value_json)
-            .map_err(|e| Error::from_reason(format!("Failed to parse custom prop value: {}", e)))?;
-        let mut tree = self.tree.lock().unwrap();
-        tree.set_custom_prop(id, key, value);
-        Ok(())
-    }
-
-    /// Get a custom prop value from an element. Returns JSON string or null.
-    #[napi]
-    pub fn get_custom_prop(&self, id: f64, key: String) -> Result<Option<String>> {
-        let id = to_element_id(id)?;
-        let tree = self.tree.lock().unwrap();
-        Ok(tree
-            .get_custom_prop(id, &key)
-            .map(|v| serde_json::to_string(v).unwrap_or_default()))
-    }
-
-    /// Signal that a batch of mutations is complete. Triggers re-render.
-    #[napi]
-    pub fn commit_mutations(&self) -> Result<()> {
-        self.request_invalidate()
-    }
-
     /// Apply a batch of mutations in a single FFI call.
     ///
     /// Accepts a JSON array of mutation tuples. Each tuple is an array where
@@ -1170,14 +1057,12 @@ impl GpuixRenderer {
     ///   ["createElement",    id, "type"]
     ///   ["destroyElement",   id]
     ///   ["appendChild",      parentId, childId]
-    ///   ["removeChild",      parentId, childId]
     ///   ["insertBefore",     parentId, childId, beforeId]
-    ///   ["setStyle",         id, { ...style } | "{styleJson}"]
+    ///   ["setStyle",         id, { ...style }]
     ///   ["setText",          id, "content"]
     ///   ["setEventListener", id, "eventType", true|false]
     ///   ["setRoot",          id]
-    ///   ["setCustomProp",      id, "key", value | "{valueJson}"]
-    ///   ["setCustomPropValue", id, "key", value]
+    ///   ["setCustomProp",    id, "key", value]
     ///
     /// Returns accumulated destroyed IDs from all destroyElement ops.
     /// Acquires the tree mutex ONCE for the entire batch.
@@ -2290,139 +2175,6 @@ impl WebGpuixRenderer {
         )
     }
 
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = createElement)]
-    pub fn create_element(
-        &self,
-        id: f64,
-        element_type: String,
-    ) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree
-            .lock()
-            .unwrap()
-            .create_element(web_element_id(id)?, element_type);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = destroyElement)]
-    pub fn destroy_element(&self, id: f64) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
-        let destroyed = self
-            .tree
-            .lock()
-            .unwrap()
-            .destroy_element(web_element_id(id)?)
-            .into_iter()
-            .map(|id| id as f64);
-        Ok(web_number_array(destroyed))
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = appendChild)]
-    pub fn append_child(&self, parent_id: f64, child_id: f64) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree
-            .lock()
-            .unwrap()
-            .append_child(web_element_id(parent_id)?, web_element_id(child_id)?);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = removeChild)]
-    pub fn remove_child(&self, parent_id: f64, child_id: f64) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree
-            .lock()
-            .unwrap()
-            .remove_child(web_element_id(parent_id)?, web_element_id(child_id)?);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = insertBefore)]
-    pub fn insert_before(
-        &self,
-        parent_id: f64,
-        child_id: f64,
-        before_id: f64,
-    ) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree.lock().unwrap().insert_before(
-            web_element_id(parent_id)?,
-            web_element_id(child_id)?,
-            web_element_id(before_id)?,
-        );
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setStyle)]
-    pub fn set_style(&self, id: f64, style_json: String) -> Result<(), wasm_bindgen::JsValue> {
-        let id = web_element_id(id)?;
-        self.tree
-            .lock()
-            .unwrap()
-            .set_style_json(id, style_json.as_bytes())
-            .map_err(|error| {
-                wasm_bindgen::JsValue::from_str(&format!("Failed to parse style: {error}"))
-            })
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setText)]
-    pub fn set_text(&self, id: f64, content: String) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree
-            .lock()
-            .unwrap()
-            .set_text(web_element_id(id)?, content);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setEventListener)]
-    pub fn set_event_listener(
-        &self,
-        id: f64,
-        event_type: String,
-        has_handler: bool,
-    ) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree
-            .lock()
-            .unwrap()
-            .set_event_listener(web_element_id(id)?, event_type, has_handler);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setRoot)]
-    pub fn set_root(&self, id: f64) -> Result<(), wasm_bindgen::JsValue> {
-        self.tree.lock().unwrap().root_id = Some(web_element_id(id)?);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setCustomProp)]
-    pub fn set_custom_prop(
-        &self,
-        id: f64,
-        key: String,
-        value_json: String,
-    ) -> Result<(), wasm_bindgen::JsValue> {
-        let value = serde_json::from_str(&value_json).map_err(|error| {
-            wasm_bindgen::JsValue::from_str(&format!("Failed to parse custom prop: {error}"))
-        })?;
-        self.tree
-            .lock()
-            .unwrap()
-            .set_custom_prop(web_element_id(id)?, key, value);
-        Ok(())
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = getCustomProp)]
-    pub fn get_custom_prop(
-        &self,
-        id: f64,
-        key: String,
-    ) -> Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue> {
-        let value = self
-            .tree
-            .lock()
-            .unwrap()
-            .get_custom_prop(web_element_id(id)?, &key)
-            .map(serde_json::Value::to_string);
-        Ok(value.map_or(wasm_bindgen::JsValue::NULL, |value| {
-            wasm_bindgen::JsValue::from_str(&value)
-        }))
-    }
-
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = applyBatch)]
     pub fn apply_batch(
         &self,
@@ -2432,11 +2184,6 @@ impl WebGpuixRenderer {
             .map_err(|error| wasm_bindgen::JsValue::from_str(&error))?;
         notify_web();
         Ok(web_number_array(destroyed))
-    }
-
-    #[wasm_bindgen::prelude::wasm_bindgen(js_name = commitMutations)]
-    pub fn commit_mutations(&self) {
-        notify_web();
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = isInitialized)]
@@ -4844,10 +4591,6 @@ enum BatchOp<'a> {
         parent_id: u64,
         child_id: u64,
     },
-    RemoveChild {
-        parent_id: u64,
-        child_id: u64,
-    },
     InsertBefore {
         parent_id: u64,
         child_id: u64,
@@ -4985,47 +4728,6 @@ impl<'de> serde::Deserialize<'de> for StrArg<'de> {
     }
 }
 
-/// A legacy `setCustomProp` payload: a JSON string gets decoded, anything else
-/// is taken as-is. `setCustomPropValue` skips this and stores the raw value.
-struct LegacyPropArg(serde_json::Value);
-
-impl<'de> serde::Deserialize<'de> for LegacyPropArg {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        if let serde_json::Value::String(encoded) = &value {
-            return Ok(LegacyPropArg(
-                serde_json::from_str(encoded).unwrap_or_else(|_| value.clone()),
-            ));
-        }
-        Ok(LegacyPropArg(value))
-    }
-}
-
-/// `hasHandler` arrives as a bool from the reconciler and as a non-negative
-/// integer from hand-written batches. That is exactly what `as_bool()` then
-/// `as_u64()` accepted before, so a negative or fractional number stays an
-/// error rather than quietly meaning `true`.
-struct BoolArg(bool);
-
-impl<'de> serde::Deserialize<'de> for BoolArg {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        struct V;
-        impl<'de> serde::de::Visitor<'de> for V {
-            type Value = BoolArg;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a boolean or a non-negative integer")
-            }
-            fn visit_bool<E: serde::de::Error>(self, v: bool) -> std::result::Result<BoolArg, E> {
-                Ok(BoolArg(v))
-            }
-            fn visit_u64<E: serde::de::Error>(self, v: u64) -> std::result::Result<BoolArg, E> {
-                Ok(BoolArg(v != 0))
-            }
-        }
-        deserializer.deserialize_any(V)
-    }
-}
-
 fn next_arg<'de, A, T>(seq: &mut A, what: &str) -> std::result::Result<T, A::Error>
 where
     A: serde::de::SeqAccess<'de>,
@@ -5075,10 +4777,6 @@ impl<'de> serde::Deserialize<'de> for BatchOp<'de> {
                         parent_id: next_id(&mut seq, "parent id")?,
                         child_id: next_id(&mut seq, "child id")?,
                     },
-                    "removeChild" => BatchOp::RemoveChild {
-                        parent_id: next_id(&mut seq, "parent id")?,
-                        child_id: next_id(&mut seq, "child id")?,
-                    },
                     "insertBefore" => BatchOp::InsertBefore {
                         parent_id: next_id(&mut seq, "parent id")?,
                         child_id: next_id(&mut seq, "child id")?,
@@ -5095,17 +4793,12 @@ impl<'de> serde::Deserialize<'de> for BatchOp<'de> {
                     "setEventListener" => BatchOp::SetEventListener {
                         id: next_id(&mut seq, "id")?,
                         event_type: next_arg::<A, StrArg>(&mut seq, "event type")?.0.into_owned(),
-                        has_handler: next_arg::<A, BoolArg>(&mut seq, "hasHandler")?.0,
+                        has_handler: next_arg(&mut seq, "hasHandler")?,
                     },
                     "setRoot" => BatchOp::SetRoot {
                         id: next_id(&mut seq, "id")?,
                     },
                     "setCustomProp" => BatchOp::SetCustomProp {
-                        id: next_id(&mut seq, "id")?,
-                        key: next_arg::<A, StrArg>(&mut seq, "prop key")?.0.into_owned(),
-                        value: next_arg::<A, LegacyPropArg>(&mut seq, "custom prop value")?.0,
-                    },
-                    "setCustomPropValue" => BatchOp::SetCustomProp {
                         id: next_id(&mut seq, "id")?,
                         key: next_arg::<A, StrArg>(&mut seq, "prop key")?.0.into_owned(),
                         value: next_arg(&mut seq, "custom prop value")?,
@@ -5129,24 +4822,12 @@ impl<'de> serde::Deserialize<'de> for BatchOp<'de> {
 
 /// Turn one raw `setStyle` payload into a shared style.
 ///
-/// The reconciler always sends an object. A legacy batch can send the same
-/// object as a JSON *string*, so that is unwrapped to the bytes the interner
-/// should see. Anything else, `null` included, is handed to `StyleDesc` and
-/// rejected there. Doing this here, rather than in the deserializer, keeps the
-/// raw bytes available for the content hash.
 fn intern_style_payload(
     styles: &mut StyleTable,
     payload: &serde_json::value::RawValue,
 ) -> BatchResult<Arc<StyleDesc>> {
-    // A `RawValue` always holds exactly one complete JSON value, so this is
-    // never empty and never a fragment.
     let raw = payload.get().trim();
-    if raw.starts_with('"') {
-        let encoded: String = serde_json::from_str(raw).map_err(|error| error.to_string())?;
-        styles.intern(encoded.as_bytes())
-    } else {
-        styles.intern(raw.as_bytes())
-    }
+    styles.intern(raw.as_bytes())
 }
 
 /// Resolve every `setStyle` payload in the batch, in op order.
@@ -5208,12 +4889,6 @@ pub fn apply_batch_to_tree(tree: &mut RetainedTree, bytes: &[u8]) -> BatchResult
                 child_id,
             } => {
                 tree.append_child(parent_id, child_id);
-            }
-            BatchOp::RemoveChild {
-                parent_id,
-                child_id,
-            } => {
-                tree.remove_child(parent_id, child_id);
             }
             BatchOp::InsertBefore {
                 parent_id,
@@ -5562,7 +5237,6 @@ mod highlight_cache_tests {
 #[cfg(test)]
 mod batch_tests {
     use super::*;
-    use crate::retained_tree::STYLE_SWEEP_FLOOR;
 
     fn apply(tree: &mut RetainedTree, json: &str) -> BatchResult<Vec<f64>> {
         apply_batch_to_tree(tree, json.as_bytes())
@@ -5636,20 +5310,6 @@ mod batch_tests {
         );
     }
 
-    #[test]
-    fn a_legacy_string_encoded_style_still_applies() {
-        let mut tree = RetainedTree::new();
-        apply(
-            &mut tree,
-            r#"[["createElement",1,"div"],["setStyle",1,"{\"color\":\"red\"}"]]"#,
-        )
-        .expect("a JSON-string style is legacy, not invalid");
-        assert_eq!(
-            tree.elements[&1].style.as_deref().unwrap().color.as_deref(),
-            Some("red")
-        );
-    }
-
     /// `null` is not "no style". Treating it as `{}` would silently clear every
     /// declared property instead of telling JS it sent something wrong.
     #[test]
@@ -5680,8 +5340,6 @@ mod batch_tests {
             r#"[["destroyElement",ID]]"#,
             r#"[["appendChild",ID,2]]"#,
             r#"[["appendChild",1,ID]]"#,
-            r#"[["removeChild",ID,2]]"#,
-            r#"[["removeChild",1,ID]]"#,
             r#"[["insertBefore",ID,2,3]]"#,
             r#"[["insertBefore",1,ID,3]]"#,
             r#"[["insertBefore",1,2,ID]]"#,
@@ -5690,7 +5348,6 @@ mod batch_tests {
             r#"[["setEventListener",ID,"click",true]]"#,
             r#"[["setRoot",ID]]"#,
             r#"[["setCustomProp",ID,"k",1]]"#,
-            r#"[["setCustomPropValue",ID,"k",1]]"#,
         ];
         // 1e999 overflows f64, 9007199254740992 is Number.MAX_SAFE_INTEGER + 1.
         let bad_ids = ["-1", "1.5", "9007199254740992", "1e999"];
@@ -5707,16 +5364,14 @@ mod batch_tests {
         }
     }
 
-    /// The reconciler sends a bool; hand-written batches send 0 or 1. Anything
-    /// else used to mean `true`, so `-1` silently registered a listener.
     #[test]
-    fn has_handler_takes_a_bool_or_a_non_negative_integer() {
-        for (payload, expected) in [("true", true), ("false", false), ("1", true), ("0", false)] {
+    fn has_handler_requires_a_bool() {
+        for (payload, expected) in [("true", true), ("false", false)] {
             let mut tree = RetainedTree::new();
             let json = format!(
                 r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#
             );
-            apply(&mut tree, &json).expect("bool or non-negative integer");
+            apply(&mut tree, &json).expect("boolean handler state");
             assert_eq!(
                 tree.elements[&1].events.contains("click"),
                 expected,
@@ -5724,12 +5379,12 @@ mod batch_tests {
             );
         }
 
-        for payload in ["-1", "0.5"] {
+        for payload in ["0", "1", "0.5", r#""true""#] {
             let mut tree = RetainedTree::new();
             let json = format!(
                 r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#
             );
-            apply(&mut tree, &json).expect_err(&format!("hasHandler {payload} is not a bool"));
+            apply(&mut tree, &json).expect_err(&format!("hasHandler {payload} is not a boolean"));
         }
     }
 
@@ -5745,23 +5400,6 @@ mod batch_tests {
             let error = apply(&mut tree, json).expect_err(what);
             assert!(error.starts_with("Failed to parse batch:"), "{what}: {error}");
             assert!(tree.elements.is_empty(), "{what} mutated the tree");
-        }
-    }
-
-    /// The single-op entry points sweep too. Without that,
-    /// `for (...) renderer.setStyle(1, ...)` grows the table forever.
-    #[test]
-    fn repeated_direct_set_style_keeps_the_table_bounded() {
-        let mut tree = RetainedTree::new();
-        tree.create_element(1, "div".to_string());
-        for frame in 0..10_000 {
-            let payload = format!(r#"{{"left":{frame}}}"#);
-            tree.set_style_json(1, payload.as_bytes()).expect("valid style");
-            assert!(
-                tree.styles.len() <= STYLE_SWEEP_FLOOR,
-                "frame {frame} left {} styles interned",
-                tree.styles.len()
-            );
         }
     }
 
