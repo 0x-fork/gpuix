@@ -113,6 +113,10 @@ We don't fight GPUI's architecture - we embrace it by sending a complete element
 
 ```
 gpuix/
+├── cli/                         # `gpuix new` project scaffolder
+│   ├── src/cli.ts               # Goke CLI and example-app extraction
+│   └── package.json
+│
 ├── packages/
 │   ├── native/                 # Rust napi-rs bindings
 │   │   ├── src/
@@ -783,7 +787,7 @@ Load the `changesets` skill for format and rules. If the change fixes a GitHub i
 
 **Never publish from a local machine.** CI is the only release path.
 
-`.github/workflows/ci.yml` builds `@gpuix/native` for **one target per OS**, uploads the `.node` artifacts, then the `publish` job downloads them, runs `napi create-npm-dirs` + `napi artifacts`, and publishes `@gpuix/native` and `@gpuix/react`.
+`.github/workflows/ci.yml` builds `@gpuix/native` for **one target per OS**, uploads the `.node` artifacts, then the `publish` job downloads them, runs `napi create-npm-dirs` + `napi artifacts`, and publishes `@gpuix/native`, `@gpuix/react`, and `@gpuix/cli`.
 
 | OS | Target | Renderer | Features |
 |---|---|---|---|
@@ -809,6 +813,7 @@ Publish order is required. `@gpuix/react` depends on `@gpuix/native` (`workspace
 1. `napi pre-publish` publishes the per-platform packages (`darwin-arm64`, `linux-x64-gnu`, …)
 2. `npm publish` publishes `@gpuix/native`
 3. `npm publish` publishes `@gpuix/react`
+4. `npm publish` publishes `@gpuix/cli`, after the React version it resolves for new apps
 
 A local `npm publish` / `bun publish` would ship only the host binary and break every other platform. `prepublishOnly` exits if `CI` is unset.
 

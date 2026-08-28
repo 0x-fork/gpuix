@@ -16,8 +16,22 @@ cd examples && bun --hot chat.tsx
 
 ## Quickstart
 
-Install two packages. `@gpuix/react` pulls the native renderer for your
-platform, so there is nothing to build and no Rust toolchain to install.
+Create an app from the official example. The command downloads only
+`example-app/` and installs its dependencies. There is no repository clone,
+native build, or Rust toolchain.
+
+```bash
+bunx @gpuix/cli new my-app
+cd my-app
+bun run dev
+```
+
+`@gpuix/react` pulls the native renderer for your platform. Edit `app.tsx` and
+the running window remounts on save.
+
+### Build from scratch
+
+Install the packages directly when you do not want the example app:
 
 ```bash
 bun add @gpuix/react react
@@ -103,11 +117,19 @@ The binary carries the renderer, so it runs with no Bun and no Node install.
 ### Start from the example app
 
 [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) is a complete todo app in one file, with `dev`,
-`build`, `web:dev` and `typecheck` scripts already wired. Copy the folder,
-change `@gpuix/react` from `workspace:^` to a version range, and run
-`bun install`.
+`build`, `web:dev` and `typecheck` scripts already wired. Create a copy with
+`bunx @gpuix/cli new my-app`.
 
 ![The GPUIX todo example app](./docs/images/todo-app.png)
+
+### Shell completions
+
+Install completions for the `gpuix` command:
+
+```bash
+bun add -g @gpuix/cli
+gpuix completions install
+```
 
 ## Examples
 
@@ -312,6 +334,7 @@ Event handlers are stored in a JS-side registry keyed by `(elementId, eventType)
 
 - **`@gpuix/native`** — Rust bindings to GPUI. It publishes napi-rs desktop binaries and a wasm-bindgen browser build, both backed by `GpuixRenderer`, `RetainedTree`, `build_element()`, and `apply_styles()`.
 - **`@gpuix/react`** — React reconciler, event registry, and TypeScript types. Implements the `react-reconciler` host config using the mutation API.
+- **`@gpuix/cli`** — `gpuix new` downloads `example-app/`, sets its published React dependency, and installs it as a standalone project.
 
 ## Building
 

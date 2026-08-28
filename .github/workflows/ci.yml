@@ -201,6 +201,16 @@ jobs:
         run: bun run typecheck
         working-directory: example-app
 
+      - name: Test CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run test
+        working-directory: cli
+
+      - name: Build CLI
+        run: bun run build
+        working-directory: cli
+
   test-windows:
     name: test-windows
     needs: build
@@ -341,6 +351,21 @@ jobs:
               pkg.dependencies['@gpuix/native'] = '^' + native
               fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
             "
+            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc npm publish --access public --provenance'
+          fi
+
+      - name: Publish @gpuix/cli
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_TOKEN }}
+          SIGILLO_PROJECT: ${{ vars.SIGILLO_PROJECT }}
+          SIGILLO_ENVIRONMENT: prod
+        run: |
+          CURRENT_VERSION=$(node -p "require('./cli/package.json').version")
+          if npm view "@gpuix/cli@${CURRENT_VERSION}" version 2>/dev/null; then
+            echo "@gpuix/cli@${CURRENT_VERSION} already published, skipping"
+          else
+            echo "Publishing @gpuix/cli@${CURRENT_VERSION}"
+            cd cli
             bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc npm publish --access public --provenance'
           fi
 
