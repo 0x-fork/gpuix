@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { createGpuixApp } from './cli.ts'
+import { createGpuixApp, isEntryPoint } from './cli.ts'
 
 const testWithGitHub = process.env.GITHUB_TOKEN ? test : test.skip
 const temporaryDirectories: string[] = []
@@ -38,4 +38,13 @@ describe('createGpuixApp', () => {
     expect(packageJson.name).toBe('my-app')
     expect(packageJson.dependencies['@gpuix/react']).toMatch(/^\^\d+\.\d+\.\d+/)
   })
+})
+
+test('recognizes the CLI through a package-manager symlink', async () => {
+  const parentDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'gpuix-cli-'))
+  temporaryDirectories.push(parentDirectory)
+  const symlinkPath = path.join(parentDirectory, 'gpuix')
+  await fs.symlink(path.join(import.meta.dirname, 'cli.ts'), symlinkPath)
+
+  expect(await isEntryPoint(symlinkPath)).toBe(true)
 })

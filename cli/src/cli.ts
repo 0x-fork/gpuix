@@ -125,7 +125,12 @@ cli.help()
 cli.completions()
 cli.version(packageJson.version)
 
-const entryPath = process.argv[1]
-if (entryPath && pathToFileURL(entryPath).href === import.meta.url) {
+export async function isEntryPoint(entryPath?: string) {
+  if (!entryPath) return false
+  const realEntryPath = await fs.realpath(entryPath).catch(() => entryPath)
+  return pathToFileURL(realEntryPath).href === import.meta.url
+}
+
+if (await isEntryPoint(process.argv[1])) {
   await cli.parse()
 }
