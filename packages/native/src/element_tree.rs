@@ -246,4 +246,3 @@ impl From<gpui::Modifiers> for EventModifiers {
         }
     }
 }
-

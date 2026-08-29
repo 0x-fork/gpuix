@@ -596,13 +596,24 @@ mod tests {
     #[test]
     fn a_query_change_does_not_move_search_revision() {
         let mut tree = tree_with_child();
-        tree.set_custom_prop(1, "highlight".to_string(), serde_json::json!({"query": "a"}));
+        tree.set_custom_prop(
+            1,
+            "highlight".to_string(),
+            serde_json::json!({"query": "a"}),
+        );
         let search = tree.elements[&1].search_revision;
         let subtree = tree.elements[&1].subtree_revision;
 
-        tree.set_custom_prop(1, "highlight".to_string(), serde_json::json!({"query": "ab"}));
+        tree.set_custom_prop(
+            1,
+            "highlight".to_string(),
+            serde_json::json!({"query": "ab"}),
+        );
         assert_eq!(tree.elements[&1].search_revision, search, "same text");
-        assert!(tree.elements[&1].subtree_revision > subtree, "still repaints");
+        assert!(
+            tree.elements[&1].subtree_revision > subtree,
+            "still repaints"
+        );
     }
 
     #[test]
@@ -659,11 +670,7 @@ mod tests {
             let style = tree.styles.intern(payload.as_bytes()).unwrap();
             tree.set_style(3, style);
             tree.styles.sweep();
-            assert_eq!(
-                tree.styles.len(),
-                1,
-                "frame {frame} leaked a style"
-            );
+            assert_eq!(tree.styles.len(), 1, "frame {frame} leaked a style");
         }
     }
 
@@ -672,7 +679,10 @@ mod tests {
     fn a_drag_through_apply_batch_stays_bounded() {
         let mut tree = tree_with_child();
         for frame in 0..1_000 {
-            apply(&mut tree, &format!(r#"[["setStyle",3,{{"left":{frame}}}]]"#));
+            apply(
+                &mut tree,
+                &format!(r#"[["setStyle",3,{{"left":{frame}}}]]"#),
+            );
             assert!(
                 tree.styles.len() <= STYLE_SWEEP_FLOOR * 2,
                 "frame {frame} grew the table to {}",
@@ -696,7 +706,10 @@ mod tests {
             let child = 100 + index as u64;
             tree.create_element(child, "div".to_string());
             tree.append_child(1, child);
-            let style = tree.styles.intern(format!(r#"{{"left":{index}}}"#).as_bytes()).unwrap();
+            let style = tree
+                .styles
+                .intern(format!(r#"{{"left":{index}}}"#).as_bytes())
+                .unwrap();
             tree.set_style(child, style);
         }
         assert_eq!(tree.styles.len(), wide, "every style is still live");
@@ -719,7 +732,10 @@ mod tests {
         for index in 0..(STYLE_SWEEP_FLOOR * 4) {
             let id = index as u64 + 1;
             tree.create_element(id, "div".to_string());
-            let style = tree.styles.intern(format!(r#"{{"left":{index}}}"#).as_bytes()).unwrap();
+            let style = tree
+                .styles
+                .intern(format!(r#"{{"left":{index}}}"#).as_bytes())
+                .unwrap();
             tree.set_style(id, style);
         }
         let live = tree.styles.len();
@@ -760,8 +776,14 @@ mod tests {
         let mut animated = tree.elements[&3].style.as_deref().cloned().unwrap();
         animated.color = Some("green".to_string());
 
-        assert_eq!(tree.elements[&2].style.as_ref().unwrap().color.as_deref(), Some("red"));
-        assert_eq!(tree.elements[&3].style.as_ref().unwrap().color.as_deref(), Some("red"));
+        assert_eq!(
+            tree.elements[&2].style.as_ref().unwrap().color.as_deref(),
+            Some("red")
+        );
+        assert_eq!(
+            tree.elements[&3].style.as_ref().unwrap().color.as_deref(),
+            Some("red")
+        );
     }
 
     /// A nested declaration appearing changes which subtrees an ancestor skips,
@@ -770,12 +792,20 @@ mod tests {
     fn a_nested_declaration_appearing_moves_the_ancestor() {
         let mut tree = tree_with_child();
         let search = tree.elements[&1].search_revision;
-        tree.set_custom_prop(2, "highlight".to_string(), serde_json::json!({"query": "a"}));
+        tree.set_custom_prop(
+            2,
+            "highlight".to_string(),
+            serde_json::json!({"query": "a"}),
+        );
         assert!(tree.elements[&1].search_revision > search);
 
         // Changing that nested query does not.
         let after = tree.elements[&1].search_revision;
-        tree.set_custom_prop(2, "highlight".to_string(), serde_json::json!({"query": "b"}));
+        tree.set_custom_prop(
+            2,
+            "highlight".to_string(),
+            serde_json::json!({"query": "b"}),
+        );
         assert_eq!(tree.elements[&1].search_revision, after);
     }
 

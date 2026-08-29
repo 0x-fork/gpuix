@@ -1198,10 +1198,7 @@ impl TextEditorState {
         } else {
             position.x
         };
-        point(
-            x,
-            position.y.clamp(bounds.top(), bounds.bottom() - px(0.5)),
-        )
+        point(x, position.y.clamp(bounds.top(), bounds.bottom() - px(0.5)))
     }
 
     fn drag_scroll_delta(&self, position: Point<Pixels>) -> f32 {

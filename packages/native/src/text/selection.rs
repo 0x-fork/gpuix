@@ -226,14 +226,17 @@ fn extend_virtualized_drag(
         merged.extend(resolve_spans(elements, (element_index, start), head));
         Some(merged)
     } else {
-        let (element_index, span_index) = elements.iter().enumerate().rev().find_map(
-            |(element_index, element)| {
-                existing
-                    .iter()
-                    .position(|span| span.key == element.key)
-                    .map(|span_index| (element_index, span_index))
-            },
-        )?;
+        let (element_index, span_index) =
+            elements
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(element_index, element)| {
+                    existing
+                        .iter()
+                        .position(|span| span.key == element.key)
+                        .map(|span_index| (element_index, span_index))
+                })?;
         let end = existing.get(span_index)?.range.end;
         let mut merged = resolve_spans(elements, head, (element_index, end));
         merged.extend_from_slice(existing.get(span_index + 1..)?);
@@ -586,7 +589,10 @@ mod tests {
     /// line stays a line even though one element painted them all.
     #[test]
     fn ungrouped_runs_always_separate() {
-        let elements = vec![reg("7:0", "let a = 1;", None), reg("7:1", "let b = 2;", None)];
+        let elements = vec![
+            reg("7:0", "let a = 1;", None),
+            reg("7:1", "let b = 2;", None),
+        ];
         let mut sel = SelectionState::default();
         sel.arm("7:0", 0);
         assert!(sel.promote_pending());

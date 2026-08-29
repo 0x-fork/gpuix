@@ -222,12 +222,8 @@ mod selection_scroll_tests {
             selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(120.0))),
             0.0
         );
-        assert!(
-            selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(20.0))) < 0.0
-        );
-        assert!(
-            selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(220.0))) > 0.0
-        );
+        assert!(selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(20.0))) < 0.0);
+        assert!(selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(220.0))) > 0.0);
         assert!(
             selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(220.0)))
                 > selection_scroll_step(bounds, gpui::point(gpui::px(20.0), gpui::px(200.0)))
@@ -578,15 +574,17 @@ async fn run_ui_commands(
                 response.send(top).ok();
                 Ok(())
             }
-            UiCommand::GetWindowSize { response } => window.update(cx, move |_view, window, _cx| {
-                let size = window.viewport_size();
-                response
-                    .send(WindowSize {
-                        width: f32::from(size.width) as f64,
-                        height: f32::from(size.height) as f64,
-                    })
-                    .ok();
-            }),
+            UiCommand::GetWindowSize { response } => {
+                window.update(cx, move |_view, window, _cx| {
+                    let size = window.viewport_size();
+                    response
+                        .send(WindowSize {
+                            width: f32::from(size.width) as f64,
+                            height: f32::from(size.height) as f64,
+                        })
+                        .ok();
+                })
+            }
             UiCommand::GetAutomationBounds { response } => {
                 window.update(cx, move |_view, window, cx| {
                     cx.notify();
@@ -1576,8 +1574,9 @@ impl GpuixRenderer {
         {
             let (response, receiver) = sync_channel(1);
             self.send_ui_command(UiCommand::GetListScrollTop { id, response })?;
-            return Ok(recv_ui_response(receiver, "the GPUI list scroll query")?
-                .map(|top| top.to_vec()));
+            return Ok(
+                recv_ui_response(receiver, "the GPUI list scroll query")?.map(|top| top.to_vec())
+            );
         }
 
         #[cfg(not(any(
@@ -1921,9 +1920,7 @@ impl GpuixRenderer {
 
         #[cfg(target_os = "macos")]
         return update_window(move |_view, window, cx| {
-            crate::automation::dispatch_scroll_wheel(
-                window, cx, x, y, delta_x, delta_y, modifiers,
-            );
+            crate::automation::dispatch_scroll_wheel(window, cx, x, y, delta_x, delta_y, modifiers);
         });
 
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
@@ -2499,7 +2496,14 @@ impl WebGpuixRenderer {
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_mouse_down(window, cx, x, y, button.unwrap_or(0), modifiers);
+            crate::automation::dispatch_mouse_down(
+                window,
+                cx,
+                x,
+                y,
+                button.unwrap_or(0),
+                modifiers,
+            );
             cx.notify();
         })
     }
@@ -2545,9 +2549,7 @@ impl WebGpuixRenderer {
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
         update_web_window(move |_view, window, cx| {
-            crate::automation::dispatch_scroll_wheel(
-                window, cx, x, y, delta_x, delta_y, modifiers,
-            );
+            crate::automation::dispatch_scroll_wheel(window, cx, x, y, delta_x, delta_y, modifiers);
             cx.notify();
         })
     }
@@ -3666,9 +3668,7 @@ impl gpui::Render for GpuixView {
                     self.selection.clone(),
                     move |position, app| {
                         drag_move_view
-                            .update(app, |view, cx| {
-                                view.on_selection_mouse_move(position, cx)
-                            })
+                            .update(app, |view, cx| view.on_selection_mouse_move(position, cx))
                             .ok();
                     },
                     move |app| {
@@ -3767,8 +3767,14 @@ pub(crate) fn build_element(
     // resolves or counts matches that will not paint.
     if let Some(value) = element.custom_props.get("highlight") {
         let has_listener = element.events.contains("highlight");
-        let resolved =
-            resolve_highlight(ctx.highlights, ctx.tree, id, value, &Theme::dark(), has_listener);
+        let resolved = resolve_highlight(
+            ctx.highlights,
+            ctx.tree,
+            id,
+            value,
+            &Theme::dark(),
+            has_listener,
+        );
         if let Some((_, Some(total))) = &resolved {
             ctx.highlight_events.push((id, *total));
         }
@@ -4837,7 +4843,9 @@ fn parse_batch_ops(bytes: &[u8]) -> BatchResult<Vec<BatchOp<'_>>> {
 struct BatchOps<'a>(Vec<BatchOp<'a>>);
 
 impl<'de> serde::Deserialize<'de> for BatchOps<'de> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         struct OpsVisitor;
 
         impl<'de> serde::de::Visitor<'de> for OpsVisitor {
@@ -4881,7 +4889,9 @@ impl<'de> serde::Deserialize<'de> for BatchOps<'de> {
 struct StrArg<'a>(std::borrow::Cow<'a, str>);
 
 impl<'de> serde::Deserialize<'de> for StrArg<'de> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         use std::borrow::Cow;
         struct V;
         impl<'de> serde::de::Visitor<'de> for V {
@@ -4895,7 +4905,10 @@ impl<'de> serde::Deserialize<'de> for StrArg<'de> {
             ) -> std::result::Result<StrArg<'de>, E> {
                 Ok(StrArg(Cow::Borrowed(v)))
             }
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> std::result::Result<StrArg<'de>, E> {
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> std::result::Result<StrArg<'de>, E> {
                 Ok(StrArg(Cow::Owned(v.to_owned())))
             }
             fn visit_string<E: serde::de::Error>(
@@ -4929,7 +4942,9 @@ fn next_id<'de, A: serde::de::SeqAccess<'de>>(
 }
 
 impl<'de> serde::Deserialize<'de> for BatchOp<'de> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         struct V;
 
         impl<'de> serde::de::Visitor<'de> for V {
@@ -4973,7 +4988,9 @@ impl<'de> serde::Deserialize<'de> for BatchOp<'de> {
                     },
                     "setEventListener" => BatchOp::SetEventListener {
                         id: next_id(&mut seq, "id")?,
-                        event_type: next_arg::<A, StrArg>(&mut seq, "event type")?.0.into_owned(),
+                        event_type: next_arg::<A, StrArg>(&mut seq, "event type")?
+                            .0
+                            .into_owned(),
                         has_handler: next_arg(&mut seq, "hasHandler")?,
                     },
                     "setRoot" => BatchOp::SetRoot {
@@ -5018,7 +5035,10 @@ fn intern_style_payload(
 /// when it returns `Err`, which is what makes a batch atomic. An earlier
 /// version interned inside the apply loop, so a malformed style at the end of a
 /// batch left everything before it applied and then threw.
-fn resolve_styles(styles: &mut StyleTable, ops: &[BatchOp<'_>]) -> BatchResult<Vec<Arc<StyleDesc>>> {
+fn resolve_styles(
+    styles: &mut StyleTable,
+    ops: &[BatchOp<'_>],
+) -> BatchResult<Vec<Arc<StyleDesc>>> {
     let mut resolved = Vec::new();
     for (index, op) in ops.iter().enumerate() {
         if let BatchOp::SetStyle { style, .. } = op {
@@ -5050,8 +5070,7 @@ pub fn apply_batch_to_tree(tree: &mut RetainedTree, bytes: &[u8]) -> BatchResult
 
     // Phase 2: resolve styles. Touches the style table only; a failure here
     // sweeps back out whatever this call interned.
-    let styles = resolve_styles(&mut tree.styles, &parsed)
-        .inspect_err(|_| tree.styles.sweep())?;
+    let styles = resolve_styles(&mut tree.styles, &parsed).inspect_err(|_| tree.styles.sweep())?;
     let mut styles = styles.into_iter();
 
     // Phase 3: apply. Cannot fail.
@@ -5367,7 +5386,11 @@ mod highlight_cache_tests {
             resolve_highlight(&mut cache, &tree, 1, &spec(1), &theme, true).expect("resolves");
         assert_eq!(Arc::as_ptr(&context.matches), matches, "no rescan");
         assert_eq!(changed, None, "a cursor move is not a new result");
-        assert_eq!(context.set.specs[0].active_index, Some(1), "spec still swapped");
+        assert_eq!(
+            context.set.specs[0].active_index,
+            Some(1),
+            "spec still swapped"
+        );
     }
 
     /// Editing the text must invalidate, or the wash paints over stale offsets.
@@ -5398,8 +5421,8 @@ mod highlight_cache_tests {
         let mut cache = HashMap::new();
 
         declare(&mut tree, &query("fox"));
-        let (_, changed) =
-            resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, false).expect("resolves");
+        let (_, changed) = resolve_highlight(&mut cache, &tree, 1, &query("fox"), &theme, false)
+            .expect("resolves");
         assert_eq!(changed, None, "nothing to report without a listener");
 
         let (_, changed) =
@@ -5496,9 +5519,15 @@ mod batch_tests {
     #[test]
     fn a_null_style_is_an_error() {
         let mut tree = RetainedTree::new();
-        let error = apply(&mut tree, r#"[["createElement",1,"div"],["setStyle",1,null]]"#)
-            .expect_err("null is not a style");
-        assert!(error.contains("Batch op 1 setStyle parse error:"), "{error}");
+        let error = apply(
+            &mut tree,
+            r#"[["createElement",1,"div"],["setStyle",1,null]]"#,
+        )
+        .expect_err("null is not a style");
+        assert!(
+            error.contains("Batch op 1 setStyle parse error:"),
+            "{error}"
+        );
         assert!(tree.elements.is_empty(), "and the batch stays atomic");
     }
 
@@ -5549,9 +5578,8 @@ mod batch_tests {
     fn has_handler_requires_a_bool() {
         for (payload, expected) in [("true", true), ("false", false)] {
             let mut tree = RetainedTree::new();
-            let json = format!(
-                r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#
-            );
+            let json =
+                format!(r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#);
             apply(&mut tree, &json).expect("boolean handler state");
             assert_eq!(
                 tree.elements[&1].events.contains("click"),
@@ -5562,9 +5590,8 @@ mod batch_tests {
 
         for payload in ["0", "1", "0.5", r#""true""#] {
             let mut tree = RetainedTree::new();
-            let json = format!(
-                r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#
-            );
+            let json =
+                format!(r#"[["createElement",1,"div"],["setEventListener",1,"click",{payload}]]"#);
             apply(&mut tree, &json).expect_err(&format!("hasHandler {payload} is not a boolean"));
         }
     }
@@ -5579,7 +5606,10 @@ mod batch_tests {
         for (json, what) in cases {
             let mut tree = RetainedTree::new();
             let error = apply(&mut tree, json).expect_err(what);
-            assert!(error.starts_with("Failed to parse batch:"), "{what}: {error}");
+            assert!(
+                error.starts_with("Failed to parse batch:"),
+                "{what}: {error}"
+            );
             assert!(tree.elements.is_empty(), "{what} mutated the tree");
         }
     }

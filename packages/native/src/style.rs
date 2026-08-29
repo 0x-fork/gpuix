@@ -300,10 +300,19 @@ mod tests {
 
     #[test]
     fn maps_the_timeline_cursors() {
-        assert_eq!(parse_cursor("col-resize"), Some(gpui::CursorStyle::ResizeColumn));
+        assert_eq!(
+            parse_cursor("col-resize"),
+            Some(gpui::CursorStyle::ResizeColumn)
+        );
         assert_eq!(parse_cursor("grab"), Some(gpui::CursorStyle::OpenHand));
-        assert_eq!(parse_cursor("grabbing"), Some(gpui::CursorStyle::ClosedHand));
-        assert_eq!(parse_cursor("pointer"), Some(gpui::CursorStyle::PointingHand));
+        assert_eq!(
+            parse_cursor("grabbing"),
+            Some(gpui::CursorStyle::ClosedHand)
+        );
+        assert_eq!(
+            parse_cursor("pointer"),
+            Some(gpui::CursorStyle::PointingHand)
+        );
         assert_eq!(parse_cursor("default"), Some(gpui::CursorStyle::Arrow));
     }
 
