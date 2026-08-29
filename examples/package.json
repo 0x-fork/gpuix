@@ -15,7 +15,7 @@
     "bench:serde": "bun bench-serialization.ts"
   },
   "dependencies": {
-    "@gpuix/react": "workspace:*",
+    "@gpuix/react": "workspace:^",
     "@kmamal/sdl": "^0.11.12",
     "diff": "^7.0.0",
     "react": "^19.2.4",

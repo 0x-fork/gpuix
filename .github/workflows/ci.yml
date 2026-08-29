@@ -290,7 +290,7 @@ jobs:
           else
             echo "Publishing @gpuix/cli@${CURRENT_VERSION}"
             cd cli
-            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc npm publish --access public --provenance'
+            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc bun publish --access public'
           fi
 
   publish:
@@ -361,7 +361,7 @@ jobs:
           else
             echo "Publishing @gpuix/native@${CURRENT_VERSION}"
             cd packages/native
-            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc npm publish --access public --provenance'
+            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc bun publish --access public'
           fi
 
       - name: Build @gpuix/react
@@ -387,7 +387,7 @@ jobs:
               pkg.dependencies['@gpuix/native'] = '^' + native
               fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
             "
-            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc npm publish --access public --provenance'
+            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > /tmp/gpuix-npmrc && NPM_CONFIG_USERCONFIG=/tmp/gpuix-npmrc bun publish --access public'
           fi
 
       - name: Download example artifacts

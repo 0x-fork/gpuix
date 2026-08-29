@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.6.0
+
+1. **Every interactive surface now has a stable GPUI identity.** `hover` and `active` work on `<text>`, `<input>`, `<textarea>`, `<code>`, `<markdown>`, `<diff>`, `<img>`, `<svg>`, and `<anchored>`, not only `<div>`. `<text>` also receives its declared click, mouse, keyboard, focus, and pointer-capture events.
+
+   ```tsx
+   <text style={{ padding: 8, hover: { color: '#f38ba8' } }} onClick={select}>
+     {label}
+   </text>
+
+   <img src={avatar} onClick={openProfile} />
+   <anchored side="bottom" onMouseLeave={close}>{items}</anchored>
+   ```
+
+   `<img>`, `<svg>`, and `<anchored>` now report painted bounds to automation, so `getByTestId(...).click()` works on them. Animated GIFs retain their frame state and animate. An `active` style no longer needs an unrelated click handler.
+
+   A `<text>` with an opaque `backgroundColor` now takes mouse hits, like an HTML element with a background. The wheel still reaches a scroller behind it. Set `pointerEvents: 'none'` when the label must stay transparent to pointer input.
+
+   Each native renderer now accepts one mounted React root. A second `createRoot(renderer)` throws instead of taking over the same window and event map. Removed text nodes are also freed instead of accumulating for the process lifetime.
+
+2. **Background window launch and live keyboard automation.** `render()` adds `focus` and `show` options. `focus: false` opens behind the current app. `show: false` creates the live React tree without showing a window. `activateWindow()` later reveals and focuses it.
+
+   ```tsx
+   render(<App />, {
+     title: 'Notes',
+     focus: process.env.GPUIX_BACKGROUND !== '1',
+   })
+   ```
+
+   Agent-driven checks can keep the user's keyboard while still using real GPU paint:
+
+   ```ts
+   const app = await launch({
+     command: 'bun',
+     args: ['app.tsx'],
+     env: { GPUIX_BACKGROUND: '1' },
+   })
+
+   await app.getByTestId('composer').fill('hello gpuix')
+   await app.getByTestId('composer').press('enter')
+   ```
+
+   `fill()` and `press()` now use GPUI's live desktop input pipeline. Automation does not need window activation. Linux currently ignores `focus` and `show` because GPUI does not support those flags there.
+
+3. **Pixel-stable bidirectional history with `<virtual-list>`.** `scrollToItem` accepts an offset inside the row, and `getListScrollTop` returns the logical item anchor plus viewport height. Infinite histories can prepend or append a page without moving the message the reader is looking at.
+
+   ```tsx
+   renderer.scrollToItem(listId, index, offsetInItem)
+   const top = renderer.getListScrollTop(listId)
+   // [itemIndex, offsetInItemPx, viewportHeightPx] or null
+   ```
+
+    Scroll requests are applied after the next render's child splice. A negative offset can anchor the viewport above the named row, and GPUI resolves it against the newly measured row heights.
+
+    ```text
+    before page                            after page arrives
+    ┌──────────────────┐                   ┌──────────────────┐
+    │ loading row      │                   │ new message 7    │
+    ├──────────────────┤                   ├──────────────────┤
+    │ message A        │ <--> same pixel   │ message A        │
+    │ message B        │                   │ message B        │
+    └──────────────────┘                   └──────────────────┘
+    ```
+
+   `PublicInstance` is now exported for typed host refs. The new `examples/infinite-chat.tsx` shows delayed cursor pagination in both directions, variable-height Safe MDX rows, bounded page retention, loading voids, stable anchors, and links to messages outside the loaded page. Run it on desktop or in the browser:
+
+   ```bash
+   cd examples && bun run infinite-chat
+   bun run web # open /infinite
+   ```
+
+4. **Custom renderers now implement one atomic `applyBatch(json)` transport.** The separate native mutation methods are removed from `NativeRenderer`. React validates and sends one batch per commit on desktop, web, and in tests.
+
+   ```ts
+   const renderer: NativeRenderer = {
+     applyBatch(json) {
+       return nativeTransport.applyBatch(json)
+     },
+   }
+   ```
+
+   Style and custom-prop payloads are JSON values inside that batch, not nested JSON strings.
+
+5. **The WebGPU examples are available online.** https://gpuix.dev/chat-example/ runs the GPUIX chat example in the browser and shows a lightweight loading state while the Wasm renderer starts. The example now uses GPUIX branding and describes the React-to-GPUI architecture accurately. The bidirectional history example is also available from the browser development server at `/infinite`.
+
+6. **Native releases now ship one prebuilt target per OS.** The package supports the architecture most commonly used on each platform:
+
+   | OS | Target | Renderer |
+   | --- | --- | --- |
+   | macOS | `aarch64-apple-darwin` | Metal |
+   | Linux | `x86_64-unknown-linux-gnu` | Vulkan / wgpu |
+   | Windows | `x86_64-pc-windows-msvc` | Direct3D |
+
+   Intel macOS, arm64 Linux, and arm64 Windows no longer have prebuilt packages. The standalone macOS and Linux chat examples now ship as `.tar.gz` archives, which preserve the executable name and mode and reduce the download size. Windows continues to ship an `.exe`.
+
+   ```bash
+   tar -xzf example-chat-aarch64-apple-darwin.tar.gz
+   ./example-chat-aarch64-apple-darwin
+   ```
+
+7. **Text selection and native editing behave consistently across long content.** Selection washes now include the first glyph of each soft-wrapped row. A drag in a virtual list survives anchor-row unmounts, scrolls near the list edge, and stops its timer when the list cannot move further.
+
+   Double-click selects the word under the pointer in `<input>` and `<textarea>`. Triple-click selects the full value. A selected word no longer collapses when the pointer moves, textarea selection autoscrolls past the visible box, and adjacent typing or deletion groups into one undo step for 700 ms with a 200-step history cap.
+
+8. **CRLF source no longer leaves carriage returns in `<code>`.** Rendering, syntax highlighting, selection, and copied text now use normalized LF rows. A trailing newline still produces its final empty row.
+
+   Fixes https://github.com/remorses/gpuix/issues/25
+
 ## 0.5.1
 
 1. **Fixed `@gpuix/react/testing` reporting no native renderer when installed from npm.** `hasNativeTestRenderer` was always `false`, so every suite that guards on it skipped silently:
