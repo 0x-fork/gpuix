@@ -1258,10 +1258,13 @@ can be inspected after a run.
 ### Integration Test
 
 ```bash
-cd examples && bun --hot chat.tsx
+cd examples && GPUIX_BACKGROUND=1 bun --hot chat.tsx
 ```
 
 Use tuistory for the long-running process. Do not use `tsx` or raw `tmux`.
+On macOS and Windows, the background flag keeps the real GPU window from taking
+the user's keyboard; live paint, clicks, screenshots, and automation still
+work. Linux currently ignores `focus`.
 
 ### Drive the live window
 
@@ -1286,9 +1289,8 @@ still behaves normally.
 render(<App />, { focus: process.env.GPUIX_BACKGROUND !== '1' })
 ```
 
-`fill()` and `press()` do **not** work against `launch()`. The live renderer has
-no `simulateKeystrokes`, so they throw `keystrokes are not live yet`. That is
-unrelated to focus. Use `createTestRoot()` for anything that types.
+`fill()` and `press()` use the live GPUI window input pipeline and do not need
+the desktop window to become active.
 
 ```ts
 import { launch } from '@gpuix/react/automation'

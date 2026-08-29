@@ -25,7 +25,7 @@ const app = await launch({
 })
 ```
 
-`fill()` and `press()` still do not work against `launch()`; the live renderer has no `simulateKeystrokes` and throws `keystrokes are not live yet`. That is unrelated to focus. Use `createTestRoot()` when a check needs typing.
+`fill()` and `press()` use the live GPUI window input pipeline and do not require window activation. Linux currently ignores `focus`, so live checks there can still take focus.
 
 Before this, `init()` called `cx.activate(true)` unconditionally on every platform, so a GPUIX app always jumped to the front on launch. That call is now gated on `focus`. The window flag alone is not enough: on macOS it only decides whether the window becomes *key inside* the app, while activation is what pulls the whole process forward. Both had to change together.
 
