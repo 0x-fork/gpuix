@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "blurred-window": "bun --hot blurred-window.tsx",
     "counter": "bun --hot counter.tsx",
     "diff": "bun --hot diff.tsx",
     "test": "vitest run --exclude '**/*.perf.test.tsx'",
