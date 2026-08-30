@@ -83,6 +83,8 @@ export type {
   EdgeInsets,
   HighlightMatch,
   HighlightSpec,
+  LinearGradientBackground,
+  LinearGradientStop,
   MotionEase,
   MotionProps,
   MotionStyle,

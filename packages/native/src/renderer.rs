@@ -4596,14 +4596,8 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
     if let Some(left) = style.left {
         el = el.left(gpui::px(left as f32));
     }
-    if let Some(ref bg) = style
-        .background_color
-        .as_ref()
-        .or(style.background.as_ref())
-    {
-        if let Some(color) = crate::color::parse_color_rgba(bg) {
-            el = el.bg(color);
-        }
+    if let Some(background) = style.resolved_background() {
+        el = el.bg(background);
     }
     if let Some(ref color) = style.color {
         if let Some(color) = crate::color::parse_color_rgba(color) {
