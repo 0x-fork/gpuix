@@ -447,6 +447,9 @@ export interface EventPayload {
   modifiers?: EventModifiers
 }
 
+/** True only when this binary compiled the real GPU test renderer. */
+export declare function hasTestGpuixRenderer(): boolean
+
 /**
  * One highlight wash painted in the last frame, with the boxes it drew.
  *

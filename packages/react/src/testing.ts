@@ -91,7 +91,7 @@ export interface TestWindowOptions {
   height?: number
 }
 
-// The native test renderer is exported by macOS and Windows builds.
+// The class is always exported. hasTestGpuixRenderer is the real GPU impl.
 //
 // Loaded through `createRequire`, never a bare `require`. This file ships as
 // ESM, and Node has no `require` there: in a workspace vitest inlines it and
@@ -103,8 +103,9 @@ let NativeTestRenderer: NativeTestRendererConstructor | null = null
 try {
   const native = createRequire(import.meta.url)("@gpuix/native") as {
     TestGpuixRenderer?: NativeTestRendererConstructor
+    hasTestGpuixRenderer?: () => boolean
   }
-  if (native.TestGpuixRenderer) {
+  if (native.hasTestGpuixRenderer?.() && native.TestGpuixRenderer) {
     NativeTestRenderer = native.TestGpuixRenderer
   }
 } catch {
@@ -138,7 +139,7 @@ export class TestRenderer implements NativeRenderer {
   constructor(options: TestWindowOptions = {}) {
     if (!NativeTestRenderer) {
       throw new Error(
-        "Native TestGpuixRenderer not available. Build with test-support to run tests."
+        "TestGpuixRenderer is macOS and Windows only. Linux builds have no test-support because wgpu cannot read a rendered image back yet. GpuixRenderer still works on Linux."
       )
     }
     this.native = new NativeTestRenderer(options.width, options.height)
