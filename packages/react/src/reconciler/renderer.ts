@@ -51,15 +51,17 @@ export interface FrameLoop {
 }
 
 /**
- * Drive GPUI's embedded macOS event loop at a fixed rate.
- *
- * On Windows and Linux, GPUI owns a blocking event loop on a Rust UI thread,
- * so this function returns a no-op handle without creating a timer.
+ * Drive GPUI until the last window closes, then run `onTerminated`.
  *
  * On macOS, `renderer.tick()` pumps AppKit and asks GPUI for a frame, so it
  * must be called repeatedly. Do NOT call it from a `setImmediate` loop: that
  * spins the CPU at tens of thousands of ticks per second (measured: 73% CPU on
  * an idle app, versus 1.5% when paced).
+ *
+ * On Windows and Linux, GPUI owns a blocking event loop on a Rust UI thread.
+ * `tick()` does not pump that loop. It only reports whether the UI thread is
+ * still inside `Platform::run`. The timer still exists so last-window-close
+ * can return false and `render()` can `process.exit`, matching macOS.
  *
  * Pacing lives in JS rather than blocking inside `tick()` on purpose. Node owns
  * the event loop here, so a blocking tick would stall every timer, promise and
