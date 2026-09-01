@@ -93,6 +93,8 @@ export type {
   NativeWindowInsets,
   PublicInstance,
   StyleDesc,
+  WindowKeyEventHandler,
+  WindowKeyEventHandlers,
 } from "./types/host.js"
 export { handleGpuixEvent } from "./reconciler/event-registry.js"
 export {

@@ -14,6 +14,7 @@ import {
   render,
   resetRender,
 } from "../reconciler/renderer.js"
+import { handleGpuixEvent } from "../reconciler/event-registry.js"
 
 const srcDir = fileURLToPath(new URL("..", import.meta.url))
 
@@ -108,6 +109,98 @@ describeNative("render()", () => {
     render(<text>world</text>, { renderer })
     renderer.flush()
     expect(renderer.getAllText()).toEqual(["world"])
+  })
+
+  it("does not deliver a queued window event to a remounted root", () => {
+    const received: string[] = []
+    render(<text>first</text>, {
+      renderer,
+      onKeyDown: () => received.push("first"),
+    })
+    render(<text>second</text>, {
+      renderer,
+      onKeyDown: () => received.push("second"),
+    })
+
+    handleGpuixEvent(
+      { elementId: 1, eventType: "windowKeyDown", key: "tab" },
+      renderer
+    )
+    handleGpuixEvent(
+      { elementId: 2, eventType: "windowKeyDown", key: "tab" },
+      renderer
+    )
+
+    expect(received).toEqual(["second"])
+  })
+
+  it("delivers Tab to elements and the renderer without moving focus", () => {
+    const windowKeys: string[] = []
+    const windowKeyUps: string[] = []
+    const elementKeys: string[] = []
+
+    render(
+      <div style={{ width: 200, height: 100 }}>
+        <div
+          autoFocus
+          tabIndex={0}
+          onKeyDown={(event) => {
+            elementKeys.push(
+              `first:${event.modifiers?.shift ? "shift-" : ""}${event.key}`
+            )
+          }}
+        />
+        <div
+          tabIndex={0}
+          onKeyDown={(event) => {
+            elementKeys.push(
+              `second:${event.modifiers?.shift ? "shift-" : ""}${event.key}`
+            )
+          }}
+        />
+      </div>,
+      {
+        renderer,
+        onKeyDown: (event) => {
+          windowKeys.push(`${event.modifiers?.shift ? "shift-" : ""}${event.key}`)
+        },
+        onKeyUp: (event) => {
+          windowKeyUps.push(`${event.modifiers?.shift ? "shift-" : ""}${event.key}`)
+        },
+      }
+    )
+    renderer.flush()
+
+    renderer.simulateKeystrokes("tab")
+    renderer.simulateKeystrokes("a")
+
+    const second = renderer
+      .findByType("div")
+      .filter((element) => element.events.has("keyDown"))[1]
+    renderer.focusElement(second.id)
+    renderer.simulateKeystrokes("shift-tab")
+    renderer.simulateKeystrokes("b")
+    renderer.nativeSimulateKeyUp(second.id, "shift-tab")
+
+    expect({ windowKeys, windowKeyUps, elementKeys }).toMatchInlineSnapshot(`
+      {
+        "elementKeys": [
+          "first:tab",
+          "first:a",
+          "second:shift-tab",
+          "second:b",
+        ],
+        "windowKeyUps": [
+          "shift-tab",
+        ],
+        "windowKeys": [
+          "tab",
+          "a",
+          "shift-tab",
+          "b",
+        ],
+      }
+    `)
   })
 
   it("remounts when the app component identity changes", () => {

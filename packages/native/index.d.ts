@@ -29,7 +29,13 @@ export declare class GpuixRenderer {
   /** Pump the native event loop. Returns false after the last window closes. */
   tick(): boolean
   isInitialized(): boolean
-  /** Whether JavaScript must drive the native event loop with tick(). */
+  /**
+   * Whether JavaScript must call tick() until it returns false.
+   *
+   * macOS: tick() pumps AppKit. Windows/Linux: tick() only reports whether
+   * the UI thread is still inside `Platform::run`. Both return false after
+   * the last window closes so the JS frame loop can exit the process.
+   */
   requiresTick(): boolean
   /**
    * The paintable size of the window in logical pixels, excluding any
@@ -55,6 +61,12 @@ export declare class GpuixRenderer {
   activateWindow(): void
   setWindowTitle(title: string): void
   focusElement(elementId: number): void
+  /** Move focus to the next GPUI tab stop. */
+  focusNext(): void
+  /** Move focus to the previous GPUI tab stop. */
+  focusPrevious(): void
+  /** Enable the window key events requested by the React renderer. */
+  setWindowKeyEvents(keyDown: boolean, keyUp: boolean, eventId: number): void
   blur(): void
   /** The current text selection joined in document order, or null. */
   getSelectedText(): string | null
@@ -198,6 +210,9 @@ export declare class TestGpuixRenderer {
    * Call flush() before this so the element tree and focus handles exist.
    */
   focusElement(id: number): void
+  focusNext(): void
+  focusPrevious(): void
+  setWindowKeyEvents(keyDown: boolean, keyUp: boolean, eventId: number): void
   /**
    * Simulate a mouse down event at the given window coordinates.
    * Button: 0=left, 1=middle, 2=right. Defaults to left (0).

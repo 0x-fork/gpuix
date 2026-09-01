@@ -581,7 +581,10 @@ export interface NativeRenderer {
 
   // ── Focus API ──────────────────────────────────────────────────
   focusElement?(elementId: number): void
+  focusNext?(): void
+  focusPrevious?(): void
   blur?(): void
+  setWindowKeyEvents?(keyDown: boolean, keyUp: boolean, eventId: number): void
 
   // ── Scroll API ─────────────────────────────────────────────────
   /** Set the scroll offset of a scrollable element (overflow: "scroll").
@@ -666,6 +669,18 @@ export type EventHandlerMap = Map<
   Map<string, (event: EventPayload) => void>
 >
 
+export type WindowKeyEventHandler = (
+  event: EventPayload,
+  renderer: NativeRenderer
+) => void
+
+export interface WindowKeyEventHandlers {
+  /** Window-level GPUI listener. Key actions can consume an event before this runs. */
+  onKeyDown?: WindowKeyEventHandler
+  /** Window-level GPUI listener. */
+  onKeyUp?: WindowKeyEventHandler
+}
+
 export interface ElementIdAllocator {
   nextElementId: number
 }
@@ -677,6 +692,8 @@ export interface Container {
   renderer: MutationRenderer
   ids: ElementIdAllocator
   eventHandlers: EventHandlerMap
+  windowKeyEventHandlers: WindowKeyEventHandlers
+  windowKeyEventId: number
 }
 
 // Instance — minimal handle for React's reconciler.

@@ -18,6 +18,7 @@ import type {
   DebugFrameOverlayStats,
   HighlightMatch,
   NativeRenderer,
+  WindowKeyEventHandlers,
 } from "./types/host.js"
 import { createRoot, flushSync, type Root } from "./reconciler/reconciler.js"
 import { handleGpuixEvent } from "./reconciler/event-registry.js"
@@ -33,6 +34,9 @@ interface NativeTestRendererApi extends NativeRenderer {
   drainEvents(): EventPayload[]
   simulateKeystrokes(keystrokes: string): void
   focusElement(elementId: number): void
+  focusNext(): void
+  focusPrevious(): void
+  setWindowKeyEvents(keyDown: boolean, keyUp: boolean, eventId: number): void
   simulateKeyDown(keystroke: string, isHeld?: boolean): void
   simulateKeyUp(keystroke: string): void
   simulateClick(x: number, y: number, button?: number, modifiers?: string): void
@@ -85,11 +89,13 @@ interface NativeTestRendererConstructor {
   new (width?: number, height?: number): NativeTestRendererApi
 }
 
-/** Offscreen window size for a test root. Defaults to 1280x800 in native. */
-export interface TestWindowOptions {
+/** Offscreen window size for a test renderer. Defaults to 1280x800 in native. */
+export interface TestRendererOptions {
   width?: number
   height?: number
 }
+
+export type TestWindowOptions = TestRendererOptions & WindowKeyEventHandlers
 
 // The class is always exported. hasTestGpuixRenderer is the real GPU impl.
 //
@@ -135,8 +141,15 @@ export class TestRenderer implements NativeRenderer {
   /** Native TestGpuixRenderer — all state lives here in Rust's RetainedTree. */
   private native: NativeTestRendererApi
   readonly applyBatch: NativeRenderer["applyBatch"]
+  readonly focusNext: () => void
+  readonly focusPrevious: () => void
+  readonly setWindowKeyEvents: (
+    keyDown: boolean,
+    keyUp: boolean,
+    eventId: number
+  ) => void
 
-  constructor(options: TestWindowOptions = {}) {
+  constructor(options: TestRendererOptions = {}) {
     if (!NativeTestRenderer) {
       throw new Error(
         "TestGpuixRenderer is macOS and Windows only. Linux builds have no test-support because wgpu cannot read a rendered image back yet. GpuixRenderer still works on Linux."
@@ -144,6 +157,9 @@ export class TestRenderer implements NativeRenderer {
     }
     this.native = new NativeTestRenderer(options.width, options.height)
     this.applyBatch = this.native.applyBatch.bind(this.native)
+    this.focusNext = this.native.focusNext.bind(this.native)
+    this.focusPrevious = this.native.focusPrevious.bind(this.native)
+    this.setWindowKeyEvents = this.native.setWindowKeyEvents.bind(this.native)
   }
 
   // ── GPUI pipeline methods ───────────────────────────────────────
@@ -590,7 +606,10 @@ export interface TestRoot {
  */
 export function createTestRoot(options: TestWindowOptions = {}): TestRoot {
   const renderer = new TestRenderer(options)
-  const root = createRoot(renderer)
+  const root = createRoot(renderer, {
+    onKeyDown: options.onKeyDown,
+    onKeyUp: options.onKeyUp,
+  })
 
   const render = (node: ReactNode): void => {
     flushSync(() => root.render(node))

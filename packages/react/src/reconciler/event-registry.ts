@@ -18,10 +18,12 @@ export function attachRoot(renderer: NativeRenderer, container: Container): void
 
 /** Only the owner may detach. Otherwise unmounting a rejected or stale root
  *  would delete the live root's event mapping and every handler would go dead. */
-export function detachRoot(renderer: NativeRenderer, container: Container): void {
+export function detachRoot(renderer: NativeRenderer, container: Container): boolean {
   if (containersByRenderer.get(renderer) === container) {
     containersByRenderer.delete(renderer)
+    return true
   }
+  return false
 }
 
 export function containerForRenderer(renderer: NativeRenderer): Container | undefined {
@@ -31,6 +33,22 @@ export function containerForRenderer(renderer: NativeRenderer): Container | unde
 export function handleGpuixEvent(payload: EventPayload, renderer: NativeRenderer): void {
   const container = containersByRenderer.get(renderer)
   if (!container) return
+  if (payload.eventType === "windowKeyDown" || payload.eventType === "windowKeyUp") {
+    if (payload.elementId !== container.windowKeyEventId) return
+    const handler =
+      payload.eventType === "windowKeyDown"
+        ? container.windowKeyEventHandlers.onKeyDown
+        : container.windowKeyEventHandlers.onKeyUp
+    handler?.(
+      {
+        ...payload,
+        elementId: 0,
+        eventType: payload.eventType === "windowKeyDown" ? "keyDown" : "keyUp",
+      },
+      renderer
+    )
+    return
+  }
   const elementHandlers = container.eventHandlers.get(payload.elementId)
   if (!elementHandlers) return
   const handler = elementHandlers.get(payload.eventType)

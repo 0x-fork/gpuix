@@ -2,7 +2,11 @@ import type { ReactNode } from "react"
 import { GpuixRenderer } from "@gpuix/native"
 import type { EventPayload, WindowOptions } from "@gpuix/native"
 import { createRoot, flushSync, type Root } from "./reconciler.js"
-import type { DebugFrameOverlayMode, NativeRenderer } from "../types/host.js"
+import type {
+  DebugFrameOverlayMode,
+  NativeRenderer,
+  WindowKeyEventHandlers,
+} from "../types/host.js"
 import { handleGpuixEvent } from "./event-registry.js"
 import {
   App as AutomationApp,
@@ -24,11 +28,9 @@ export function createRenderer(
       console.error("[GPUIX] Native event error:", err)
       return
     }
-    if (event) {
-      handleGpuixEvent(event, renderer)
-      if (onEvent) {
-        onEvent(event)
-      }
+    handleGpuixEvent(event, renderer)
+    if (onEvent) {
+      onEvent(event)
     }
   })
   // A pipe means a controller owns stdin. A TTY is a human keyboard.
@@ -151,7 +153,7 @@ function renderSlot(): RenderSlot {
   return created
 }
 
-export interface RenderOptions extends WindowOptions {
+export interface RenderOptions extends WindowOptions, WindowKeyEventHandlers {
   onEvent?: (event: EventPayload) => void
   renderer?: NativeRenderer
   /** GPUI scene overlay. Does not go through React or layout. */
@@ -170,7 +172,14 @@ export function resetRender(): void {
 
 /** Mount the app. Under `bun --hot`, later calls remount on the same native window. */
 export function render(node: ReactNode, options: RenderOptions = {}): Root {
-  const { onEvent, renderer: injected, debugFrameOverlay, ...windowOptions } = options
+  const {
+    onEvent,
+    onKeyDown,
+    onKeyUp,
+    renderer: injected,
+    debugFrameOverlay,
+    ...windowOptions
+  } = options
   const slot = renderSlot()
   const remount = slot.root != null
   if (!slot.renderer) {
@@ -201,7 +210,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
     console.log("[gpuix] remount: unmount previous tree")
     slot.root.unmount()
   }
-  const root = createRoot(host)
+  const root = createRoot(host, { onKeyDown, onKeyUp })
   slot.root = root
   flushSync(() => {
     root.render(node)

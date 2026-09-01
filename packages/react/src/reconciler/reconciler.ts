@@ -4,7 +4,12 @@ import ReactReconciler from "react-reconciler"
 import type { OpaqueRoot } from "react-reconciler"
 import { ConcurrentRoot } from "react-reconciler/constants.js"
 import { GpuixContext } from "../hooks/use-gpuix.js"
-import type { Container, ElementIdAllocator, NativeRenderer } from "../types/host.js"
+import type {
+  Container,
+  ElementIdAllocator,
+  NativeRenderer,
+  WindowKeyEventHandlers,
+} from "../types/host.js"
 import { wrapWithBatching } from "./batch-renderer.js"
 import { attachRoot, detachRoot } from "./event-registry.js"
 import { hostConfig } from "./host-config.js"
@@ -51,6 +56,7 @@ export interface Root {
 }
 
 const idAllocators = new WeakMap<NativeRenderer, ElementIdAllocator>()
+const windowKeyEventIds = new WeakMap<NativeRenderer, number>()
 
 function idAllocatorFor(renderer: NativeRenderer): ElementIdAllocator {
   let alloc = idAllocators.get(renderer)
@@ -61,15 +67,39 @@ function idAllocatorFor(renderer: NativeRenderer): ElementIdAllocator {
   return alloc
 }
 
-export function createRoot(renderer: NativeRenderer): Root {
+function nextWindowKeyEventId(renderer: NativeRenderer): number {
+  // A queued event from an old root must not enter its replacement.
+  const id = (windowKeyEventIds.get(renderer) ?? 0) + 1
+  windowKeyEventIds.set(renderer, id)
+  return id
+}
+
+export function createRoot(
+  renderer: NativeRenderer,
+  windowKeyEventHandlers: WindowKeyEventHandlers = {}
+): Root {
   let container: OpaqueRoot | null = null
   const batchedRenderer = wrapWithBatching(renderer)
+  const ids = idAllocatorFor(renderer)
+  const windowKeyEventId = nextWindowKeyEventId(renderer)
   const gpuixContainer: Container = {
     renderer: batchedRenderer,
-    ids: idAllocatorFor(renderer),
+    ids,
     eventHandlers: new Map(),
+    windowKeyEventHandlers,
+    windowKeyEventId,
   }
   attachRoot(renderer, gpuixContainer)
+  try {
+    renderer.setWindowKeyEvents?.(
+      Boolean(windowKeyEventHandlers.onKeyDown),
+      Boolean(windowKeyEventHandlers.onKeyUp),
+      windowKeyEventId
+    )
+  } catch (error) {
+    detachRoot(renderer, gpuixContainer)
+    throw error
+  }
 
   const cleanup = (): void => {
     if (container) {
@@ -79,7 +109,9 @@ export function createRoot(renderer: NativeRenderer): Root {
       })
       container = null
     }
-    detachRoot(renderer, gpuixContainer)
+    if (detachRoot(renderer, gpuixContainer)) {
+      renderer.setWindowKeyEvents?.(false, false, windowKeyEventId)
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
