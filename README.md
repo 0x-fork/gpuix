@@ -1897,20 +1897,21 @@ Bash, TOML, YAML, Markdown, HTML, CSS, C.
 | `input`         | Native single-line text editor                   |
 | `textarea`      | Native multiline, auto-growing text editor       |
 | `virtual-list`  | Long collections; only visible rows are built    |
-| `img`           | Local raster or SVG images                       |
+| `img`           | Local/data URL raster or SVG images               |
 | `svg`           | Tintable monochrome SVG icons from source or disk |
 | `anchored`      | Positioned overlay                               |
 | `canvas`        | Custom drawing (planned)                         |
 
 ## Images and icons
 
-`<img>` takes a **filesystem path**, not a URL. Resolve the file with
-`fileURLToPath` or `path.join` and pass that string as `src`.
+`<img>` takes a **filesystem path or data URL**. Resolve local files with
+`fileURLToPath` or `path.join`, or encode in-memory bytes as base64.
 
 ### `<img>`
 
 `<img>` paints through GPUI's image element. It loads **PNG, JPEG, WebP, GIF,
-and SVG** from disk. SVG here is a full-colour image, not a tintable icon.
+SVG, BMP, TIFF, ICO, and Netpbm** from disk or data URLs. SVG here is a
+full-colour image, not a tintable icon.
 
 ```tsx
 <img
@@ -1919,6 +1920,15 @@ and SVG** from disk. SVG here is a full-colour image, not a tintable icon.
   style={{ width: 240, height: 140, borderRadius: 12 }}
 />
 ```
+
+```tsx
+const src = `data:image/png;base64,${Buffer.from(pngBytes).toString('base64')}`
+
+<img src={src} style={{ width: 240, height: 140 }} />
+```
+
+Data URLs support every image format listed above. Base64 and percent-encoded
+payloads are accepted.
 
 `objectFit` matches CSS: `"contain"` (default), `"cover"`, `"fill"`,
 `"scaleDown"`, or `"none"`. An empty `src` or a failed load shows a fallback
