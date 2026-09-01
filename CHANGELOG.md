@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.7.0
+
+1. **Add native two-stop linear gradients to `style.background`.** Gradients use GPUI's GPU shaders on every renderer. Angles follow CSS direction, stop positions range from `0` to `1`, rounded corners work as expected, and `hover` or `active` can replace the gradient.
+
+   ```tsx
+   <div
+     style={{
+       background: {
+         type: 'linear-gradient',
+         angle: 90,
+         stops: [
+           { color: '#7c3aed', position: 0 },
+           { color: '#06b6d4', position: 1 },
+         ],
+         colorSpace: 'oklab',
+       },
+       borderRadius: 12,
+     }}
+   />
+   ```
+
+   `colorSpace` accepts `"srgb"` or `"oklab"` and defaults to `"srgb"`. GPUI does not support radial, conic, repeating, or gradients with more than two stops.
+
+2. **Add data URL sources to `<img>`.** Images created or loaded in memory can now render without a temporary file:
+
+   ```tsx
+   const src = `data:image/png;base64,${Buffer.from(pngBytes).toString('base64')}`
+
+   <img src={src} style={{ width: 240, height: 140 }} />
+   ```
+
+   Base64 and percent-encoded data URLs support PNG, JPEG, WebP, GIF, SVG, BMP, TIFF, ICO, and Netpbm images. Filesystem paths continue to work.
+
+   Fixes https://github.com/remorses/gpuix/issues/35
+
+3. **Applications now own Tab key behavior.** GPUIX no longer binds Tab or Shift+Tab to focus traversal. Both keys reach normal element keyboard handlers and the renderer-level `onKeyDown` callback, so terminals and editors can process them directly.
+
+   Applications that want focus traversal can call the direct GPUI wrappers from the renderer callback:
+
+   ```tsx
+   render(<App />, {
+     onKeyDown(event, renderer) {
+       if (event.key !== 'tab') return
+       if (event.modifiers?.shift) renderer.focusPrevious?.()
+       else renderer.focusNext?.()
+     },
+   })
+   ```
+
+   `render()` also accepts `onKeyUp`. Element callbacks run before renderer callbacks for raw keys that no GPUI action consumed. Renderer callbacks observe events but cannot cancel native propagation.
+
+   Fixes https://github.com/remorses/gpuix/issues/36
+
+4. **Export `TestGpuixRenderer` consistently on every platform.** macOS and Windows builds with test support construct the GPU renderer. Linux and other builds without test support now throw a clear availability error instead of `TypeError: TestGpuixRenderer is not a constructor`.
+
+   ```ts
+   import { TestGpuixRenderer, hasTestGpuixRenderer } from '@gpuix/native'
+
+   if (hasTestGpuixRenderer()) {
+     const renderer = new TestGpuixRenderer()
+   }
+   ```
+
+   `@gpuix/react/testing` exposes the matching `hasNativeTestRenderer` guard. `GpuixRenderer` is unchanged and continues to work on Linux.
+
+   Fixes https://github.com/remorses/gpuix/issues/30
+
+5. **Fix blurry Windows text above 100% display scaling.** The native UI thread requests Per-Monitor V2 DPI awareness before GPUI creates a window, so Windows no longer bitmap-stretches GPUIX apps hosted by Node or Bun. Processes that already have Per-Monitor V2 awareness keep their existing configuration.
+
+   Fixes https://github.com/remorses/gpuix/issues/31
+
+6. **Quit after the last window closes on Windows and Linux.** Closing the final GPUIX window now ends the Node or Bun process, matching macOS. `tick()` reports when the native UI thread has ended, and `render()` exits on that signal.
+
+   Fixes https://github.com/remorses/gpuix/issues/32
+
+7. **Add a macOS frosted-glass window example.** It combines GPUI's native vibrancy backdrop with a transparent titlebar and translucent React surfaces:
+
+   ```tsx
+   render(<App />, {
+     titlebarTransparent: true,
+     windowBackground: 'blurred',
+   })
+   ```
+
+   Run it from `examples/` with `bun run blurred-window`.
+
 ## 0.6.0
 
 1. **Every interactive surface now has a stable GPUI identity.** `hover` and `active` work on `<text>`, `<input>`, `<textarea>`, `<code>`, `<markdown>`, `<diff>`, `<img>`, `<svg>`, and `<anchored>`, not only `<div>`. `<text>` also receives its declared click, mouse, keyboard, focus, and pointer-capture events.
