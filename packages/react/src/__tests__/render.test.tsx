@@ -30,8 +30,24 @@ if (!slot.__hotRenderer) {
   slot.__hotRenderer = new TestRenderer()
 }
 const renderer = slot.__hotRenderer
-render(React.createElement("text", null, ${JSON.stringify(label)}), { renderer })
+render(
+  React.createElement(
+    "div",
+    {
+      onClick: () => console.log("HOT_CLICK", ${JSON.stringify(label)}),
+      style: { width: 100, height: 100 },
+    },
+    ${JSON.stringify(label)}
+  ),
+  { renderer }
+)
 renderer.flush()
+renderer.nativeSimulateClick(10, 10)
+const rootId = renderer.getRoot()?.id
+if (slot.__hotRootId !== undefined) {
+  console.log("HOT_NEW_ROOT_ID", rootId !== slot.__hotRootId)
+}
+slot.__hotRootId = rootId
 console.log("HOT_EVAL", slot.__hotEvals)
 console.log("HOT_LABEL", ${JSON.stringify(label)})
 console.log("HOT_TEXT", JSON.stringify(renderer.getAllText()))
@@ -113,13 +129,16 @@ describeNative("render()", () => {
 
   it("does not deliver a queued window event to a remounted root", () => {
     const received: string[] = []
+    const observed: string[] = []
     render(<text>first</text>, {
       renderer,
       onKeyDown: () => received.push("first"),
+      onEvent: () => observed.push("first"),
     })
     render(<text>second</text>, {
       renderer,
       onKeyDown: () => received.push("second"),
+      onEvent: () => observed.push("second"),
     })
 
     handleGpuixEvent(
@@ -132,6 +151,7 @@ describeNative("render()", () => {
     )
 
     expect(received).toEqual(["second"])
+    expect(observed).toEqual(["second"])
   })
 
   it("delivers Tab to elements and the renderer without moving focus", () => {
@@ -278,6 +298,7 @@ describeNative("render()", () => {
     try {
       await output.wait("HOT_LABEL hello", 15_000)
       await output.wait('HOT_TEXT ["hello"]', 1000)
+      await output.wait("HOT_CLICK hello", 1000)
       await output.wait("HOT_SAME_RENDERER true", 1000)
       await new Promise((resolve) => setTimeout(resolve, 300))
 
@@ -285,6 +306,8 @@ describeNative("render()", () => {
 
       await output.wait("HOT_LABEL world", 15_000)
       await output.wait('HOT_TEXT ["world"]', 1000)
+      await output.wait("HOT_CLICK world", 1000)
+      await output.wait("HOT_NEW_ROOT_ID true", 1000)
       await output.wait("HOT_SAME_RENDERER true", 1000)
     } finally {
       child.kill("SIGTERM")

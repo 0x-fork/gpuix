@@ -681,6 +681,10 @@ export interface WindowKeyEventHandlers {
   onKeyUp?: WindowKeyEventHandler
 }
 
+export interface RootEventHandlers extends WindowKeyEventHandlers {
+  onEvent?: (event: EventPayload) => void
+}
+
 export interface ElementIdAllocator {
   nextElementId: number
 }
@@ -694,6 +698,7 @@ export interface Container {
   eventHandlers: EventHandlerMap
   windowKeyEventHandlers: WindowKeyEventHandlers
   windowKeyEventId: number
+  onEvent?: (event: EventPayload) => void
 }
 
 // Instance — minimal handle for React's reconciler.

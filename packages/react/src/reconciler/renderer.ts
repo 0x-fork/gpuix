@@ -28,8 +28,7 @@ export function createRenderer(
       console.error("[GPUIX] Native event error:", err)
       return
     }
-    handleGpuixEvent(event, renderer)
-    if (onEvent) {
+    if (handleGpuixEvent(event, renderer) && onEvent) {
       onEvent(event)
     }
   })
@@ -186,7 +185,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
     if (injected) {
       slot.renderer = injected
     } else {
-      const renderer = createRenderer(onEvent)
+      const renderer = createRenderer()
       renderer.init(windowOptions)
       slot.renderer = renderer
       console.log("[gpuix] created native window")
@@ -210,7 +209,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
     console.log("[gpuix] remount: unmount previous tree")
     slot.root.unmount()
   }
-  const root = createRoot(host, { onKeyDown, onKeyUp })
+  const root = createRoot(host, { onEvent, onKeyDown, onKeyUp })
   slot.root = root
   flushSync(() => {
     root.render(node)

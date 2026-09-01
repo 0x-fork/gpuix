@@ -6,12 +6,16 @@ import { ConcurrentRoot } from "react-reconciler/constants.js"
 import { GpuixContext } from "../hooks/use-gpuix.js"
 import type {
   Container,
-  ElementIdAllocator,
   NativeRenderer,
-  WindowKeyEventHandlers,
+  RootEventHandlers,
 } from "../types/host.js"
 import { wrapWithBatching } from "./batch-renderer.js"
-import { attachRoot, detachRoot } from "./event-registry.js"
+import {
+  attachRoot,
+  detachRoot,
+  idAllocatorFor,
+  nextWindowKeyEventId,
+} from "./event-registry.js"
 import { hostConfig } from "./host-config.js"
 
 // Cast to any because @types/react-reconciler is out of date with react-reconciler 0.31.0
@@ -55,28 +59,9 @@ export interface Root {
   unmount: () => void
 }
 
-const idAllocators = new WeakMap<NativeRenderer, ElementIdAllocator>()
-const windowKeyEventIds = new WeakMap<NativeRenderer, number>()
-
-function idAllocatorFor(renderer: NativeRenderer): ElementIdAllocator {
-  let alloc = idAllocators.get(renderer)
-  if (!alloc) {
-    alloc = { nextElementId: 0 }
-    idAllocators.set(renderer, alloc)
-  }
-  return alloc
-}
-
-function nextWindowKeyEventId(renderer: NativeRenderer): number {
-  // A queued event from an old root must not enter its replacement.
-  const id = (windowKeyEventIds.get(renderer) ?? 0) + 1
-  windowKeyEventIds.set(renderer, id)
-  return id
-}
-
 export function createRoot(
   renderer: NativeRenderer,
-  windowKeyEventHandlers: WindowKeyEventHandlers = {}
+  rootEventHandlers: RootEventHandlers = {}
 ): Root {
   let container: OpaqueRoot | null = null
   const batchedRenderer = wrapWithBatching(renderer)
@@ -86,14 +71,15 @@ export function createRoot(
     renderer: batchedRenderer,
     ids,
     eventHandlers: new Map(),
-    windowKeyEventHandlers,
+    windowKeyEventHandlers: rootEventHandlers,
     windowKeyEventId,
+    onEvent: rootEventHandlers.onEvent,
   }
   attachRoot(renderer, gpuixContainer)
   try {
     renderer.setWindowKeyEvents?.(
-      Boolean(windowKeyEventHandlers.onKeyDown),
-      Boolean(windowKeyEventHandlers.onKeyUp),
+      Boolean(rootEventHandlers.onKeyDown),
+      Boolean(rootEventHandlers.onKeyUp),
       windowKeyEventId
     )
   } catch (error) {

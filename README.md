@@ -27,7 +27,8 @@ bun run dev
 ```
 
 `@gpuix/react` pulls the native renderer for your platform. Edit `app.tsx` and
-the running window remounts on save.
+the running window remounts on save. Click and keyboard handlers switch to the
+new tree without recreating the window.
 
 ### Build from scratch
 
