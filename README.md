@@ -1320,10 +1320,38 @@ it should participate in explicit focus traversal:
 | `tabIndex={-1}` | Skipped by focus traversal, but focusable by click or renderer API |
 | `autoFocus` | Takes focus once, when its native focus handle is created |
 
-GPUIX does not bind `Tab` or `Shift+Tab`. They reach the focused element's
-`onKeyDown` like any other key, so editors and terminals can send them to their
-input backend. Add application-level traversal through the renderer callback
-when the app needs it:
+### Element keyboard callbacks
+
+`onKeyDown` fires for the focused element and then for ancestors that declare
+`onKeyDown`, following GPUI's focus dispatch path. `onKeyUp` follows the same
+path when the key is released. Adding either callback creates the element's
+native focus handle.
+
+```tsx
+<div
+  autoFocus
+  tabIndex={0}
+  onKeyDown={(event) => {
+    console.log(event.key, event.keyChar, event.modifiers, event.isHeld)
+  }}
+  onKeyUp={(event) => {
+    console.log(`${event.key} released`)
+  }}
+>
+  Focused target
+</div>
+```
+
+GPUI dispatches matching key actions before raw keyboard callbacks. If an
+action consumes the key, `onKeyDown` does not fire. GPUIX does not bind `Tab` or
+`Shift+Tab`, so both reach element callbacks. Editors and terminals can send
+them directly to their input backend.
+
+### Renderer keyboard callbacks
+
+Pass `onKeyDown` or `onKeyUp` to `render()` for an opt-in window-level listener.
+The renderer callback fires after element callbacks for raw keys that no GPUI
+action consumed. It receives the renderer as its second argument:
 
 ```tsx
 render(<App />, {
@@ -1334,6 +1362,11 @@ render(<App />, {
   },
 })
 ```
+
+These callbacks observe native events. They do not expose GPUI's propagation
+control, so they cannot cancel or stop the native event.
+
+### Imperative focus
 
 `focusNext()` and `focusPrevious()` map directly to GPUI's
 `window.focus_next()` and `window.focus_prev()`.
