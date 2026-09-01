@@ -2287,6 +2287,7 @@ wrapping `<div>`.
 
 Mark elements with **`testId`**, then drive them like Playwright. The same
 client works in vitest, inside browser pages, and against a child process.
+Mouse actions use the normal GPUI input path in all three hosts.
 
 ```tsx
 <div testId="sidebar-collapse" onClick={onCollapse}>‹</div>

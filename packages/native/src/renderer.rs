@@ -286,7 +286,7 @@ fn update_window<R>(
 }
 
 #[cfg(target_os = "macos")]
-// Keyboard handlers can update GpuixView, so dispatch without leasing the root view.
+// Input handlers can update GpuixView, so dispatch without leasing the root view.
 fn update_window_without_view<R>(
     update: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R,
 ) -> Result<R> {
@@ -639,58 +639,67 @@ async fn run_ui_commands(
                 })
             }
             UiCommand::DispatchMouse { input, response } => {
-                let result = window.update(cx, move |_view, window, cx| match input {
-                    MouseInput::Click {
-                        x,
-                        y,
-                        button,
-                        modifiers,
-                    } => {
-                        crate::automation::dispatch_click(window, cx, x, y, button, modifiers);
-                    }
-                    MouseInput::Down {
-                        x,
-                        y,
-                        button,
-                        modifiers,
-                    } => {
-                        crate::automation::dispatch_mouse_down(window, cx, x, y, button, modifiers);
-                    }
-                    MouseInput::Up {
-                        x,
-                        y,
-                        button,
-                        modifiers,
-                    } => {
-                        crate::automation::dispatch_mouse_up(window, cx, x, y, button, modifiers);
-                    }
-                    MouseInput::Move {
-                        x,
-                        y,
-                        pressed_button,
-                        modifiers,
-                    } => {
-                        crate::automation::dispatch_mouse_move(
-                            window,
-                            cx,
-                            x,
-                            y,
-                            pressed_button,
-                            modifiers,
-                        );
-                    }
-                    MouseInput::Wheel {
-                        x,
-                        y,
-                        delta_x,
-                        delta_y,
-                        modifiers,
-                    } => {
-                        crate::automation::dispatch_scroll_wheel(
-                            window, cx, x, y, delta_x, delta_y, modifiers,
-                        );
-                    }
-                });
+                let result =
+                    gpui::AnyWindowHandle::from(window).update(cx, move |_view, window, cx| {
+                        match input {
+                            MouseInput::Click {
+                                x,
+                                y,
+                                button,
+                                modifiers,
+                            } => {
+                                crate::automation::dispatch_click(
+                                    window, cx, x, y, button, modifiers,
+                                );
+                            }
+                            MouseInput::Down {
+                                x,
+                                y,
+                                button,
+                                modifiers,
+                            } => {
+                                crate::automation::dispatch_mouse_down(
+                                    window, cx, x, y, button, modifiers,
+                                );
+                            }
+                            MouseInput::Up {
+                                x,
+                                y,
+                                button,
+                                modifiers,
+                            } => {
+                                crate::automation::dispatch_mouse_up(
+                                    window, cx, x, y, button, modifiers,
+                                );
+                            }
+                            MouseInput::Move {
+                                x,
+                                y,
+                                pressed_button,
+                                modifiers,
+                            } => {
+                                crate::automation::dispatch_mouse_move(
+                                    window,
+                                    cx,
+                                    x,
+                                    y,
+                                    pressed_button,
+                                    modifiers,
+                                );
+                            }
+                            MouseInput::Wheel {
+                                x,
+                                y,
+                                delta_x,
+                                delta_y,
+                                modifiers,
+                            } => {
+                                crate::automation::dispatch_scroll_wheel(
+                                    window, cx, x, y, delta_x, delta_y, modifiers,
+                                );
+                            }
+                        }
+                    });
                 response
                     .send(
                         result
@@ -1912,7 +1921,7 @@ impl GpuixRenderer {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
-        return update_window(move |_view, window, cx| {
+        return update_window_without_view(move |window, cx| {
             crate::automation::dispatch_click(window, cx, x, y, button, modifiers);
         });
 
@@ -1950,7 +1959,7 @@ impl GpuixRenderer {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
-        return update_window(move |_view, window, cx| {
+        return update_window_without_view(move |window, cx| {
             crate::automation::dispatch_mouse_down(window, cx, x, y, button, modifiers);
         });
 
@@ -1988,7 +1997,7 @@ impl GpuixRenderer {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
-        return update_window(move |_view, window, cx| {
+        return update_window_without_view(move |window, cx| {
             crate::automation::dispatch_mouse_up(window, cx, x, y, button, modifiers);
         });
 
@@ -2025,7 +2034,7 @@ impl GpuixRenderer {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
-        return update_window(move |_view, window, cx| {
+        return update_window_without_view(move |window, cx| {
             crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button, modifiers);
         });
 
@@ -2066,7 +2075,7 @@ impl GpuixRenderer {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
 
         #[cfg(target_os = "macos")]
-        return update_window(move |_view, window, cx| {
+        return update_window_without_view(move |window, cx| {
             crate::automation::dispatch_scroll_wheel(window, cx, x, y, delta_x, delta_y, modifiers);
         });
 
@@ -2306,6 +2315,28 @@ fn update_web_window<R>(
                 })?;
                 window
                     .update(cx, update)
+                    .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+            })
+        })
+    })
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn update_web_window_without_view<R>(
+    update: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R,
+) -> Result<R, wasm_bindgen::JsValue> {
+    WEB_APP.with(|app| {
+        let app = app.borrow();
+        let app = app
+            .as_ref()
+            .ok_or_else(|| wasm_bindgen::JsValue::from_str("GPUIX web is not initialized"))?;
+        app.update(|cx| {
+            WEB_WINDOW.with(|window| {
+                let window = (*window.borrow()).ok_or_else(|| {
+                    wasm_bindgen::JsValue::from_str("GPUIX web window is not ready")
+                })?;
+                gpui::AnyWindowHandle::from(window)
+                    .update(cx, move |_view, window, cx| update(window, cx))
                     .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
             })
         })
@@ -2652,9 +2683,8 @@ impl WebGpuixRenderer {
         modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
-        update_web_window(move |_view, window, cx| {
+        update_web_window_without_view(move |window, cx| {
             crate::automation::dispatch_click(window, cx, x, y, button.unwrap_or(0), modifiers);
-            cx.notify();
         })
     }
 
@@ -2667,7 +2697,7 @@ impl WebGpuixRenderer {
         modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
-        update_web_window(move |_view, window, cx| {
+        update_web_window_without_view(move |window, cx| {
             crate::automation::dispatch_mouse_down(
                 window,
                 cx,
@@ -2676,7 +2706,6 @@ impl WebGpuixRenderer {
                 button.unwrap_or(0),
                 modifiers,
             );
-            cx.notify();
         })
     }
 
@@ -2689,9 +2718,8 @@ impl WebGpuixRenderer {
         modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
-        update_web_window(move |_view, window, cx| {
+        update_web_window_without_view(move |window, cx| {
             crate::automation::dispatch_mouse_up(window, cx, x, y, button.unwrap_or(0), modifiers);
-            cx.notify();
         })
     }
 
@@ -2704,9 +2732,8 @@ impl WebGpuixRenderer {
         modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
-        update_web_window(move |_view, window, cx| {
+        update_web_window_without_view(move |window, cx| {
             crate::automation::dispatch_mouse_move(window, cx, x, y, pressed_button, modifiers);
-            cx.notify();
         })
     }
 
@@ -2720,9 +2747,8 @@ impl WebGpuixRenderer {
         modifiers: Option<String>,
     ) -> Result<(), wasm_bindgen::JsValue> {
         let modifiers = crate::automation::parse_modifiers(modifiers.as_deref());
-        update_web_window(move |_view, window, cx| {
+        update_web_window_without_view(move |window, cx| {
             crate::automation::dispatch_scroll_wheel(window, cx, x, y, delta_x, delta_y, modifiers);
-            cx.notify();
         })
     }
 
