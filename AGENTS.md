@@ -2,7 +2,7 @@
 
 **Read [README.md](./README.md) first** to understand what GPUIX is, the architecture, mutation API, event flow, supported elements/events/styles, and the test renderer.
 
-Not **remorses**? Do not open a pull request. Open an issue. See [External contributors](#external-contributors).
+Unless you are **remorses** or **monotykamary**, do not open a pull request. Open an issue. See [External contributors](#external-contributors).
 
 ## README is the public API contract
 
@@ -1330,7 +1330,7 @@ you record a sidebar open/close, not a screen recorder.
 
 ## External contributors
 
-This section is for anyone who is not [remorses](https://github.com/remorses) (Tommy).
+This section is for anyone other than [remorses](https://github.com/remorses) (Tommy) or **monotykamary**.
 
 **Do not open a pull request.** Open a GitHub issue. Describe the bug or the idea. Wait.
 
