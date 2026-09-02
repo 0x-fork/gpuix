@@ -11,6 +11,7 @@
 /// JSX types now resolve to GPUIX's Props via jsxImportSource in tsconfig.
 
 import fs from "fs"
+import { spawnSync } from "node:child_process"
 import { describe, it, expect, beforeEach } from "vitest"
 import React, { useState, useRef } from "react"
 import { createTestRoot, hasNativeTestRenderer } from "../testing"
@@ -22,6 +23,32 @@ import { expectScreenshotsDiffer, SHOTS_DIR } from "./test-utils"
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
 
 describe("frame loop", () => {
+  it.skipIf(process.platform !== "darwin")(
+    "returns control to JavaScript while AppKit is idle",
+    () => {
+      const script = [
+        'import { GpuixRenderer } from "@gpuix/native"',
+        "const renderer = new GpuixRenderer(() => {})",
+        "renderer.init({ focus: false })",
+        "renderer.tick()",
+        "const startedAt = performance.now()",
+        "for (let index = 0; index < 30; index += 1) renderer.tick()",
+        "console.log(performance.now() - startedAt)",
+        "process.exit(0)",
+      ].join("\n")
+      const result = spawnSync(
+        process.execPath,
+        ["-e", script],
+        { encoding: "utf8", timeout: 3_000 },
+      )
+
+      expect(result.status, result.stderr || result.error?.message).toBe(0)
+      const elapsedMs = Number(result.stdout.trim())
+      expect(elapsedMs).not.toBeNaN()
+      expect(elapsedMs).toBeLessThan(200)
+    },
+  )
+
   it("does not tick when the native platform owns its event loop", () => {
     let ticks = 0
     const loop = startFrameLoop({
