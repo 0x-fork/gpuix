@@ -1180,6 +1180,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] macOS menu bar (`crate::app_menu`, `appName`)
 - [x] Background launch (`focus`, `show`, `activateWindow`)
 - [x] Last window close quits the process
+- [x] Runtime errors keep the macOS window alive
 - [x] Debug frame overlay (`setDebugFrameOverlay`)
 
 ### TODO

@@ -679,13 +679,19 @@ then returns without waiting for the next native wake. Bun timers, sockets, prom
 and PTY callbacks can run between ticks. Pass `{ frameMs }` to change the rate, and
 call `.stop()` on the returned handle to end it.
 
+A **runtime throw does not freeze the window.** The frame loop catches errors from
+`tick()`, native event callbacks catch throws from React handlers, and `render()`
+installs `uncaughtException` / `unhandledRejection` listeners so bun stays alive.
+The error is logged. Save under `bun --hot` to remount. The process does not exit.
+
 On **Windows and Linux**, GPUI runs its normal blocking native event loop on one
-dedicated Rust UI thread. Node sends in-process commands to that thread, so
-`startFrameLoop` returns a no-op handle and does not create a JavaScript timer.
-All platforms use GPUI's native platform, window, renderer, input, scroll,
-clipboard, keyboard, and IME implementations. The embedded macOS run-loop
-extension comes from the pinned GPUIX fork. CI runs the full React and example
-test suites through DirectX on Windows.
+dedicated Rust UI thread. `tick()` does not pump that loop. It only reports
+whether the UI thread is still inside `Platform::run`. `startFrameLoop` still
+creates a JavaScript timer so last-window-close can return false and `render()`
+can `process.exit`, matching macOS. All platforms use GPUI's native platform,
+window, renderer, input, scroll, clipboard, keyboard, and IME implementations.
+The embedded macOS run-loop extension comes from the pinned GPUIX fork. CI runs
+the full React and example test suites through DirectX on Windows.
 
 > [!IMPORTANT]
 > On macOS, never drive `tick()` from a `setImmediate` loop. That spins at tens of thousands of
@@ -2654,6 +2660,7 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [ ] App-declared menus and menu callbacks
 - [x] Background launch (`focus`, `show`, `activateWindow`)
 - [x] Last window close quits the process
+- [x] Runtime errors keep the macOS window alive
 - [x] Debug frame overlay (`debugFrameOverlay` / `setDebugFrameOverlay`)
 - [ ] Canvas element
 - [ ] Multiple windows

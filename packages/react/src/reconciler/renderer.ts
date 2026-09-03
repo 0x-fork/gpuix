@@ -20,6 +20,20 @@ import {
 export { createRoot, flushSync, reconciler } from "./reconciler.js"
 export type { Root } from "./reconciler.js"
 
+let runtimeErrorHandlersInstalled = false
+
+/** Keep bun alive after an uncaught throw. A dead process stops AppKit pumps. */
+export function installRuntimeErrorHandlers(): void {
+  if (typeof process === "undefined" || runtimeErrorHandlersInstalled) return
+  runtimeErrorHandlersInstalled = true
+  process.on("uncaughtException", (error) => {
+    console.error("[gpuix] uncaughtException:", error)
+  })
+  process.on("unhandledRejection", (reason) => {
+    console.error("[gpuix] unhandledRejection:", reason)
+  })
+}
+
 export function createRenderer(
   onEvent?: (event: import("@gpuix/native").EventPayload) => void
 ): GpuixRenderer {
@@ -28,8 +42,12 @@ export function createRenderer(
       console.error("[GPUIX] Native event error:", err)
       return
     }
-    if (handleGpuixEvent(event, renderer) && onEvent) {
-      onEvent(event)
+    try {
+      if (handleGpuixEvent(event, renderer) && onEvent) {
+        onEvent(event)
+      }
+    } catch (error) {
+      console.error("[gpuix] event handler:", error)
     }
   })
   // A pipe means a controller owns stdin. A TTY is a human keyboard.
@@ -49,6 +67,10 @@ const DEFAULT_FRAME_MS = 8
 
 export interface FrameLoop {
   stop: () => void
+}
+
+export function enableAutomation(renderer: LiveAutomationRenderer): void {
+  serveAutomationStdio(new InProcessBackend(liveRendererAsTest(renderer)))
 }
 
 /**
@@ -76,11 +98,10 @@ export interface FrameLoop {
  *
  * `tick()` returning false means the last window closed. The loop stops and
  * `onTerminated` runs. `render()` uses that to exit the process.
+ *
+ * A throw from `tick()` must not stop the timer. On macOS that timer is the
+ * AppKit pump; if it dies the window freezes while bun may still be alive.
  */
-export function enableAutomation(renderer: LiveAutomationRenderer): void {
-  serveAutomationStdio(new InProcessBackend(liveRendererAsTest(renderer)))
-}
-
 export function startFrameLoop(
   renderer: Pick<GpuixRenderer, "requiresTick" | "tick">,
   options: { frameMs?: number; onTerminated?: () => void } = {}
@@ -102,7 +123,12 @@ export function startFrameLoop(
   const loop = (): void => {
     if (stopped) return
     const started = performance.now()
-    const running = renderer.tick()
+    let running = true
+    try {
+      running = renderer.tick()
+    } catch (error) {
+      console.error("[gpuix] tick:", error)
+    }
     if (running === false) {
       stop()
       options.onTerminated?.()
@@ -195,6 +221,16 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   if (!host) {
     throw new Error("GPUIX renderer is not initialized")
   }
+  if (!injected && host instanceof GpuixRenderer) {
+    installRuntimeErrorHandlers()
+    if (!slot.loop) {
+      slot.loop = startFrameLoop(host, {
+        onTerminated: () => {
+          process.exit(0)
+        },
+      })
+    }
+  }
   if (
     typeof window !== "undefined" &&
     host instanceof GpuixRenderer &&
@@ -214,15 +250,6 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   flushSync(() => {
     root.render(node)
   })
-  if (!injected && slot.renderer instanceof GpuixRenderer) {
-    const native = slot.renderer
-    slot.loop?.stop()
-    slot.loop = startFrameLoop(native, {
-      onTerminated: () => {
-        process.exit(0)
-      },
-    })
-  }
   console.log(remount ? "[gpuix] remount complete" : "[gpuix] mount complete")
   return root
 }
