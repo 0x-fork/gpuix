@@ -4,14 +4,14 @@ React bindings for [GPUI](https://github.com/zed-industries/zed/tree/main/crates
 
 Build native GPU-accelerated desktop apps with React and TypeScript. Your components render directly to the GPU via Metal, DirectX, or Vulkan. No Electron, no web views.
 
-![The GPUIX chat example running natively](./docs/images/chat-app.png)
+![mail.tax example](./docs/images/mail-app.jpg)
 
-Everything above is GPUIX: the sidebar, the scrolling list, the composer,
+Everything above is GPUIX: the sidebar, the thread list, the reading pane,
 and native `<markdown>`. Start it with **`bun --hot`** so a save remounts React
 on the same window:
 
 ```bash
-cd examples && bun --hot chat.tsx
+cd examples && bun --hot mail.tsx
 ```
 
 ## Quickstart
@@ -140,13 +140,14 @@ gpuix completions install
 | **blurred window** | `bun run blurred-window` | A macOS frosted-glass surface using GPUI's native vibrancy backdrop and transparent titlebar |
 | **chat** | `bun --hot chat.tsx` | A GPUIX app: transparent titlebar, animated sidebar, message list, composer, `<markdown>` |
 | **timeline** | `bun --hot timeline.tsx` | A video-editor timeline: clip dragging, edge trimming with snapping, playhead scrubbing, marquee selection, zoom under the pointer, and a two-axis pan with a frozen ruler and track column |
+| **mail** | `bun --hot mail.tsx` | A Superhuman-style mail client: three panes, thread list, and a Framer newsletter |
 | **native-text** | `bun --hot native-text.tsx` | The three native text components with a tab switcher |
 | **counter** | `bun --hot counter.tsx` | The smallest possible app: state, events, hover |
 | **diff** | `bun --hot diff.tsx` | A diff viewer composed from `<div>` and `<text>` in JS, for comparison |
 | **web** | `bun run web` from the repository root | The ChatGPT example rendered in a browser canvas with WebGPU |
 
 The todo app lives in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) and is meant to be copied.
-The rest live in [`examples/`](https://github.com/remorses/gpuix/tree/main/examples). All of them use hardcoded data.
+The rest live in [`examples/`](https://github.com/remorses/gpuix/tree/main/examples). Those use hardcoded data.
 
 Or download a standalone **chat** build from the [GitHub release](https://github.com/remorses/gpuix/releases). No Bun or Rust install is required.
 
