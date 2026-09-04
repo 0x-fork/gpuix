@@ -1275,12 +1275,19 @@ grapheme-safe deletion and mouse positioning.
   minRows={1}
   maxRows={8}
   onChange={(event) => setDraft(event.value ?? '')}
+/>
+
+<textarea
+  value={draft}
+  onChange={(event) => setDraft(event.value ?? '')}
   onSubmit={send}
 />
 ```
 
-`Enter` emits `onSubmit`. In a `<textarea>`, `Shift+Enter` inserts a newline.
-The editor updates natively first, then reports the complete value to React.
+`Enter` inserts a newline in a `<textarea>`. Pass **`onSubmit`** to emit that
+event on Enter instead; `Shift+Enter` still inserts a newline. An `<input>`
+always emits `onSubmit` on Enter. The editor updates natively first, then
+reports the complete value to React.
 `value` changes can replace the native content, but keeping the same prop value
 does not reject an edit like a browser-controlled input.
 
@@ -2069,7 +2076,7 @@ text imports no longer need a runtime flag.
 | Blur | `onBlur` | — |
 | Scroll | `onScroll` | `deltaX`, `deltaY`, `precise`, `touchPhase`, `modifiers` |
 | Change | `onChange` | `value` — `<input>` and `<textarea>` only |
-| Submit | `onSubmit` | `value` — `<input>` and `<textarea>` only |
+| Submit | `onSubmit` | `value` — `<input>` always, `<textarea>` when `onSubmit` is set |
 | Toggle file | `onToggleFile` | `value` (file path) — `<diff>` only |
 | Show more | `onShowMore` | `value` (hidden line count) — `<diff>` only |
 | Line click | `onLineClick` | `value`, `oldLine`, `newLine` — `<diff>` only |

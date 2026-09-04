@@ -68,6 +68,7 @@ actions!(
 
 const INPUT_KEY_CONTEXT: &str = "GpuixInput";
 const TEXTAREA_KEY_CONTEXT: &str = "GpuixTextarea";
+const TEXTAREA_SUBMIT_KEY_CONTEXT: &str = "GpuixTextareaSubmit";
 const CARET_BLINK_MS: u64 = 500;
 const DRAG_SCROLL_FRAME_MS: u64 = 16;
 const UNDO_COALESCE: Duration = Duration::from_millis(700);
@@ -139,11 +140,20 @@ pub fn init(cx: &mut App) {
     let mut bindings = text_editor_bindings(
         INPUT_KEY_CONTEXT,
         false,
+        true,
         word_navigation_uses_alt,
         bind_paste_shortcut,
     );
     bindings.extend(text_editor_bindings(
         TEXTAREA_KEY_CONTEXT,
+        true,
+        false,
+        word_navigation_uses_alt,
+        bind_paste_shortcut,
+    ));
+    bindings.extend(text_editor_bindings(
+        TEXTAREA_SUBMIT_KEY_CONTEXT,
+        true,
         true,
         word_navigation_uses_alt,
         bind_paste_shortcut,
@@ -154,12 +164,17 @@ pub fn init(cx: &mut App) {
 fn text_editor_bindings(
     context: &'static str,
     multiline: bool,
+    enter_submits: bool,
     word_navigation_uses_alt: bool,
     bind_paste_shortcut: bool,
 ) -> Vec<KeyBinding> {
     let context = Some(context);
     let mut bindings = vec![
-        KeyBinding::new("enter", Submit, context),
+        if enter_submits {
+            KeyBinding::new("enter", Submit, context)
+        } else {
+            KeyBinding::new("enter", Newline, context)
+        },
         KeyBinding::new("shift-enter", Newline, context),
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("delete", Delete, context),
@@ -378,7 +393,10 @@ impl CustomElement for TextEditorElement {
         state.update(cx, |state, cx| {
             state.callback = callback;
             state.emits_change = emits_change;
-            state.emits_submit = emits_submit;
+            if state.emits_submit != emits_submit {
+                state.emits_submit = emits_submit;
+                cx.notify();
+            }
             state.emits_key_down = emits_key_down;
             state.emits_key_up = emits_key_up;
             state.placeholder = self.placeholder.clone().into();
@@ -1575,10 +1593,12 @@ impl gpui::Render for TextEditorState {
         let key_up_callback = self.callback.clone();
         let element_id = self.element_id;
         div()
-            .key_context(if self.multiline {
-                TEXTAREA_KEY_CONTEXT
-            } else {
+            .key_context(if !self.multiline {
                 INPUT_KEY_CONTEXT
+            } else if self.emits_submit {
+                TEXTAREA_SUBMIT_KEY_CONTEXT
+            } else {
+                TEXTAREA_KEY_CONTEXT
             })
             .track_focus(&self.focus_handle)
             .cursor(CursorStyle::IBeam)
@@ -1865,7 +1885,7 @@ mod tests {
 
     #[test]
     fn macos_word_navigation_uses_alt() {
-        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true);
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true, true);
 
         assert!(has_binding(&bindings, "alt-left", &WordLeft));
         assert!(has_binding(&bindings, "alt-right", &WordRight));
@@ -1875,7 +1895,7 @@ mod tests {
 
     #[test]
     fn non_macos_word_navigation_uses_control() {
-        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, false, true);
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, false, true);
 
         assert!(has_binding(&bindings, "ctrl-left", &WordLeft));
         assert!(has_binding(&bindings, "ctrl-right", &WordRight));
@@ -1885,7 +1905,7 @@ mod tests {
 
     #[test]
     fn browser_paste_stays_with_the_dom_event() {
-        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, false);
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true, false);
 
         assert!(!has_binding(&bindings, "cmd-v", &Paste));
         assert!(!has_binding(&bindings, "ctrl-v", &Paste));
@@ -1893,10 +1913,27 @@ mod tests {
 
     #[test]
     fn desktop_paste_uses_the_platform_clipboard_action() {
-        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true);
+        let bindings = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true, true);
 
         assert!(has_binding(&bindings, "cmd-v", &Paste));
         assert!(has_binding(&bindings, "ctrl-v", &Paste));
+    }
+
+    #[test]
+    fn textarea_enter_inserts_a_newline_unless_on_submit_is_set() {
+        let textarea = text_editor_bindings(TEXTAREA_KEY_CONTEXT, true, false, true, true);
+        assert!(has_binding(&textarea, "enter", &Newline));
+        assert!(has_binding(&textarea, "shift-enter", &Newline));
+        assert!(!has_binding(&textarea, "enter", &Submit));
+
+        let composer = text_editor_bindings(TEXTAREA_SUBMIT_KEY_CONTEXT, true, true, true, true);
+        assert!(has_binding(&composer, "enter", &Submit));
+        assert!(has_binding(&composer, "shift-enter", &Newline));
+        assert!(!has_binding(&composer, "enter", &Newline));
+
+        let input = text_editor_bindings(INPUT_KEY_CONTEXT, false, true, true, true);
+        assert!(has_binding(&input, "enter", &Submit));
+        assert!(!has_binding(&input, "enter", &Newline));
     }
 
     #[test]

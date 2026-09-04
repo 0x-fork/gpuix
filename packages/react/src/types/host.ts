@@ -405,6 +405,7 @@ export interface Props {
 
   // ── Text editor events ─────────────────────────────────────────
   onChange?: (event: EventPayload) => void
+  /** Enter on `<input>`, or Enter on `<textarea>` when this listener is set. */
   onSubmit?: (event: EventPayload) => void
 
   // ── Native component events ─────────────────────────────────────

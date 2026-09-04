@@ -43,7 +43,82 @@ describeNative("native text editors", () => {
     expect(testRoot.renderer.getPaintedText()).toContain("hi")
   })
 
-  it("supports multiline textarea editing and submission", () => {
+  it("inserts a newline on enter in a textarea", () => {
+    function Textarea() {
+      const [text, setText] = useState("")
+      return (
+        <div style={{ width: 400, height: 160 }}>
+          <textarea
+            value={text}
+            placeholder="Write a message..."
+            minRows={1}
+            maxRows={4}
+            style={{ width: 300 }}
+            onChange={(event: EventPayload) => setText(event.value ?? "")}
+          />
+          <text>{`Value: ${JSON.stringify(text)}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Textarea />)
+    const textarea = testRoot.renderer.findByType("textarea")[0]
+
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "h i enter t h e r e")
+    expect(testRoot.renderer.getAllText()).toMatchInlineSnapshot(`
+      [
+        "Value: \"hi\\nthere\"",
+      ]
+    `)
+  })
+
+  it("inserts a newline in the middle of a textarea buffer", () => {
+    function Textarea() {
+      const [text, setText] = useState("ab")
+      return (
+        <div style={{ width: 400, height: 160 }}>
+          <textarea
+            value={text}
+            style={{ width: 300 }}
+            onChange={(event: EventPayload) => setText(event.value ?? "")}
+          />
+          <text>{`Value: ${JSON.stringify(text)}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Textarea />)
+    const textarea = testRoot.renderer.findByType("textarea")[0]
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "left enter")
+
+    expect(testRoot.renderer.getAllText()).toContain('Value: "a\\nb"')
+  })
+
+  it("replaces a textarea selection with a newline and undoes the edit", () => {
+    function Textarea() {
+      const [text, setText] = useState("abc")
+      return (
+        <div style={{ width: 400, height: 160 }}>
+          <textarea
+            value={text}
+            style={{ width: 300 }}
+            onChange={(event: EventPayload) => setText(event.value ?? "")}
+          />
+          <text>{`Value: ${JSON.stringify(text)}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Textarea />)
+    const textarea = testRoot.renderer.findByType("textarea")[0]
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "shift-left enter")
+    expect(testRoot.renderer.getAllText()).toContain('Value: "ab\\n"')
+
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "cmd-z")
+    expect(testRoot.renderer.getAllText()).toContain('Value: "abc"')
+  })
+
+  it("submits a textarea when onSubmit is set", () => {
     function Textarea() {
       const [text, setText] = useState("")
       const [submits, setSubmits] = useState(0)
@@ -51,7 +126,6 @@ describeNative("native text editors", () => {
         <div style={{ width: 400, height: 160 }}>
           <textarea
             value={text}
-            placeholder="Write a message..."
             minRows={1}
             maxRows={4}
             style={{ width: 300 }}
@@ -76,6 +150,41 @@ describeNative("native text editors", () => {
     `)
 
     testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "enter")
+    expect(testRoot.renderer.getAllText()).toContain("Submits: 1")
+  })
+
+  it("switches enter between newline and submit when onSubmit is added", () => {
+    function Textarea({ submit }: { submit?: boolean }) {
+      const [text, setText] = useState("ab")
+      const [submits, setSubmits] = useState(0)
+      return (
+        <div style={{ width: 400, height: 160 }}>
+          <textarea
+            value={text}
+            style={{ width: 300 }}
+            onChange={(event: EventPayload) => setText(event.value ?? "")}
+            onSubmit={submit ? () => setSubmits((count) => count + 1) : undefined}
+          />
+          <text>{`Value: ${JSON.stringify(text)}`}</text>
+          <text>{`Submits: ${submits}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Textarea />)
+    const textarea = testRoot.renderer.findByType("textarea")[0]
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "left enter")
+    expect(testRoot.renderer.getAllText()).toContain('Value: "a\\nb"')
+    expect(testRoot.renderer.getAllText()).toContain("Submits: 0")
+
+    testRoot.render(<Textarea submit />)
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "enter")
+    expect(testRoot.renderer.getAllText()).toContain('Value: "a\\nb"')
+    expect(testRoot.renderer.getAllText()).toContain("Submits: 1")
+
+    testRoot.render(<Textarea />)
+    testRoot.renderer.nativeSimulateKeystrokes(textarea.id, "enter")
+    expect(testRoot.renderer.getAllText()).toContain('Value: "a\\n\\nb"')
     expect(testRoot.renderer.getAllText()).toContain("Submits: 1")
   })
 
