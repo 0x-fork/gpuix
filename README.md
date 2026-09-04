@@ -1299,6 +1299,34 @@ inactive. Override its colour through the shared native theme:
 <input theme={{ caret: '#22c55e' }} />
 ```
 
+### Input in a search pill
+
+`<input>` has **no default inner padding** and paints text at the top of its
+box. A single-line input vertically centers its text when given extra height.
+Set `padding` on the input style or on a parent wrapper. When the input has
+`borderRadius`, text clips to the rounded shape automatically.
+
+```tsx
+<div style={{
+  display: 'flex',
+  flexDirection: 'row',
+  alignItems: 'center',
+  height: 32,
+  paddingLeft: 10,
+  paddingRight: 4,
+  borderRadius: 16,
+  backgroundColor: '#1a1a22',
+  borderWidth: 1,
+  borderColor: '#ffffff14',
+}}>
+  <input
+    value={query}
+    onChange={(e) => setQuery(e.value ?? '')}
+    style={{ flexGrow: 1, minWidth: 0, fontSize: 13, color: '#e8e8ed' }}
+  />
+</div>
+```
+
 ## Focus and keyboard navigation
 
 Focus is a **native GPUI concept**. GPUIX connects stable React element IDs to
@@ -2135,6 +2163,25 @@ CSS-like styling via the `style` prop:
   </div>
 </div>
 ```
+
+> [!IMPORTANT]
+> **GPUIX styles look like CSS but are not CSS.** A few differences trip
+> everyone up on the first project:
+>
+> - **`div` is block, not flex.** Set `display: "flex"` before using
+>   `flexDirection`, `gap`, `alignItems`, or `alignSelf`. Without it those
+>   props are silently ignored.
+> - **A flex child that must shrink needs `minWidth: 0`.** Same rule as CSS,
+>   but easier to miss because there is no browser DevTools to inspect.
+> - **No shorthand values.** `padding`, `margin`, and `border` take numbers.
+>   CSS strings like `"0 16px"`, `"1px solid #fff"`, or `calc()` are ignored.
+> - **`boxShadow` is a structured object**, not a CSS string. See below.
+> - **No `<button>`.** Use `<div onClick>` with `cursor: "pointer"`.
+> - **Do not nest `<text>` in `<text>`.** Adjacent `<text>` siblings merge
+>   into one line. A `<text>` child of another `<text>` is a nested div.
+> - **`<input>` has no default inner padding.** Set `padding` on the input
+>   style, or pad the parent wrapper. The input clips to its own
+>   `borderRadius` automatically.
 
 **Layout:** `display` (`"flex"` | `"grid"`), `flexDirection`, `flexWrap`, `flexGrow`, `flexShrink`, `flexBasis`, `alignItems`, `alignSelf`, `alignContent`, `justifyContent`, `gap`, `rowGap`, `columnGap`, `gridTemplateColumns`, `gridTemplateRows`, `gridColumnMin`, `gridRowMin`
 

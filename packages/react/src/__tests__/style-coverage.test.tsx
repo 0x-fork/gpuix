@@ -456,4 +456,17 @@ describe("style props reach the renderer", () => {
       </div>
     )
   })
+
+  it("applies padding on an <input>", () => {
+    // Padding on an input should inset the text from the edges.
+    comparePixels(
+      "input-padding",
+      <div style={{ display: "flex", backgroundColor: "#101010", height: "100%" }}>
+        <input value="hello" style={{ width: 200, fontSize: 16 }} />
+      </div>,
+      <div style={{ display: "flex", backgroundColor: "#101010", height: "100%" }}>
+        <input value="hello" style={{ width: 200, fontSize: 16, paddingLeft: 40 }} />
+      </div>
+    )
+  })
 })

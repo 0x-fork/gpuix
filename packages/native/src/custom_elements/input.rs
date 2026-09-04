@@ -436,8 +436,16 @@ impl CustomElement for TextEditorElement {
             .w_full()
             .track_focus(&focus_handle)
             .child(state);
+        // Single-line inputs center text vertically when given extra height.
+        if !self.multiline {
+            editor = editor.items_center();
+        }
         if let Some(style) = ctx.style {
             editor = crate::renderer::apply_interactive_styles(editor, style);
+            // Clip text to rounded corners, matching HTML input behavior.
+            if style.border_radius.is_some() {
+                editor = editor.overflow_hidden();
+            }
         }
         if ctx
             .style
