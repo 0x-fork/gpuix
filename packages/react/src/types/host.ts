@@ -483,6 +483,7 @@ export type VirtualListProps =
 
 // Props for native <img> rendering.
 export interface ImgProps extends Props {
+  /** Filesystem path, data URL, or http(s) URL. */
   src?: string
   objectFit?: "fill" | "contain" | "cover" | "scaleDown" | "none"
   alt?: string

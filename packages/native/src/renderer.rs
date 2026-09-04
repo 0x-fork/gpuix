@@ -987,6 +987,7 @@ impl GpuixRenderer {
             .with_quit_mode(gpui::QuitMode::LastWindowClosed);
         let app_handle = app.run_embedded(move |cx: &mut gpui::App| {
             crate::custom_elements::input::init(cx);
+            crate::custom_elements::img::init(cx);
             // After the other bindings: `set_menus` reads key equivalents out of
             // the keymap, so every binding must exist before it runs.
             crate::app_menu::init(&app_name, cx);
@@ -1119,6 +1120,7 @@ impl GpuixRenderer {
                         .with_quit_mode(gpui::QuitMode::LastWindowClosed)
                         .run(move |cx| {
                             crate::custom_elements::input::init(cx);
+                            crate::custom_elements::img::init(cx);
                             let bounds = gpui::Bounds::centered(
                                 None,
                                 gpui::size(gpui::px(width as f32), gpui::px(height as f32)),

@@ -1169,7 +1169,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] Atomic `applyBatch()` mutation transport
 - [x] GPU-backed test renderer
 - [x] Native `<input>` and `<textarea>`
-- [x] `<img>` (local raster/SVG) and `<svg>` (tintable monochrome icons)
+- [x] `<img>` (local, data URL, or http(s) raster/SVG) and `<svg>` (tintable monochrome icons)
 - [x] `<virtual-list>`
 - [x] `<code>`, `<diff>`, `<markdown>` with Syntect
 - [x] Cross-element text selection

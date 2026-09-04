@@ -25,6 +25,14 @@ function writeSvgFixture(filePath: string): void {
   fs.writeFileSync(filePath, SVG_FIXTURE, "utf8")
 }
 
+function imgBounds(renderer: TestRoot["renderer"], testId: string) {
+  const element = renderer.findByTestId(testId)
+  expect(element, `missing testId ${testId}`).toBeDefined()
+  const rect = renderer.getElementBounds(element!.id)
+  expect(rect, `no painted bounds for ${testId}`).toEqual(expect.any(Array))
+  return { x: rect![0], y: rect![1], width: rect![2], height: rect![3] }
+}
+
 describeNative("custom element: img", () => {
   let testRoot: TestRoot
 
@@ -56,9 +64,113 @@ describeNative("custom element: img", () => {
       expect(image.customProps?.objectFit).toBe("cover")
     })
 
+    it("keeps a sized http src box stable across load", () => {
+      testRoot.render(
+        <div style={{ width: 400, height: 240, padding: 16 }}>
+          <img
+            testId="remote"
+            src="https://example.test/gpuix-img.svg"
+            objectFit="cover"
+            style={{ width: 220, height: 120 }}
+          />
+        </div>,
+      )
+
+      const first = imgBounds(testRoot.renderer, "remote")
+      expect(first.width).toBeCloseTo(220, 0)
+      expect(first.height).toBeCloseTo(120, 0)
+
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+
+      const after = imgBounds(testRoot.renderer, "remote")
+      expect(after.width).toBeCloseTo(220, 0)
+      expect(after.height).toBeCloseTo(120, 0)
+      expect(after.x).toBeCloseTo(first.x, 0)
+      expect(after.y).toBeCloseTo(first.y, 0)
+    })
+
+    it("forwards borderRadius through style", () => {
+      testRoot.render(
+        <img
+          src={IMAGE_FIXTURE_PATH}
+          objectFit="cover"
+          style={{ width: 80, height: 80, borderRadius: 40 }}
+        />,
+      )
+
+      const images = testRoot.renderer.findByType("img")
+      expect(images.length).toBe(1)
+      expect((images[0] as any).style?.borderRadius).toBe(40)
+    })
+
   })
 
   describe("screenshots", () => {
+    it("clips pixels to borderRadius", () => {
+      function App({ radius }: { radius?: number }) {
+        return (
+          <div style={{ width: 160, height: 160, backgroundColor: "#00ff00", padding: 20 }}>
+            <img
+              src={IMAGE_FIXTURE_PATH}
+              objectFit="cover"
+              style={{ width: 120, height: 120, borderRadius: radius }}
+            />
+          </div>
+        )
+      }
+
+      const square = `${SHOTS_DIR}/gpuix-img-square.png`
+      const circle = `${SHOTS_DIR}/gpuix-img-circle.png`
+      if (fs.existsSync(square)) fs.unlinkSync(square)
+      if (fs.existsSync(circle)) fs.unlinkSync(circle)
+
+      testRoot.render(<App />)
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(square)
+
+      testRoot.render(<App radius={60} />)
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(circle)
+
+      if (!isCI) {
+        expect(
+          bufferSimilarity(fs.readFileSync(square), fs.readFileSync(circle))
+        ).toBeLessThan(0.99)
+      }
+    })
+
+    it("renders http URLs like filesystem images when width and height are set", () => {
+      function App({ src }: { src: string }) {
+        return <img src={src} style={{ width: 240, height: 140 }} />
+      }
+
+      const pathImage = `${SHOTS_DIR}/gpuix-img-path-url.png`
+      const urlImage = `${SHOTS_DIR}/gpuix-img-http-url.png`
+      if (fs.existsSync(pathImage)) fs.unlinkSync(pathImage)
+      if (fs.existsSync(urlImage)) fs.unlinkSync(urlImage)
+
+      testRoot.render(<App src={IMAGE_FIXTURE_PATH} />)
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(pathImage)
+
+      testRoot.render(<App src="https://example.test/gpuix-img.svg" />)
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(urlImage)
+
+      if (!isCI) {
+        expect(
+          bufferSimilarity(fs.readFileSync(pathImage), fs.readFileSync(urlImage))
+        ).toBeGreaterThan(0.99)
+      }
+    })
+
     it("renders base64 data URLs like filesystem images", () => {
       function App({ src }: { src: string }) {
         return <img src={src} style={{ width: 240, height: 140 }} />

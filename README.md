@@ -1989,20 +1989,21 @@ Bash, TOML, YAML, Markdown, HTML, CSS, C.
 | `input`         | Native single-line text editor                   |
 | `textarea`      | Native multiline, auto-growing text editor       |
 | `virtual-list`  | Long collections; only visible rows are built    |
-| `img`           | Local/data URL raster or SVG images               |
+| `img`           | Local, data URL, or http(s) raster or SVG images  |
 | `svg`           | Tintable monochrome SVG icons from source or disk |
 | `anchored`      | Positioned overlay                               |
 | `canvas`        | Custom drawing (planned)                         |
 
 ## Images and icons
 
-`<img>` takes a **filesystem path or data URL**. Resolve local files with
-`fileURLToPath` or `path.join`, or encode in-memory bytes as base64.
+`<img>` takes a **filesystem path, data URL, or http(s) URL**. Resolve local
+files with `fileURLToPath` or `path.join`, encode in-memory bytes as base64, or
+pass a remote URL and let GPUI fetch it.
 
 ### `<img>`
 
 `<img>` paints through GPUI's image element. It loads **PNG, JPEG, WebP, GIF,
-SVG, BMP, TIFF, ICO, and Netpbm** from disk or data URLs. SVG here is a
+SVG, BMP, TIFF, ICO, and Netpbm** from disk, data URLs, or http(s). SVG here is a
 full-colour image, not a tintable icon.
 
 ```tsx
@@ -2019,12 +2020,38 @@ const src = `data:image/png;base64,${Buffer.from(pngBytes).toString('base64')}`
 <img src={src} style={{ width: 240, height: 140 }} />
 ```
 
+```tsx
+<img
+  src="https://example.com/avatar.png"
+  objectFit="cover"
+  style={{ width: 48, height: 48, borderRadius: 24 }}
+/>
+```
+
+Set **both** `width` and `height`. GPUI fetches and decodes on a background
+task. The tree does not wait. Without a definite size the box is empty until
+decode, then jumps to the bitmap size.
+
 Data URLs support every image format listed above. Base64 and percent-encoded
-payloads are accepted.
+payloads are accepted. Remote URLs use the same GPUI image cache as disk files.
+They are not written to a temp file.
 
 `objectFit` matches CSS: `"contain"` (default), `"cover"`, `"fill"`,
 `"scaleDown"`, or `"none"`. An empty `src` or a failed load shows a fallback
-placeholder instead of crashing.
+placeholder instead of crashing. A URL that is still loading paints an empty
+box of the declared size. There is no spinner.
+
+`borderRadius` clips the bitmap. GPUI paints the image with those corner
+radii. A parent `overflow: "hidden"` wrapper does **not** clip an `<img>`
+child. Put the radius on the image.
+
+```tsx
+<img
+  src={avatarUrl}
+  objectFit="cover"
+  style={{ width: 32, height: 32, borderRadius: 16 }}
+/>
+```
 
 ### `<svg>`
 

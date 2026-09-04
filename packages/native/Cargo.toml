@@ -45,6 +45,9 @@ syntect = { version = "5.3", default-features = false, features = ["regex-onig"]
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-onig"] }
 gpui = { path = "../../zed/crates/gpui", default-features = false, features = ["font-kit", "profiler"] }
 gpui_platform = { path = "../../zed/crates/gpui_platform", default-features = false, features = ["font-kit", "wayland", "x11"] }
+# Same client GPUI's image examples and Zed use. `img(SharedUri)` fetches
+# through `App::http_client`; without this, GPUI's NullHttpClient fails every URL.
+reqwest_client = { path = "../../zed/crates/reqwest_client" }
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 napi = { version = "3", features = ["napi8", "serde-json"] }
