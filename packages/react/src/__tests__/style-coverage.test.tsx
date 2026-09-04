@@ -428,4 +428,32 @@ describe("style props reach the renderer", () => {
 
     expectScreenshotsEqual(absolute, fixed)
   })
+
+  it("applies textDecoration underline", () => {
+    comparePixels(
+      "text-decoration-underline",
+      <div style={{ display: "flex", backgroundColor: "#101010", height: "100%" }}>
+        <text style={{ fontSize: 20, color: "#ffffff" }}>underline me</text>
+      </div>,
+      <div style={{ display: "flex", backgroundColor: "#101010", height: "100%" }}>
+        <text style={{ fontSize: 20, color: "#ffffff", textDecoration: "underline" }}>
+          underline me
+        </text>
+      </div>
+    )
+  })
+
+  it("applies textDecoration line-through", () => {
+    comparePixels(
+      "text-decoration-line-through",
+      <div style={{ display: "flex", backgroundColor: "#101010", height: "100%" }}>
+        <text style={{ fontSize: 20, color: "#ffffff" }}>strike me</text>
+      </div>,
+      <div style={{ display: "flex", backgroundColor: "#101010", height: "100%" }}>
+        <text style={{ fontSize: 20, color: "#ffffff", textDecoration: "line-through" }}>
+          strike me
+        </text>
+      </div>
+    )
+  })
 })

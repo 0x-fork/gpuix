@@ -163,6 +163,7 @@ export interface StyleDesc {
   whiteSpace?: "normal" | "nowrap"
   textOverflow?: "ellipsis" | "ellipsis-start"
   lineClamp?: number
+  textDecoration?: "underline" | "line-through" | "none"
 
   overflow?: string
   overflowX?: string

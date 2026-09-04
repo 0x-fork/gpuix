@@ -208,6 +208,7 @@ pub struct StyleDesc {
     pub white_space: Option<String>,
     pub text_overflow: Option<String>,
     pub line_clamp: Option<f64>,
+    pub text_decoration: Option<String>,
 
     // Overflow
     pub overflow: Option<String>,
@@ -426,5 +427,18 @@ mod tests {
     fn ignores_an_unknown_cursor() {
         assert_eq!(parse_cursor("zoom-in"), None);
         assert_eq!(parse_cursor("POINTER"), None);
+    }
+
+    #[test]
+    fn deserializes_text_decoration() {
+        let style: StyleDesc = serde_json::from_str(r#"{"textDecoration":"underline"}"#).unwrap();
+        assert_eq!(style.text_decoration.as_deref(), Some("underline"));
+
+        let style: StyleDesc =
+            serde_json::from_str(r#"{"textDecoration":"line-through"}"#).unwrap();
+        assert_eq!(style.text_decoration.as_deref(), Some("line-through"));
+
+        let style: StyleDesc = serde_json::from_str(r#"{"textDecoration":"none"}"#).unwrap();
+        assert_eq!(style.text_decoration.as_deref(), Some("none"));
     }
 }

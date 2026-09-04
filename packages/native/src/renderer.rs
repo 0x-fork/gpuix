@@ -4904,6 +4904,12 @@ pub(crate) fn apply_styles<E: gpui::Styled>(mut el: E, style: &StyleDesc) -> E {
             el = el.line_clamp(clamp as usize);
         }
     }
+    match style.text_decoration.as_deref() {
+        Some("underline") => el = el.underline(),
+        Some("line-through") => el = el.line_through(),
+        Some("none") => el = el.text_decoration_none(),
+        _ => {}
+    }
     // `line_height` was accepted by the style type but never applied, so
     // multi-line text always used gpui's default leading.
     if let Some(line_height) = style.line_height {
