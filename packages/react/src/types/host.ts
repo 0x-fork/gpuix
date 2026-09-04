@@ -686,6 +686,10 @@ export interface WindowKeyEventHandlers {
 
 export interface RootEventHandlers extends WindowKeyEventHandlers {
   onEvent?: (event: EventPayload) => void
+  onUncaughtError?: (
+    error: Error,
+    errorInfo: { componentStack?: string }
+  ) => void
 }
 
 export interface ElementIdAllocator {

@@ -683,7 +683,9 @@ call `.stop()` on the returned handle to end it.
 A **runtime throw does not freeze the window.** The frame loop catches errors from
 `tick()`, native event callbacks catch throws from React handlers, and `render()`
 installs `uncaughtException` / `unhandledRejection` listeners so bun stays alive.
-The error is logged. Save under `bun --hot` to remount. The process does not exit.
+The window shows the stack and a **Reload** button that remounts the last
+`render()` tree. Save under `bun --hot` also remounts. The process does not
+exit.
 
 On **Windows and Linux**, GPUI runs its normal blocking native event loop on one
 dedicated Rust UI thread. `tick()` does not pump that loop. It only reports
@@ -2742,7 +2744,7 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [ ] App-declared menus and menu callbacks
 - [x] Background launch (`focus`, `show`, `activateWindow`)
 - [x] Last window close quits the process
-- [x] Runtime errors keep the macOS window alive
+- [x] Runtime errors keep the macOS window alive and show a stack overlay
 - [x] Debug frame overlay (`debugFrameOverlay` / `setDebugFrameOverlay`)
 - [ ] Canvas element
 - [ ] Multiple windows

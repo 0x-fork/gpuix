@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import React, { type ReactNode } from "react"
 import { GpuixRenderer } from "@gpuix/native"
 import type { EventPayload, WindowOptions } from "@gpuix/native"
 import { createRoot, flushSync, type Root } from "./reconciler.js"
@@ -20,18 +20,40 @@ import {
 export { createRoot, flushSync, reconciler } from "./reconciler.js"
 export type { Root } from "./reconciler.js"
 
-let runtimeErrorHandlersInstalled = false
+const RUNTIME_ERROR_HANDLERS_KEY = "__gpuixRuntimeErrorHandlers"
+
+type RuntimeErrorHandlers = {
+  uncaughtException: (error: Error) => void
+  unhandledRejection: (reason: Error | string) => void
+}
+
+function runtimeErrorHandlers(): RuntimeErrorHandlers | undefined {
+  return Reflect.get(globalThis, RUNTIME_ERROR_HANDLERS_KEY) as
+    | RuntimeErrorHandlers
+    | undefined
+}
 
 /** Keep bun alive after an uncaught throw. A dead process stops AppKit pumps. */
 export function installRuntimeErrorHandlers(): void {
-  if (typeof process === "undefined" || runtimeErrorHandlersInstalled) return
-  runtimeErrorHandlersInstalled = true
-  process.on("uncaughtException", (error) => {
-    console.error("[gpuix] uncaughtException:", error)
-  })
-  process.on("unhandledRejection", (reason) => {
-    console.error("[gpuix] unhandledRejection:", reason)
-  })
+  if (typeof process === "undefined" || runtimeErrorHandlers()) return
+  const handlers: RuntimeErrorHandlers = {
+    uncaughtException: scheduleRuntimeError,
+    unhandledRejection: (reason) => {
+      scheduleRuntimeError(thrownToError(reason))
+    },
+  }
+  process.on("uncaughtException", handlers.uncaughtException)
+  process.on("unhandledRejection", handlers.unhandledRejection)
+  Reflect.set(globalThis, RUNTIME_ERROR_HANDLERS_KEY, handlers)
+}
+
+function uninstallRuntimeErrorHandlers(): void {
+  if (typeof process === "undefined") return
+  const handlers = runtimeErrorHandlers()
+  if (!handlers) return
+  process.off("uncaughtException", handlers.uncaughtException)
+  process.off("unhandledRejection", handlers.unhandledRejection)
+  Reflect.deleteProperty(globalThis, RUNTIME_ERROR_HANDLERS_KEY)
 }
 
 export function createRenderer(
@@ -47,7 +69,7 @@ export function createRenderer(
         onEvent(event)
       }
     } catch (error) {
-      console.error("[gpuix] event handler:", error)
+      scheduleRuntimeError(thrownToError(error))
     }
   })
   // A pipe means a controller owns stdin. A TTY is a human keyboard.
@@ -127,7 +149,7 @@ export function startFrameLoop(
     try {
       running = renderer.tick()
     } catch (error) {
-      console.error("[gpuix] tick:", error)
+      scheduleRuntimeError(thrownToError(error))
     }
     if (running === false) {
       stop()
@@ -166,6 +188,178 @@ type RenderSlot = {
   renderer?: NativeRenderer
   root?: Root
   loop?: FrameLoop
+  lastNode?: ReactNode
+  lastOptions?: RenderOptions
+  overlayShown?: boolean
+}
+
+function formatRuntimeError(
+  thrown: Error | string,
+  componentStack?: string,
+): { message: string; stack: string } {
+  let message: string
+  let stack: string
+  if (thrown instanceof Error) {
+    message = thrown.message || thrown.name
+    stack = thrown.stack ?? `${thrown.name}: ${thrown.message}`
+  } else {
+    message = thrown
+    stack = thrown
+  }
+  if (!message) message = "Unknown error"
+  const extra = componentStack?.trim()
+  if (extra && !stack.includes(extra)) stack = `${stack}\n${extra}`
+  if (!stack.includes(message)) stack = `${message}\n${stack}`
+  return { message, stack }
+}
+
+function thrownToError(thrown: unknown): Error | string {
+  if (thrown instanceof Error) return thrown
+  if (typeof thrown === "string") return thrown
+  try {
+    return String(thrown)
+  } catch {
+    return "Unknown error"
+  }
+}
+
+function runtimeErrorOverlay(
+  error: { message: string; stack: string },
+  onReload: () => void,
+): ReactNode {
+  const lines = error.stack.length === 0 ? [error.message] : error.stack.split("\n")
+  return React.createElement(
+    "div",
+    {
+      testId: "runtime-error-overlay",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        width: "100%",
+        height: "100%",
+        padding: 32,
+        gap: 16,
+        backgroundColor: "#1c0b0b",
+        pointerEvents: "auto",
+      },
+    },
+    React.createElement(
+      "text",
+      { style: { fontSize: 22, fontWeight: 700, color: "#f87171" } },
+      "Runtime error",
+    ),
+    React.createElement(
+      "div",
+      {
+        testId: "runtime-error-stack",
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          flexGrow: 1,
+          minHeight: 0,
+          overflowY: "scroll",
+          gap: 2,
+        },
+      },
+      ...lines.map((line) =>
+        React.createElement(
+          "text",
+          { style: { fontSize: 13, color: "#fecaca" } },
+          line === "" ? " " : line,
+        ),
+      ),
+    ),
+    React.createElement(
+      "div",
+      {
+        testId: "runtime-error-reload",
+        onClick: onReload,
+        style: {
+          alignSelf: "flex-start",
+          padding: 10,
+          paddingLeft: 16,
+          paddingRight: 16,
+          borderRadius: 8,
+          backgroundColor: "#7f1d1d",
+          hover: { backgroundColor: "#991b1b" },
+        },
+      },
+      React.createElement(
+        "text",
+        { style: { fontSize: 14, fontWeight: 600, color: "#fee2e2" } },
+        "Reload",
+      ),
+    ),
+  )
+}
+
+function mountRoot(args: {
+  slot: RenderSlot
+  node: ReactNode
+  options: RenderOptions
+}): Root {
+  const { slot, node, options } = args
+  const { onEvent, onKeyDown, onKeyUp } = options
+  const host = slot.renderer
+  if (!host) throw new Error("GPUIX renderer is not initialized")
+  if (slot.root) slot.root.unmount()
+  const root = createRoot(host, {
+    onEvent,
+    onKeyDown,
+    onKeyUp,
+    onUncaughtError: (error, errorInfo) => {
+      scheduleRuntimeError(error, errorInfo.componentStack)
+    },
+  })
+  slot.root = root
+  slot.overlayShown = false
+  flushSync(() => {
+    root.render(node)
+  })
+  return root
+}
+
+function reloadApp(slot: RenderSlot): void {
+  if (slot.lastNode === undefined) return
+  mountRoot({ slot, node: slot.lastNode, options: slot.lastOptions ?? {} })
+}
+
+function showRuntimeError(error: Error | string, componentStack?: string): void {
+  const formatted = formatRuntimeError(error, componentStack)
+  console.error("[gpuix] runtime error:", error)
+  console.error("[gpuix] runtime error inspect:", {
+    type: typeof error,
+    name: error instanceof Error ? error.name : undefined,
+    message: error instanceof Error ? error.message : error,
+    keys: error && typeof error === "object" ? Object.keys(error) : [],
+    string: String(error),
+  })
+  console.error(formatted.stack)
+  const slot = Reflect.get(globalThis, RENDER_HOST_KEY) as RenderSlot | undefined
+  if (!slot?.root || slot.overlayShown) return
+  slot.overlayShown = true
+  try {
+    mountRoot({
+      slot,
+      node: runtimeErrorOverlay(formatted, () => reloadApp(slot)),
+      options: slot.lastOptions ?? {},
+    })
+    slot.overlayShown = true
+  } catch (overlayError) {
+    slot.overlayShown = false
+    console.error("[gpuix] failed to show runtime error overlay:", overlayError)
+  }
+}
+
+function scheduleRuntimeError(error: Error | string, componentStack?: string): void {
+  const slot = Reflect.get(globalThis, RENDER_HOST_KEY) as RenderSlot | undefined
+  if (!slot?.root) return
+  const failedRoot = slot.root
+  queueMicrotask(() => {
+    const current = Reflect.get(globalThis, RENDER_HOST_KEY) as RenderSlot | undefined
+    if (!current?.root || current.root !== failedRoot) return
+    showRuntimeError(thrownToError(error), componentStack)
+  })
 }
 
 function renderSlot(): RenderSlot {
@@ -193,6 +387,7 @@ export function resetRender(): void {
   void automation?.close()
   Reflect.deleteProperty(globalThis, BROWSER_AUTOMATION_KEY)
   Reflect.deleteProperty(globalThis, RENDER_HOST_KEY)
+  uninstallRuntimeErrorHandlers()
 }
 
 /** Mount the app. Under `bun --hot`, later calls remount on the same native window. */
@@ -221,15 +416,13 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   if (!host) {
     throw new Error("GPUIX renderer is not initialized")
   }
-  if (!injected && host instanceof GpuixRenderer) {
-    installRuntimeErrorHandlers()
-    if (!slot.loop) {
-      slot.loop = startFrameLoop(host, {
-        onTerminated: () => {
-          process.exit(0)
-        },
-      })
-    }
+  installRuntimeErrorHandlers()
+  if (!injected && host instanceof GpuixRenderer && !slot.loop) {
+    slot.loop = startFrameLoop(host, {
+      onTerminated: () => {
+        process.exit(0)
+      },
+    })
   }
   if (
     typeof window !== "undefined" &&
@@ -243,13 +436,10 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   }
   if (slot.root) {
     console.log("[gpuix] remount: unmount previous tree")
-    slot.root.unmount()
   }
-  const root = createRoot(host, { onEvent, onKeyDown, onKeyUp })
-  slot.root = root
-  flushSync(() => {
-    root.render(node)
-  })
+  slot.lastNode = node
+  slot.lastOptions = { onEvent, onKeyDown, onKeyUp }
+  const root = mountRoot({ slot, node, options: slot.lastOptions })
   console.log(remount ? "[gpuix] remount complete" : "[gpuix] mount complete")
   return root
 }

@@ -100,6 +100,12 @@ export function createRoot(
     }
   }
 
+  const onUncaughtError =
+    rootEventHandlers.onUncaughtError ??
+    ((error: Error) => {
+      console.error(error)
+    })
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   container = (reconciler.createContainer as any)(
     gpuixContainer,
@@ -108,7 +114,7 @@ export function createRoot(
     false,
     null,
     "",
-    console.error,
+    onUncaughtError,
     console.error,
     console.error,
     null
