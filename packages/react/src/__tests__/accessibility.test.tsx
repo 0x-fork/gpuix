@@ -166,6 +166,52 @@ describeNative("accessibility", () => {
     expect(images.some((aria) => aria.label === "Cat photo")).toBe(true)
   })
 
+  it("keeps img alt when src is empty", () => {
+    testRoot.render(<img alt="Empty source" src="" style={{ width: 40, height: 40 }} />)
+
+    const images = withRole(testRoot.renderer.getA11yTree(), "Image")
+    expect(images.some((aria) => aria.label === "Empty source")).toBe(true)
+  })
+
+  it("exposes role and aria-label on <anchored>", () => {
+    testRoot.render(
+      <anchored
+        role="menu"
+        aria-label="File menu"
+        position={{ x: 8, y: 8 }}
+        style={{ width: 80, height: 40 }}
+      />,
+    )
+
+    expect(withRole(testRoot.renderer.getA11yTree(), "Menu")[0]).toEqual(
+      expect.objectContaining({ role: "Menu", label: "File menu" }),
+    )
+  })
+
+  it("exposes role and aria-label on <virtual-list>", () => {
+    testRoot.render(
+      <virtual-list
+        role="list"
+        aria-label="Messages"
+        style={{ width: 200, height: 80 }}
+      >
+        <text>one</text>
+      </virtual-list>,
+    )
+
+    expect(withRole(testRoot.renderer.getA11yTree(), "List")[0]).toEqual(
+      expect.objectContaining({ role: "List", label: "Messages" }),
+    )
+  })
+
+  it("joins interpolated <text> children into one Label", () => {
+    const name = "Ada"
+    testRoot.render(<text style={{ width: 200, height: 24 }}>Hello {name}!</text>)
+
+    const labels = withRole(testRoot.renderer.getA11yTree(), "Label")
+    expect(labels.filter((aria) => aria.value === "Hello Ada!")).toHaveLength(1)
+  })
+
   it("lets an explicit role override the <text> default", () => {
     testRoot.render(
       <text role="heading" aria-level={1} style={{ width: 200, height: 24 }}>

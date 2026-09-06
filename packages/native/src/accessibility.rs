@@ -60,6 +60,21 @@ where
     el
 }
 
+/// `aria-label`, or `alt` when that is empty. Used by `<img>`.
+pub(crate) fn apply_image_label<E>(
+    el: E,
+    props: &HashMap<String, serde_json::Value>,
+    alt: &str,
+) -> E
+where
+    E: StatefulInteractiveElement,
+{
+    if props.get("aria-label").is_some() || alt.is_empty() {
+        return el;
+    }
+    el.aria_label(alt.to_string())
+}
+
 /// VoiceOver Press. GPUI auto-adds Click only for `.on_click()`. GPUIX
 /// click is `on_mouse_up`, so register the action by hand and emit the
 /// same JS `click` event.

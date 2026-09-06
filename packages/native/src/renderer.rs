@@ -4228,12 +4228,16 @@ fn build_virtual_list(
         };
         view.build_virtual_child(list_id, index, child_id, inherited.clone(), window, cx)
     });
-    let mut list =
-        gpui::list(list_state, render_item).with_sizing_behavior(gpui::ListSizingBehavior::Auto);
+    let mut list = gpui::list(list_state, render_item)
+        .with_sizing_behavior(gpui::ListSizingBehavior::Auto)
+        .id(gpui::ElementId::Name(gpui::SharedString::from(format!(
+            "__gpuix_virtual_list_{}",
+            element.id
+        ))));
     if let Some(style) = element.style.as_deref() {
         list = apply_styles(list, style);
     }
-    list.into_any_element()
+    apply_accessibility(list, &element.custom_props, None).into_any_element()
 }
 
 fn unmounted_virtual_row(height: f32) -> gpui::AnyElement {

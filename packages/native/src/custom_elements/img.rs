@@ -149,10 +149,10 @@ mod tests {
     }
 }
 
-fn img_fallback(ctx: &CustomRenderContext, message: &str) -> gpui::AnyElement {
+fn img_fallback(ctx: &CustomRenderContext, alt: &str, message: &str) -> gpui::AnyElement {
     use gpui::prelude::*;
 
-    let fallback = super::custom_surface(
+    let mut fallback = super::custom_surface(
         gpui::div()
             .id(gpui::SharedString::from(format!("__gpuix_img_{}", ctx.id)))
             .flex()
@@ -164,6 +164,12 @@ fn img_fallback(ctx: &CustomRenderContext, message: &str) -> gpui::AnyElement {
             .text_color(gpui::rgba(0xa4accdff)),
         ctx,
     );
+    fallback = crate::accessibility::apply_accessibility(
+        fallback,
+        ctx.props,
+        Some(gpui::Role::Image),
+    );
+    fallback = crate::accessibility::apply_image_label(fallback, ctx.props, alt);
     fallback
         .child(ctx.chrome_text(message.to_string(), None))
         .into_any_element()
@@ -182,8 +188,8 @@ impl CustomElement for ImgElement {
             ImgSource::Path(path) => gpui::img(path.clone()),
             ImgSource::Uri(uri) => gpui::img(uri.clone()),
             ImgSource::Data(image) => gpui::img(image.clone()),
-            ImgSource::Empty => return img_fallback(&ctx, "img: no src"),
-            ImgSource::Invalid => return img_fallback(&ctx, "img: load failed"),
+            ImgSource::Empty => return img_fallback(&ctx, &self.alt, "img: no src"),
+            ImgSource::Invalid => return img_fallback(&ctx, &self.alt, "img: load failed"),
         };
         // The id is what makes gpui's `ImgState` persist. Without it `Img` has no
         // `GlobalElementId`, so the animated-GIF frame index and the delayed
@@ -223,9 +229,7 @@ impl CustomElement for ImgElement {
 
         let mut el =
             crate::accessibility::apply_accessibility(el, ctx.props, Some(gpui::Role::Image));
-        if ctx.props.get("aria-label").is_none() && !self.alt.is_empty() {
-            el = el.aria_label(self.alt.clone());
-        }
+        el = crate::accessibility::apply_image_label(el, ctx.props, &self.alt);
         let el = super::wire_standard_events(el, &ctx);
         crate::automation::track_own_bounds(el, ctx.id).into_any_element()
     }
