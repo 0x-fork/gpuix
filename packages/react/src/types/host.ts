@@ -433,6 +433,24 @@ export interface Props {
   autoFocus?: boolean
   /** Native GPUI tab order. Use 0 for normal keyboard focus. */
   tabIndex?: number
+  /**
+   * AccessKit role, as an ARIA token (`"button"`, `"heading"`).
+   * A node is in the accessibility tree only with both an id (always set)
+   * and a role. `"none"` / `"presentation"` produce no node.
+   */
+  role?: string
+  /** Accessible name. Maps to GPUI `aria_label`. */
+  "aria-label"?: string
+  /** Extra description announced after name, role, and value. */
+  "aria-description"?: string
+  /** Author id exposed as `AXIdentifier` / UIA AutomationId. */
+  "aria-id"?: string
+  "aria-expanded"?: boolean
+  "aria-selected"?: boolean
+  /** String value reported to assistive technology. */
+  "aria-valuetext"?: string
+  /** Heading level, 1-based. */
+  "aria-level"?: number
   /** Stable locator id for automation. */
   testId?: string
   /** Internal native animation description used by motion components. */

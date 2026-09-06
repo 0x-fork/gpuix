@@ -454,6 +454,18 @@ impl CustomElement for TextEditorElement {
         {
             editor = editor.relative();
         }
+        let default_role = if self.multiline {
+            gpui::Role::MultilineTextInput
+        } else {
+            gpui::Role::TextInput
+        };
+        editor = crate::accessibility::apply_accessibility(editor, ctx.props, Some(default_role));
+        if ctx.props.get("aria-valuetext").is_none() && !self.value.is_empty() {
+            editor = editor.aria_value(self.value.clone());
+        }
+        if !self.placeholder.is_empty() {
+            editor = editor.aria_placeholder(self.placeholder.clone());
+        }
         // Custom elements paint themselves, so nothing registers their box for
         // automation unless the builder does it. Without this, a locator on an
         // editor fails with "Element has no painted bounds" and `click()` has
@@ -480,6 +492,12 @@ impl CustomElement for TextEditorElement {
                 });
             });
         }
+        editor = crate::accessibility::apply_a11y_click(
+            editor,
+            ctx.events,
+            ctx.id,
+            ctx.event_callback,
+        );
         editor.into_any_element()
     }
 

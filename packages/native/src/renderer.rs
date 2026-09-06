@@ -34,6 +34,7 @@ use std::time::Duration;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use wasm_bindgen::JsCast as _;
 
+use crate::accessibility::{apply_a11y_click, apply_accessibility};
 use crate::custom_elements::{CustomElementRegistry, CustomRenderContext};
 use crate::element_tree::EventPayload;
 use crate::retained_tree::{RetainedTree, StyleTable};
@@ -4084,6 +4085,7 @@ pub(crate) fn build_element(
                 selectable: inherited.selectable,
                 selection_wash: inherited.selection_wash,
                 highlight_set: inherited.highlight.clone(),
+                props: &element.custom_props,
             };
             ctx.custom_registry
                 .render(custom_type, &element.custom_props, render_ctx, window, cx)
@@ -4250,6 +4252,28 @@ fn virtual_row_ancestor(tree: &RetainedTree, list_id: u64, element_id: u64) -> O
     }
 }
 
+fn joined_text_content(
+    tree: &RetainedTree,
+    element: &crate::retained_tree::RetainedElement,
+) -> Option<String> {
+    if let Some(content) = element.content.as_deref().filter(|value| !value.is_empty()) {
+        return Some(content.to_string());
+    }
+    let mut parts = Vec::new();
+    for child_id in &element.children {
+        let Some(child) = tree.elements.get(child_id) else {
+            continue;
+        };
+        if child.element_type == "text" {
+            if let Some(content) = child.content.as_deref() {
+                parts.push(content);
+            }
+        }
+    }
+    let joined = parts.concat();
+    (!joined.is_empty()).then_some(joined)
+}
+
 /// The one builder for `<div>` and `<text>`.
 ///
 /// Both get the same stable GPUI id, so gpui keeps their interactive element
@@ -4371,6 +4395,19 @@ pub(crate) fn build_host_container(
         el = el.tab_index(tab_index).tab_stop(tab_index >= 0);
     }
 
+    // React text instances (`createTextInstance`) are also type `text` and
+    // hold `content`. Only the host `<text>` (no content of its own) gets
+    // Label. The inner nodes stay out of the AX tree so VoiceOver does not
+    // hear the same string twice.
+    let is_text_host = element.element_type == "text" && element.content.is_none();
+    let default_role = is_text_host.then_some(gpui::Role::Label);
+    el = apply_accessibility(el, &element.custom_props, default_role);
+    if is_text_host && element.custom_props.get("aria-valuetext").is_none() {
+        if let Some(content) = joined_text_content(ctx.tree, element) {
+            el = el.aria_value(content);
+        }
+    }
+
     // Wire up events.
     // Some events (on_hover, on_aux_click) require a stateful element (.id()),
     // which we already set above. Others (on_mouse_down, on_key_down) work
@@ -4392,6 +4429,7 @@ pub(crate) fn build_host_container(
                 p.is_right_click = Some(false);
             });
         });
+        el = apply_a11y_click(el, &element.events, id, ctx.event_callback);
     }
 
     for event_type in &element.events {

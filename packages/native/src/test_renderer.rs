@@ -241,6 +241,15 @@ impl TestGpuixRenderer {
         // Convert typed WindowHandle<GpuixView> to AnyWindowHandle for simulation methods.
         let window: gpui::AnyWindowHandle = window_handle.into();
 
+        // Visual tests have no VoiceOver / UIA client, so AccessKit never
+        // activates. Pretend one is connected so every flush builds a tree
+        // that get_a11y_tree can dump.
+        cx.update_window(window, |_, window, _| {
+            window.set_a11y_active_for_tests(true);
+        })
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+        cx.run_until_parked();
+
         // Store !Send types on the JS main thread.
         TEST_STATE.with(|cell| {
             *cell.borrow_mut() = Some(VisualTestState { cx, window, view });
@@ -884,6 +893,21 @@ impl TestGpuixRenderer {
         let json = tree.to_json(&std::collections::HashMap::new());
         serde_json::to_string_pretty(&json)
             .map_err(|e| Error::from_reason(format!("JSON serialization failed: {}", e)))
+    }
+
+    /// GPUI accessibility dump from the last painted frame.
+    /// Empty until a11y is active; the test renderer turns that on at construct.
+    #[napi(js_name = "getA11yTree")]
+    pub fn get_a11y_tree(&self) -> Result<String> {
+        self.flush()?;
+        with_test_state(|cx, window, _view| {
+            cx.update_window(window, |_, window, _| {
+                window
+                    .debug_a11y_tree_json()
+                    .unwrap_or_else(|| "{}".to_string())
+            })
+            .map_err(|e| Error::from_reason(e.to_string()))
+        })
     }
 
     /// Tree JSON with last-paint bounds. Used by the automation locators.

@@ -84,6 +84,7 @@ enum ImgSource {
 pub struct ImgElement {
     source: ImgSource,
     object_fit: ImgObjectFit,
+    alt: String,
 }
 
 impl ImgElement {
@@ -220,6 +221,11 @@ impl CustomElement for ImgElement {
             }
         }
 
+        let mut el =
+            crate::accessibility::apply_accessibility(el, ctx.props, Some(gpui::Role::Image));
+        if ctx.props.get("aria-label").is_none() && !self.alt.is_empty() {
+            el = el.aria_label(self.alt.clone());
+        }
         let el = super::wire_standard_events(el, &ctx);
         crate::automation::track_own_bounds(el, ctx.id).into_any_element()
     }
@@ -233,12 +239,13 @@ impl CustomElement for ImgElement {
                     .map(ImgObjectFit::from_str)
                     .unwrap_or_default()
             }
+            "alt" => self.alt = value.as_str().unwrap_or_default().to_string(),
             _ => {}
         }
     }
 
     fn supported_props(&self) -> &'static [&'static str] {
-        &["src", "objectFit"]
+        &["src", "objectFit", "alt"]
     }
 
     fn supported_events(&self) -> &'static [&'static str] {
@@ -343,6 +350,7 @@ impl CustomElement for SvgElement {
         if let Some(style) = ctx.style {
             icon = crate::renderer::apply_interactive_styles(icon, style);
         }
+        icon = crate::accessibility::apply_accessibility(icon, ctx.props, None);
         let icon = super::wire_standard_events(icon, &ctx);
         crate::automation::track_own_bounds(icon, ctx.id).into_any_element()
     }

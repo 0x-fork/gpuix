@@ -1329,6 +1329,54 @@ Set `padding` on the input style or on a parent wrapper. When the input has
 </div>
 ```
 
+## Accessibility
+
+GPUI talks to the **macOS AX tree**, Windows UIA, and Linux AT-SPI through
+AccessKit. GPUIX maps React props onto that API. A node is in the tree only
+when it has **both** a GPUI id (always set) and a **role**.
+
+Prop names match React DOM. Role **values** are ARIA tokens, not AccessKit
+PascalCase. `"none"` and `"presentation"` produce no node.
+
+```tsx
+<div
+  role="button"
+  aria-label="Delete note"
+  aria-description="Removes this note"
+  aria-id="notes.delete"
+  onClick={remove}
+>
+  Delete
+</div>
+```
+
+| Prop               | GPUI / AccessKit                          |
+| ------------------ | ----------------------------------------- |
+| `role`             | `.role(Role::…)`                          |
+| `aria-label`       | accessible name                           |
+| `aria-description` | extra description after name, role, value |
+| `aria-id`          | `AXIdentifier` / UIA AutomationId         |
+| `aria-expanded`    | expanded state                            |
+| `aria-selected`    | selected state                            |
+| `aria-valuetext`   | string value                              |
+| `aria-level`       | heading level                             |
+
+Native defaults, so common elements are not silent:
+
+| Element       | Default role            | Name / value                         |
+| ------------- | ----------------------- | ------------------------------------ |
+| `<text>`      | `Label`                 | content as `aria-valuetext`          |
+| `<input>`     | `TextInput`             | `value` and `placeholder`            |
+| `<textarea>`  | `MultilineTextInput`    | `value` and `placeholder`            |
+| `<img>`       | `Image`                 | `alt` as `aria-label`                |
+
+An explicit `role` wins over those defaults. A clickable `div` is **not** a
+button until you set `role="button"`. `onClick` registers AccessKit `Click`,
+so VoiceOver Press fires the same JS `click` handler.
+
+The browser / wasm renderer has no AccessKit adapter. These props are
+no-ops there.
+
 ## Focus and keyboard navigation
 
 Focus is a **native GPUI concept**. GPUIX connects stable React element IDs to

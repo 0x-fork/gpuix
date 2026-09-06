@@ -52,6 +52,8 @@ pub struct CustomRenderContext<'a> {
     /// it. `ctx.text` matches the exact string it is about to paint instead,
     /// which makes drift between the search pass and the paint pass impossible.
     pub highlight_set: Option<std::sync::Arc<crate::text::HighlightContext>>,
+    /// Retained custom props, including `role` and `aria-*`.
+    pub props: &'a HashMap<String, serde_json::Value>,
 }
 
 impl CustomRenderContext<'_> {
@@ -124,6 +126,7 @@ pub(crate) fn custom_surface(
         el = el.relative();
     }
     el = el.child(crate::automation::bounds_tracker(ctx.id, None));
+    el = crate::accessibility::apply_accessibility(el, ctx.props, None);
     wire_standard_events(el, ctx)
 }
 
@@ -177,7 +180,7 @@ pub(crate) fn wire_standard_events<E: gpui::StatefulInteractiveElement>(
             _ => {}
         }
     }
-    el
+    crate::accessibility::apply_a11y_click(el, ctx.events, ctx.id, ctx.event_callback)
 }
 
 // ── Traits ───────────────────────────────────────────────────────────

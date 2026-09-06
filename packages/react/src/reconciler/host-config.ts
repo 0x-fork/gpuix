@@ -148,6 +148,14 @@ const UNIVERSAL_PROPS = new Set([
   // plain `div`. Without it here, custom props are dropped for built-ins and
   // the prop silently never arrives in Rust.
   "highlight",
+  "role",
+  "aria-label",
+  "aria-description",
+  "aria-id",
+  "aria-expanded",
+  "aria-selected",
+  "aria-valuetext",
+  "aria-level",
 ])
 
 function isReservedProp(name: string): boolean {

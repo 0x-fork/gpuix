@@ -13,6 +13,7 @@ use napi_derive::napi;
 
 #[cfg(target_os = "macos")]
 mod app_menu;
+mod accessibility;
 mod automation;
 mod color;
 mod custom_elements;
