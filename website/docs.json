@@ -32,6 +32,11 @@
             "group": "Overview",
             "icon": "lucide:home",
             "pages": ["index"]
+          },
+          {
+            "group": "Guides",
+            "icon": "lucide:map",
+            "pages": ["guides/hermes"]
           }
         ]
       },

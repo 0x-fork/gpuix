@@ -115,6 +115,10 @@ bun build --compile app.tsx --outfile dist/app
 
 The binary carries the renderer, so it runs with no Bun and no Node install.
 
+For a smaller ship set, run the same React app on
+[hermes-node](./website/src/guides/hermes.mdx) instead of Bun. That path is
+**12 MB** plus a **22 MB** native sidecar. The steps are in that guide.
+
 ### Start from the example app
 
 [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) is a complete todo app in one file, with `dev`,

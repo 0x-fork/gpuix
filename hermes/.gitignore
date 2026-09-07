@@ -1,0 +1,5 @@
+app.cjs
+chat.cjs
+dist/
+node_modules/
+screenshots/
