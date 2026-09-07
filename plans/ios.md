@@ -16,10 +16,12 @@ guarantee. Apple says the guidelines do not guarantee approval
 ([App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)).
 
 The architecture is **plausible**. The parts exist separately. They have
-**not** been proven together on iOS:
+**not** been proven together as a GPUIX IPA. Node-API addons **have** been
+loaded on iOS Hermes already, by
+[callstackincubator/react-native-node-api](https://github.com/callstackincubator/react-native-node-api).
 
 ```
-Hermes static_h + Node-API + napi-rs staticlib + UIKit loop + React timers
+Hermes static_h + Node-API + napi-rs (staticlib or signed .framework) + UIKit + React timers
 ```
 
 Do that **phase-zero spike first**, on the simulator, **before** waiting
@@ -36,12 +38,18 @@ branch, before any GPUIX window on a phone.
 ```
 Today (desktop)                         iOS (this plan)
 
-  bun / node                              tiny ObjC runner
-       ►  process.dlopen                       ►  libhermes (interpreter)
-       ►  gpuix-native.node                    ►  app.hbc  (React bytecode)
-       ►  gpui_macos                           ►  libgpuix.a  (same napi-rs crate)
+  bun / node / hermes-node                tiny ObjC / Swift runner
+       ►  process.dlopen                       ►  libhermes (static_h interpreter)
+       ►  gpuix-native.node                    ►  app.hbc
+       ►  gpui_macos                           ►  libgpuix.a  OR  gpuix.framework
                                                ►  gpui_ios + Metal
 ```
+
+**hermes-node is not an iOS product.**
+[tmikov/hermes-node](https://github.com/tmikov/hermes-node) is a Node-like
+**desktop** host on top of `static_h`: `require`, libuv, `process.dlopen` of a
+sidecar `.node`. Zero iOS issues. Do not copy `--build-exe` + sidecar onto a
+phone. Embed **Hermes the engine**, the way RN does.
 
 Three facts make the **shape** legal and buildable. Each is proven
 alone. The combination is the work:
@@ -55,8 +63,10 @@ alone. The combination is the work:
    branch implements `napi_*` including `napi_create_threadsafe_function`
    ([API/napi](https://github.com/facebook/hermes/tree/static_h/API/napi),
    [COMPATIBILITY.md](https://github.com/facebook/hermes/blob/static_h/API/napi/COMPATIBILITY.md)).
-   `@gpuix/native` already speaks that ABI. The Bun/`process.dlopen` loader
-   does not come along.
+    `@gpuix/native` already speaks that ABI. The desktop
+    Bun / hermes-node `process.dlopen` **sidecar** does not come along.
+    An in-bundle signed `.framework` **can** still `dlopen`. See
+    [In-bundle dlopen](#in-bundle-dlopen-is-real).
 3. **`gpui_ios`** is a real UIKit app: `UIWindow` → `GPUIViewController`
    → `GPUIMetalView` (`CAMetalLayer`). See
    [`window.rs` on `gpui-ios-platform`](https://github.com/zed-industries/zed/blob/gpui-ios-platform/crates/gpui_ios/src/ios/window.rs)
@@ -142,17 +152,19 @@ What **fails** review if we ship it:
 |---|---|
 | Bun / Node / V8 JIT | XN / W^X. No iOS JIT entitlement |
 | `bun build --compile` | embeds a JIT runtime |
-| A `.node` loaded with `dlopen` at runtime | iOS code signing + no Node |
+| A loose sidecar `.node` next to a CLI, or a download after review | [2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements) + no Node process |
 | JS source evaluated with `eval` of **downloaded** code | [2.5.2](https://developer.apple.com/app-store/review/guidelines/#software-requirements) |
 | An empty dummy binary that downloads the real app | 2.5.2 |
 | WKWebView as the app UI with a JS bridge that changes native features from a remote URL | 2.5.2 + [2.5.6 WebKit](https://developer.apple.com/app-store/review/guidelines/#software-requirements) |
 
 What is **consistent with this policy**, if we do it like RN:
 
-- Hermes and `libgpuix` **statically linked** into the app binary
+- Hermes in the IPA (static or RN-style framework)
+- `@gpuix/native` either **statically linked** (`libgpuix.a`) or a **signed
+  `.framework` inside the IPA** loaded with `hermes_napi_load_module`
 - `app.hbc` in the bundle, compiled at **build** time from the submitted
   source
-- No download-and-eval of new JS
+- No download-and-eval of new JS. No sidecar `.node` next to a CLI.
 - Camera / IAP / whatever through **public** iOS APIs
   ([2.5.1 public APIs](https://developer.apple.com/app-store/review/guidelines/#software-requirements))
 
@@ -166,6 +178,85 @@ a custom Hermes host is accepted.
 strings, IAP, hidden features, or review notes. It only covers the
 downloaded-code half of 2.5.2.
 
+## In-bundle dlopen is real
+
+Earlier drafts of this plan said iOS will not `dlopen`. That was too
+strict. Apple forbids **unsigned / downloaded** code. Apple **does**
+`dlopen` signed frameworks that shipped in the IPA.
+
+[callstackincubator/react-native-node-api](https://github.com/callstackincubator/react-native-node-api)
+already does this on **iOS and Android**:
+
+- Host TurboModule `requireNodeAddon` loads a dynamic library
+- Native path calls **`hermes_napi_load_module`**
+  ([HOW-IT-WORKS.md](https://github.com/callstackincubator/react-native-node-api/blob/main/docs/HOW-IT-WORKS.md),
+  [CxxNodeApiHostModule.cpp](https://github.com/callstackincubator/react-native-node-api/blob/main/packages/host/cpp/CxxNodeApiHostModule.cpp))
+- Apple prebuilds are an **XCFramework of `.framework` bundles**,
+  renamed `*.apple.node`
+  ([PREBUILDS.md](https://github.com/callstackincubator/react-native-node-api/blob/main/docs/PREBUILDS.md))
+- CocoaPods copies them into the app at **build** time
+  ([Callstack blog](https://www.callstack.com/blog/how-node-api-works-in-react-native-a-deep-dive))
+- Rust path exists: `ferric` wraps napi-rs
+  ([packages/ferric](https://github.com/callstackincubator/react-native-node-api/tree/main/packages/ferric))
+- Example lib:
+  [node-api-example-lib](https://github.com/callstackincubator/node-api-example-lib)
+- Hermes fork they still vendor when RN's copy lacks NAPI:
+  [kraenhansen/hermes](https://github.com/kraenhansen/hermes)
+  ([issue #181](https://github.com/callstackincubator/react-native-node-api/issues/181))
+
+Apple's own XCFramework note, quoted in PREBUILDS.md:
+
+> An XCFramework can include dynamic library files, but only **macOS**
+> supports these libraries for dynamic linking. Dynamic linking on iOS,
+> watchOS, and tvOS requires the XCFramework to contain **.framework
+> bundles**.
+
+```
+Desktop hermes-node                 iOS (Callstack, ships today)
+
+  gpuix-hermes                      GpuixApp.app
+  gpuix-native.*.node  (sidecar)    Contents/Frameworks/gpuix.framework
+         │                                    │
+         ▼                                    ▼
+  process.dlopen(path)              hermes_napi_load_module(path)
+  path = next to exe                path = signed framework IN the IPA
+```
+
+Two legal loaders for `@gpuix/native` on iOS:
+
+| Loader | When |
+|---|---|
+| **Static `libgpuix.a`**, `napi_register_module_v1`, force-load | One addon, simpler Xcode. Default for v1. |
+| **Signed `.framework`**, `hermes_napi_load_module` | Same ABI as RN Node-API. Use if we want a plugin layout. |
+
+Both are App Store–shaped. The desktop two-file `--build-exe` pair is
+not.
+
+## What `static_h` is
+
+[`static_h`](https://github.com/facebook/hermes/tree/static_h) is the
+**default Hermes git branch**, not a second engine. Code name **Static
+Hermes**. All new Hermes work is there. RN “Hermes V1” is cut from it.
+
+Three layers people mix up:
+
+| Layer | What | iOS? |
+|---|---|---|
+| **Interpreter** | `.hbc` in, no JIT | **Yes.** RN production. |
+| **Node-API** | `napi_*`, `hermes_napi_load_module` | **Yes** on this branch (May 2026, [ff31291](https://github.com/facebook/hermes/commit/ff31291e60e43c7fef4084bf7bf2b2ea98026515)). RN's bundled Hermes is still JSI-first. |
+| **AOT `shermes`** | JS → C → clang → native / Wasm | Experimental. Dec 2024 blog. Not the RN default. Does **not** replace a napi host. |
+
+[Features.md](https://github.com/facebook/hermes/blob/static_h/doc/Features.md)
+still: **no runtime ESM loader**. Bundle to one JS file, same as
+desktop Hermes.
+
+Do **not** swap hermes-node for `bin/hermes` on desktop either. The
+CLI has no `require` of a `.node`. hermes-node **is** static_h plus
+Node. iOS embeds static_h **without** that Node layer.
+
+[Wasm blog](https://github.com/facebook/hermes/blob/static_h/doc/blog/2024-12-23-compiling-javascript-to-wasm.md):
+interpreter is production; native compilation is experimental.
+
 ## Architecture
 
 ```
@@ -177,11 +268,12 @@ downloaded-code half of 2.5.2.
   │        ►  UIApplicationMain                                     │
   │        ►  UIWindowScene                                         │
   │                                                                 │
-  │   libhermes.a          interpreter, no JIT                      │
-  │   libhermesNapi.a      napi_* + hermes_napi_create_env          │
-  │   libgpuix.a           packages/native, cdylib → staticlib      │
-  │   gpui_ios             UIKit + Metal                            │
-  │   app.hbc              React tree + @gpuix/react                │
+   │   libhermes.a          interpreter, no JIT                      │
+   │   libhermesNapi.a      napi_* + hermes_napi_create_env          │
+   │   libgpuix.a           default: static, force-load              │
+   │   or gpuix.framework   alt: signed, hermes_napi_load_module     │
+   │   gpui_ios             UIKit + Metal                            │
+   │   app.hbc              React tree + @gpuix/react                │
   │                                                                 │
   │   optional Swift       Camera.present(from: vc)                 │
   └─────────────────────────────────────────────────────────────────┘
@@ -301,7 +393,8 @@ Host API:
 
 ```c
 hermes_napi_create_env(hermes_runtime, &host);
-hermes_napi_load_module(env, path, &exports);   // dlopen path; iOS will not use this
+// static v1: napi_register_module_v1(env, exports)
+// plugin alt: hermes_napi_load_module(env, pathToSignedFramework, &exports)
 hermes_run_bytecode(env, hbc, size, ...);
 ```
 
@@ -344,8 +437,9 @@ hermes -emit-binary -out app.hbc app.js
 napi-rs emits a `.node` plus `index.js` that calls `process.dlopen`
 ([napi-rs](https://napi.rs/),
 [support / compatibility](https://napi.rs/docs/more/support-compatibility)).
-Hermes has no `process`. iOS also should not `dlopen` an unsigned
-addon.
+Hermes-the-engine has no `process`. A **sidecar** `.node` next to a
+CLI is the wrong iOS artifact. A **signed `.framework` in the IPA** is
+a valid `dlopen` target (Callstack). v1 still prefers static link.
 
 Keep the **Rust crate**. Change the **artifact**. Adding `staticlib` is
 **not** enough.
@@ -369,7 +463,7 @@ Xcode must `-Wl,-force_load,libgpuix_ios.a`. napi-rs registers
 "unused" members. Without force-load, `napi_register_module_v1` can
 exist and return an **empty** exports object.
 
-Registration sketch (not `dlopen`):
+Registration sketch for the **static** loader (not a sidecar `dlopen`):
 
 ```c
 napi_open_handle_scope(env, &scope);
@@ -574,20 +668,26 @@ Out of scope for v1:
 - Android (`gpui_android` does not exist; tracker lists it as later)
 - Inline UIView-in-div
 - Fast Refresh on device (RN has it; we do not need it to ship)
-- Sharing the desktop Bun host with Hermes
+- Sharing the desktop Bun / hermes-node host with the phone
 - Rewriting `@gpuix/native` in JSI / TurboModules
-- `bun build --compile` for iOS
+- `bun build --compile` or hermes-node `--build-exe` for iOS
+- AOT `shermes` of the React tree (experimental, does not pull GPUI)
 
-## Desktop stays Bun
+## Desktop stays Bun (or hermes-node)
 
 iOS is a **second host**. Desktop keeps:
 
 ```
-bun / node  ►  gpuix-native.node  ►  gpui_macos / gpui_linux / gpui_windows
+bun / node / hermes-node  ►  gpuix-native.node  ►  gpui_macos / linux / windows
 ```
 
-Do not embed Hermes on desktop. napi-rs + Node/Bun already works.
-One addon, two loaders.
+Do not embed a custom Hermes host on desktop. napi-rs + Node / Bun /
+hermes-node already works. hermes-node is optional and **smaller**
+than `bun build --compile` (see `website/src/guides/hermes.mdx`). It
+is still a desktop runtime.
+
+One addon, two loaders: `process.dlopen` on desktop, static or
+in-bundle framework on iOS.
 
 ## Risks
 
@@ -605,8 +705,9 @@ One addon, two loaders.
 - **TSFN needs our event loop.** If `post_task` is wrong, clicks never
   reach React, or they re-enter the GPU thread. This is the hardest
   host bug. Test it before any UI work.
-- **iOS `dlopen` of a `.node` is the wrong design** even if it builds
-  in the simulator. Static link from day one.
+- **Sidecar `.node` `dlopen` is the wrong design** even if the
+  simulator loads it. Static link **or** a signed `.framework` in the
+  IPA (Callstack). Never a file next to the exe.
 - **Bundle size.** Hermes + GPUI + Syntect is larger than a RN hello
   world. Measure before promising Flutter-like IPAs.
 - **No nested scroll, no DOM.** iOS users will expect Safari gestures.
@@ -645,6 +746,7 @@ summaries.
 - [UIImagePickerController](https://developer.apple.com/documentation/uikit/uiimagepickercontroller)
 - [SFSafariViewController](https://developer.apple.com/documentation/safariservices/sfsafariviewcontroller)
 - [NSCameraUsageDescription](https://developer.apple.com/documentation/bundleresources/information-property-list/nscamerausagedescription)
+- [Creating a multi-platform binary framework bundle](https://developer.apple.com/documentation/xcode/creating-a-multi-platform-binary-framework-bundle)
 
 ### Hermes / React Native
 
@@ -668,6 +770,15 @@ summaries.
 - [What is Codegen?](https://reactnative.dev/docs/the-new-architecture/what-is-codegen)
 - [tmikov/hermes-jsi-demos](https://github.com/tmikov/hermes-jsi-demos)
 - [serishema/hermes-host-starter](https://github.com/serishema/hermes-host-starter)
+- [tmikov/hermes-node](https://github.com/tmikov/hermes-node) desktop Node host on `static_h`. Not iOS.
+- [Features.md](https://github.com/facebook/hermes/blob/static_h/doc/Features.md) no ESM loader
+- [Wasm / Static Hermes blog](https://github.com/facebook/hermes/blob/static_h/doc/blog/2024-12-23-compiling-javascript-to-wasm.md)
+- [callstackincubator/react-native-node-api](https://github.com/callstackincubator/react-native-node-api)
+  [HOW-IT-WORKS](https://github.com/callstackincubator/react-native-node-api/blob/main/docs/HOW-IT-WORKS.md)
+  [PREBUILDS](https://github.com/callstackincubator/react-native-node-api/blob/main/docs/PREBUILDS.md)
+  [Callstack blog](https://www.callstack.com/blog/how-node-api-works-in-react-native-a-deep-dive)
+  [node-api-example-lib](https://github.com/callstackincubator/node-api-example-lib)
+  [kraenhansen/hermes](https://github.com/kraenhansen/hermes)
 
 ### GPUI / Zed
 
