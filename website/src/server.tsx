@@ -4,6 +4,7 @@
 import { Spiceflow } from 'spiceflow'
 import { app as holocronApp } from '@holocron.so/vite/app'
 import chatExampleHtml from '../../examples/web.html?raw'
+import './globals.css'
 
 const chatHtml = chatExampleHtml.replace('./web-chat.tsx', '/chat-example/chat.js')
 
