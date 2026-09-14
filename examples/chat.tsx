@@ -2,7 +2,8 @@
  * The GPUIX chat example, rendered directly on the GPU.
  *
  * It demonstrates a transparent titlebar, traffic lights in the sidebar,
- * graphite surfaces, composer chips, and a workspace footer. Data is hardcoded.
+ * graphite surfaces, composer chips, and a workspace footer. Threads, sends,
+ * and chrome controls are interactive. Replies stay in this demo.
  *
  * Run on desktop: cd examples && bun --hot chat.tsx
  * Run in a browser: bun run web
@@ -148,12 +149,20 @@ const CHAT_THEME = {
   },
 }
 
+type Turn =
+  | { kind: 'user'; text: string }
+  | { kind: 'fold'; duration: string }
+  | { kind: 'markdown'; source: string }
+  | { kind: 'code'; language: string; source: string }
+  | { kind: 'diff'; patch: string }
+
 interface Conversation {
   id: string
   title: string
   group: string
   project: string
   time: string
+  turns: Turn[]
 }
 
 const MODELS = [
@@ -215,31 +224,6 @@ const BRANCHES = [
   { id: 'chat-example', label: 'chat-example' },
 ]
 
-const CONVERSATIONS: Conversation[] = [
-  { id: 'c1', title: 'give me a quick overview', group: 'Yesterday', project: 'gpuix', time: '16m' },
-  {
-    id: 'c2',
-    title: 'Native SDK vs GPUI comparison',
-    group: 'Yesterday',
-    project: 'No project',
-    time: '14h',
-  },
-  {
-    id: 'c3',
-    title: 'Vercel Labs scriptc implementat...',
-    group: 'Yesterday',
-    project: 'No project',
-    time: '15h',
-  },
-  {
-    id: 'c4',
-    title: 'check if any memory optimizatio...',
-    group: 'This Month',
-    project: 'gpuix',
-    time: '2d',
-  },
-]
-
 const OVERVIEW = `**GPUIX** is a React renderer for GPUI, Zed's GPU-accelerated UI framework. It renders native desktop interfaces through Metal, DirectX, or Vulkan. No Electron or web view.`
 
 const ARCHITECTURE = `React sends host mutations through napi-rs. Rust keeps the retained tree and translates it into GPUI elements for each frame.`
@@ -286,12 +270,11 @@ const SKILLS = `Skills are \`SKILL.md\` files. A mail-style list on the left, th
 
 const WIRE_MODELS = `Default is DeepSeek V4 Flash. Keep Opus for long diffs. Hide GPT-5.4 behind the picker.`
 
-type Turn =
-  | { kind: 'user'; text: string }
-  | { kind: 'fold'; duration: string }
-  | { kind: 'markdown'; source: string }
-  | { kind: 'code'; language: string; source: string }
-  | { kind: 'diff'; patch: string }
+const SDK_VS_GPUI = `GPUI is the renderer. A native SDK would still talk to it. GPUIX is the React layer on that same GPUI tree, so you keep JSX and skip a second UI stack.`
+
+const SCRIPT_C = `scriptc is a Vercel Labs experiment. This demo has no live runtime for it. The chat still shows how a coding agent would walk that kind of patch in GPUIX.`
+
+const MEMORY = `The chat example keeps one retained React child per turn. Pass \`itemCount\` and a window when the list grows. Native paint stays on visible rows only.`
 
 const TURNS: Turn[] = [
   { kind: 'user', text: 'give me a quick overview' },
@@ -317,6 +300,53 @@ const TURNS: Turn[] = [
   { kind: 'user', text: 'Which models should I wire up?' },
   { kind: 'fold', duration: 'Worked for 5 seconds' },
   { kind: 'markdown', source: WIRE_MODELS },
+]
+
+const CONVERSATIONS: Conversation[] = [
+  {
+    id: 'c1',
+    title: 'give me a quick overview',
+    group: 'Yesterday',
+    project: 'gpuix',
+    time: '16m',
+    turns: TURNS,
+  },
+  {
+    id: 'c2',
+    title: 'Native SDK vs GPUI comparison',
+    group: 'Yesterday',
+    project: 'No project',
+    time: '14h',
+    turns: [
+      { kind: 'user', text: 'Native SDK vs GPUI comparison' },
+      { kind: 'fold', duration: 'Worked for 9 seconds' },
+      { kind: 'markdown', source: SDK_VS_GPUI },
+    ],
+  },
+  {
+    id: 'c3',
+    title: 'Vercel Labs scriptc implementat...',
+    group: 'Yesterday',
+    project: 'No project',
+    time: '15h',
+    turns: [
+      { kind: 'user', text: 'Vercel Labs scriptc implementation notes' },
+      { kind: 'fold', duration: 'Worked for 12 seconds' },
+      { kind: 'markdown', source: SCRIPT_C },
+    ],
+  },
+  {
+    id: 'c4',
+    title: 'check if any memory optimizatio...',
+    group: 'This Month',
+    project: 'gpuix',
+    time: '2d',
+    turns: [
+      { kind: 'user', text: 'check if any memory optimizations are left' },
+      { kind: 'fold', duration: 'Worked for 11 seconds' },
+      { kind: 'markdown', source: MEMORY },
+    ],
+  },
 ]
 
 const SAFE_MDX_STRESS = `# React-composed Markdown
@@ -376,16 +406,28 @@ function IconButton({
         hover: dimmed ? undefined : { backgroundColor: C.overlay },
         active: dimmed ? undefined : { backgroundColor: C.overlayStrong },
       }}
-      onClick={onClick}
+      onClick={dimmed ? undefined : onClick}
     >
       <Icon name={icon} size={size} color={C.tertiary} />
     </div>
   )
 }
 
-function SidebarAction({ icon, label }: { icon: IconName; label: string }) {
+function SidebarAction({
+  icon,
+  label,
+  onClick,
+  testId,
+}: {
+  icon: IconName
+  label: string
+  onClick?: () => void
+  testId?: string
+}) {
   return (
     <div
+      testId={testId}
+      onClick={onClick}
       style={{
         display: 'flex',
         flexDirection: 'row',
@@ -428,6 +470,7 @@ function ConversationRow({
 }) {
   return (
     <div
+      testId={`thread-${conversation.id}`}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -476,23 +519,43 @@ function ConversationRow({
 }
 
 function Sidebar({
+  conversations,
   activeId,
   onSelect,
   onCollapse,
+  onNewTask,
+  onSearch,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
+  onSettings,
+  onFilter,
+  filterActive,
 }: {
+  conversations: Conversation[]
   activeId: string
   onSelect: (id: string) => void
   onCollapse: () => void
+  onNewTask: () => void
+  onSearch: () => void
+  canGoBack: boolean
+  canGoForward: boolean
+  onBack: () => void
+  onForward: () => void
+  onSettings: () => void
+  onFilter: () => void
+  filterActive: boolean
 }) {
   const groups = useMemo(() => {
     const out: { name: string; items: Conversation[] }[] = []
-    for (const conversation of CONVERSATIONS) {
+    for (const conversation of conversations) {
       const last = out[out.length - 1]
       if (last && last.name === conversation.group) last.items.push(conversation)
       else out.push({ name: conversation.group, items: [conversation] })
     }
     return out
-  }, [])
+  }, [conversations])
 
   return (
     <div
@@ -531,13 +594,18 @@ function Sidebar({
             marginLeft: 6,
           }}
         >
-          <IconButton icon="arrowLeft" dimmed />
-          <IconButton icon="arrowRight" dimmed />
+          <IconButton icon="arrowLeft" dimmed={!canGoBack} testId="history-back" onClick={onBack} />
+          <IconButton
+            icon="arrowRight"
+            dimmed={!canGoForward}
+            testId="history-forward"
+            onClick={onForward}
+          />
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 10, paddingRight: 10 }}>
-        <SidebarAction icon="compose" label="New Task" />
+        <SidebarAction icon="compose" label="New Task" testId="new-task" onClick={onNewTask} />
       </div>
 
       <div
@@ -552,7 +620,7 @@ function Sidebar({
         }}
       >
         <div style={{ paddingBottom: 6 }}>
-          <SidebarAction icon="search" label="Search" />
+          <SidebarAction icon="search" label="Search" testId="search" onClick={onSearch} />
         </div>
         {groups.map((group, groupIndex) => (
           <div
@@ -580,7 +648,25 @@ function Sidebar({
               >
                 {group.name}
               </text>
-              {groupIndex === 0 && <Icon name="listFilter" size={14} color={C.secondary} />}
+              {groupIndex === 0 && (
+                <div
+                  testId="thread-filter"
+                  onClick={onFilter}
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    backgroundColor: filterActive ? C.overlayStrong : '#00000000',
+                    hover: { backgroundColor: C.overlay },
+                  }}
+                >
+                  <Icon name="listFilter" size={14} color={filterActive ? C.text : C.secondary} />
+                </div>
+              )}
             </div>
             {group.items.map((conversation) => (
               <ConversationRow
@@ -605,7 +691,7 @@ function Sidebar({
           paddingRight: 10,
         }}
       >
-        <IconButton icon="settings" />
+        <IconButton icon="settings" testId="settings" onClick={onSettings} />
       </div>
     </div>
   )
@@ -640,33 +726,43 @@ function UserTurn({ text }: { text: string }) {
 }
 
 function WorkedFor({ duration }: { duration: string }) {
+  const [open, setOpen] = useState(false)
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        height: 24,
-        width: '100%',
-      }}
-    >
-      <div style={{ height: 1, flexGrow: 1, backgroundColor: C.border }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
       <div
         style={{
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
-          gap: 5,
-          flexShrink: 0,
+          gap: 10,
+          height: 24,
+          width: '100%',
+          cursor: 'pointer',
         }}
+        onClick={() => setOpen((value) => !value)}
       >
-        <text style={{ fontSize: 13.5, lineHeight: 18, fontWeight: 500, color: C.tertiary }}>
-          {duration}
-        </text>
-        <Icon name="chevronRight" size={11.5} color={C.tertiary} />
+        <div style={{ height: 1, flexGrow: 1, backgroundColor: C.border }} />
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
+            flexShrink: 0,
+          }}
+        >
+          <text style={{ fontSize: 13.5, lineHeight: 18, fontWeight: 500, color: C.tertiary }}>
+            {duration}
+          </text>
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} size={11.5} color={C.tertiary} />
+        </div>
+        <div style={{ height: 1, flexGrow: 1, backgroundColor: C.border }} />
       </div>
-      <div style={{ height: 1, flexGrow: 1, backgroundColor: C.border }} />
+      {open && (
+        <text style={{ fontSize: 13, lineHeight: 18, color: C.secondary }}>
+          Demo reasoning. No model ran. The fold is here so the chrome has something to open.
+        </text>
+      )}
     </div>
   )
 }
@@ -772,14 +868,169 @@ function expandTurns(count: number): Turn[] {
   return out
 }
 
+function seedTurnsFor(id: string, turnCount: number): Turn[] {
+  if (id === 'c1') return expandTurns(turnCount)
+  return CONVERSATIONS.find((conversation) => conversation.id === id)?.turns.slice() ?? []
+}
+
+function demoReply({
+  text,
+  modelLabel,
+  mode,
+}: {
+  text: string
+  modelLabel: string
+  mode: 'build' | 'plan'
+}): Turn[] {
+  const quoted = text.length > 80 ? `${text.slice(0, 77)}...` : text
+  const modeLine =
+    mode === 'plan'
+      ? 'Plan mode is on, so this is a sketch, not a patch.'
+      : 'Build mode is on. This still stays in the demo.'
+  return [
+    { kind: 'fold', duration: 'Worked for 2 seconds' },
+    {
+      kind: 'markdown',
+      source: `This is the **GPUIX chat demo**. No model ran. You wrote "${quoted}". ${modelLabel} would answer here. ${modeLine}`,
+    },
+  ]
+}
+
+function titleFromDraft(text: string) {
+  const first = text.trim().split(/\s+/).slice(0, 6).join(' ')
+  return first.length > 42 ? `${first.slice(0, 39)}...` : first
+}
+
+function Inspector({
+  conversation,
+  model,
+  reasoning,
+  access,
+  mode,
+  project,
+}: {
+  conversation: Conversation | undefined
+  model: string
+  reasoning: string
+  access: string
+  mode: 'build' | 'plan'
+  project: string
+}) {
+  const modelLabel = MODELS.find((item) => item.id === model)?.label ?? model
+  const reasoningLabel = REASONING.find((item) => item.id === reasoning)?.label ?? reasoning
+  const accessLabel = ACCESS.find((item) => item.id === access)?.label ?? access
+  const projectLabel = PROJECTS.find((item) => item.id === project)?.label ?? project
+  const rows = [
+    ['Thread', conversation?.title ?? 'New task'],
+    ['Project', projectLabel],
+    ['Model', modelLabel],
+    ['Reasoning', reasoningLabel],
+    ['Access', accessLabel],
+    ['Mode', mode === 'plan' ? 'Plan' : 'Build'],
+    ['Turns', String(conversation?.turns.length ?? 0)],
+  ]
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: 260,
+        flexShrink: 0,
+        height: '100%',
+        backgroundColor: C.sidebar,
+        borderLeftWidth: 1,
+        borderColor: C.sidebarBorder,
+        paddingTop: 14,
+        paddingLeft: 14,
+        paddingRight: 14,
+        gap: 10,
+      }}
+    >
+      <text style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Inspector</text>
+      {rows.map(([label, value]) => (
+        <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <text style={{ fontSize: 11.5, color: C.ghost }}>{label}</text>
+          <text style={{ fontSize: 13, color: C.secondary }}>{value}</text>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OverlayCard({
+  title,
+  onClose,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#00000066',
+        pointerEvents: 'auto',
+      }}
+    >
+      <div
+        style={{
+          width: 420,
+          maxWidth: '90%',
+          backgroundColor: C.raised,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: C.borderStrong,
+          padding: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+          <text style={{ fontSize: 14, fontWeight: 600, color: C.text, flexGrow: 1 }}>{title}</text>
+          <div
+            testId="overlay-close"
+            onClick={onClose}
+            style={{
+              height: 24,
+              paddingLeft: 8,
+              paddingRight: 8,
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              hover: { backgroundColor: C.overlay },
+            }}
+          >
+            <text style={{ fontSize: 12, color: C.secondary }}>Close</text>
+          </div>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 const Transcript = memo(function Transcript({
   turns,
   includeSafeMdx = false,
   listRef,
+  onRetry,
 }: {
   turns: Turn[]
   includeSafeMdx?: boolean
   listRef?: React.Ref<PublicInstance>
+  onRetry?: () => void
 }) {
   return (
     <virtual-list
@@ -807,6 +1058,7 @@ const Transcript = memo(function Transcript({
             <CodeBlock code={turn.source} language={turn.language} showLineNumbers />
           )}
           {turn.kind === 'diff' && <diff patch={turn.patch} wordDiff theme={CHAT_THEME} />}
+          {index === turns.length - 1 && turn.kind !== 'user' && <ActionBar onRetry={onRetry} />}
         </TranscriptRow>
       ))}
     </virtual-list>
@@ -818,11 +1070,21 @@ function Header({
   onExpand,
   title,
   turnCount,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
+  onToggleInspector,
 }: {
   collapsed: boolean
   onExpand: () => void
   title: string
   turnCount: number
+  canGoBack: boolean
+  canGoForward: boolean
+  onBack: () => void
+  onForward: () => void
+  onToggleInspector: () => void
 }) {
   return (
     <div
@@ -844,8 +1106,8 @@ function Header({
           <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <IconButton icon="sidebar" testId="sidebar-expand" onClick={onExpand} />
             <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <IconButton icon="arrowLeft" dimmed />
-              <IconButton icon="arrowRight" dimmed />
+              <IconButton icon="arrowLeft" dimmed={!canGoBack} onClick={onBack} />
+              <IconButton icon="arrowRight" dimmed={!canGoForward} onClick={onForward} />
             </div>
           </div>
         </>
@@ -868,8 +1130,12 @@ function Header({
           {turnCount.toLocaleString('en-US')} messages
         </text>
       )}
-      <div style={{ flexGrow: 1 }} />
-      <IconButton icon="panelRight" />
+        <div style={{ flexGrow: 1 }} />
+        <IconButton
+        icon="panelRight"
+        testId="inspector-toggle"
+        onClick={onToggleInspector}
+      />
     </div>
   )
 }
@@ -1435,15 +1701,18 @@ function GhostButton({
   label,
   active,
   onClick,
+  testId,
 }: {
   icon: IconName
   label?: string
   active?: boolean
   onClick?: () => void
+  testId?: string
 }) {
   const color = active ? C.text : C.ghost
   return (
     <div
+      testId={testId}
       style={{
         display: 'flex',
         flexDirection: 'row',
@@ -1467,40 +1736,66 @@ function GhostButton({
   )
 }
 
-function ActionBar() {
+function ActionBar({ onRetry }: { onRetry?: () => void }) {
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null)
+  const [note, setNote] = useState<string | null>(null)
 
   return (
     <div
       style={{
         display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
         gap: 4,
         paddingTop: 6,
         marginLeft: -7,
         userSelect: 'none',
       }}
     >
-      <GhostButton
-        icon={copied ? 'check' : 'copy'}
-        active={copied}
-        onClick={() => setCopied((was) => !was)}
-      />
-      <GhostButton
-        icon="thumbsUp"
-        active={feedback === 'up'}
-        onClick={() => setFeedback((value) => (value === 'up' ? null : 'up'))}
-      />
-      <GhostButton
-        icon="thumbsDown"
-        active={feedback === 'down'}
-        onClick={() => setFeedback((value) => (value === 'down' ? null : 'down'))}
-      />
-      <GhostButton icon="retry" />
-      <GhostButton icon="share" />
-      <GhostButton icon="more" />
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+        <GhostButton
+          icon={copied ? 'check' : 'copy'}
+          active={copied}
+          onClick={() => {
+            setCopied(true)
+            setNote('Copied. Clipboard is a demo in this example.')
+          }}
+        />
+        <GhostButton
+          icon="thumbsUp"
+          active={feedback === 'up'}
+          onClick={() => {
+            setFeedback((value) => (value === 'up' ? null : 'up'))
+            setNote(null)
+          }}
+        />
+        <GhostButton
+          icon="thumbsDown"
+          active={feedback === 'down'}
+          onClick={() => {
+            setFeedback((value) => (value === 'down' ? null : 'down'))
+            setNote(null)
+          }}
+        />
+        <GhostButton
+          icon="retry"
+          testId="retry"
+          onClick={() => {
+            onRetry?.()
+            setNote('Ran the demo reply again.')
+          }}
+        />
+        <GhostButton
+          icon="share"
+          onClick={() => setNote('Share is a demo. No link left this window.')}
+        />
+        <GhostButton
+          icon="more"
+          onClick={() => setNote('More actions are a demo.')}
+        />
+      </div>
+      {note && <text style={{ fontSize: 12, color: C.tertiary, paddingLeft: 9 }}>{note}</text>}
     </div>
   )
 }
@@ -1800,8 +2095,19 @@ export function ChatApp({
   turnCount?: number
   includeSafeMdx?: boolean
 } = {}) {
+  const [conversations, setConversations] = useState(() =>
+    CONVERSATIONS.map((conversation) => ({
+      ...conversation,
+      turns: seedTurnsFor(conversation.id, turnCount),
+    })),
+  )
   const [activeId, setActiveId] = useState('c1')
+  const [nav, setNav] = useState({ stack: ['c1'], index: 0 })
   const [collapsed, setCollapsed] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [overlay, setOverlay] = useState<'search' | 'settings' | null>(null)
+  const [query, setQuery] = useState('')
+  const [projectOnly, setProjectOnly] = useState(false)
   const [draft, setDraft] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
   const [reasoning, setReasoning] = useState('high')
@@ -1810,24 +2116,58 @@ export function ChatApp({
   const [project, setProject] = useState('gpuix')
   const [workspace, setWorkspace] = useState('local')
   const [branch, setBranch] = useState('main')
+  const [tailTick, setTailTick] = useState(0)
 
-  const [turns, setTurns] = useState(() => expandTurns(turnCount))
   const listRef = useRef<PublicInstance | null>(null)
-  const skipScroll = useRef(true)
+  const nextTask = useRef(1)
   const { renderer } = useGpuix()
   const { ime } = useWindowInsets()
-  const title = CONVERSATIONS.find((conversation) => conversation.id === activeId)?.title ?? ''
-  const rowCount = turns.length + (includeSafeMdx ? 1 : 0)
+  const active = conversations.find((conversation) => conversation.id === activeId)
+  const turns = active?.turns ?? []
+  const showSafeMdx = includeSafeMdx && activeId === 'c1'
+  const rowCount = turns.length + (showSafeMdx ? 1 : 0)
+  const canGoBack = nav.index > 0
+  const canGoForward = nav.index < nav.stack.length - 1
+  const projectLabel = PROJECTS.find((item) => item.id === project)?.label ?? project
+  const visibleConversations = projectOnly
+    ? conversations.filter((conversation) => conversation.project === projectLabel)
+    : conversations
+  const searchHits = query.trim()
+    ? conversations.filter((conversation) =>
+        conversation.title.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : conversations
+
+  const goTo = (id: string) => {
+    setOverlay(null)
+    if (id === activeId) return
+    setActiveId(id)
+    setNav((current) => ({
+      stack: current.stack.slice(0, current.index + 1).concat(id),
+      index: current.index + 1,
+    }))
+  }
+
+  const goBack = () => {
+    if (nav.index === 0) return
+    const index = nav.index - 1
+    setActiveId(nav.stack[index]!)
+    setNav({ ...nav, index })
+  }
+
+  const goForward = () => {
+    if (nav.index >= nav.stack.length - 1) return
+    const index = nav.index + 1
+    setActiveId(nav.stack[index]!)
+    setNav({ ...nav, index })
+  }
 
   useEffect(() => {
-    if (skipScroll.current) {
-      skipScroll.current = false
-      return
-    }
+    if (tailTick === 0) return
     const id = listRef.current?.id
     if (id == null || !renderer?.scrollToItem) return
-    renderer.scrollToItem(id, rowCount - 1)
-  }, [renderer, rowCount])
+    renderer.scrollToItem(id, Math.max(0, rowCount - 1))
+  }, [renderer, rowCount, tailTick])
 
   return (
     <div
@@ -1839,6 +2179,7 @@ export function ChatApp({
         backgroundColor: C.canvas,
         fontFamily: FONT_SANS,
         color: C.text,
+        position: 'relative',
       }}
     >
       <motion.div
@@ -1854,9 +2195,35 @@ export function ChatApp({
         }}
       >
         <Sidebar
+          conversations={visibleConversations}
           activeId={activeId}
-          onSelect={setActiveId}
+          onSelect={goTo}
           onCollapse={() => setCollapsed(true)}
+          onNewTask={() => {
+            const id = `task-${nextTask.current++}`
+            const created: Conversation = {
+              id,
+              title: 'New task',
+              group: 'Today',
+              project: projectLabel,
+              time: 'now',
+              turns: [],
+            }
+            setConversations((current) => [created, ...current])
+            setDraft('')
+            goTo(id)
+          }}
+          onSearch={() => {
+            setQuery('')
+            setOverlay('search')
+          }}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onBack={goBack}
+          onForward={goForward}
+          onSettings={() => setOverlay('settings')}
+          onFilter={() => setProjectOnly((value) => !value)}
+          filterActive={projectOnly}
         />
         <div style={{ width: 1, height: '100%', flexShrink: 0, backgroundColor: C.sidebarBorder }} />
       </motion.div>
@@ -1874,16 +2241,61 @@ export function ChatApp({
         <Header
           collapsed={collapsed}
           onExpand={() => setCollapsed(false)}
-          title={title}
+          title={active?.title ?? 'New task'}
           turnCount={turns.length}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onBack={goBack}
+          onForward={goForward}
+          onToggleInspector={() => setInspectorOpen((value) => !value)}
         />
-        <Transcript turns={turns} includeSafeMdx={includeSafeMdx} listRef={listRef} />
+        <Transcript
+          key={activeId}
+          turns={turns}
+          includeSafeMdx={showSafeMdx}
+          listRef={listRef}
+          onRetry={() => {
+            let cut = -1
+            for (let i = turns.length - 1; i >= 0; i--) {
+              if (turns[i]?.kind === 'user') {
+                cut = i
+                break
+              }
+            }
+            const lastUser = cut >= 0 ? turns[cut] : undefined
+            if (!lastUser || lastUser.kind !== 'user') return
+            const modelLabel = MODELS.find((item) => item.id === model)?.label ?? model
+            const reply = demoReply({ text: lastUser.text, modelLabel, mode })
+            setConversations((current) =>
+              current.map((conversation) =>
+                conversation.id === activeId
+                  ? { ...conversation, turns: [...conversation.turns.slice(0, cut + 1), ...reply] }
+                  : conversation,
+              ),
+            )
+            setTailTick((value) => value + 1)
+          }}
+        />
         <Composer
           value={draft}
           onChange={setDraft}
           onSend={(text) => {
-            setTurns((current) => [...current, { kind: 'user', text }])
+            const modelLabel = MODELS.find((item) => item.id === model)?.label ?? model
+            const reply = demoReply({ text, modelLabel, mode })
+            setConversations((current) =>
+              current.map((conversation) =>
+                conversation.id === activeId
+                  ? {
+                      ...conversation,
+                      title:
+                        conversation.turns.length === 0 ? titleFromDraft(text) : conversation.title,
+                      turns: [...conversation.turns, { kind: 'user', text }, ...reply],
+                    }
+                  : conversation,
+              ),
+            )
             setDraft('')
+            setTailTick((value) => value + 1)
           }}
           model={model}
           onModelChange={setModel}
@@ -1903,6 +2315,78 @@ export function ChatApp({
           onBranchChange={setBranch}
         />
       </div>
+      {inspectorOpen && (
+        <Inspector
+          conversation={active}
+          model={model}
+          reasoning={reasoning}
+          access={access}
+          mode={mode}
+          project={project}
+        />
+      )}
+      {overlay === 'search' && (
+        <OverlayCard title="Search threads" onClose={() => setOverlay(null)}>
+          <input
+            testId="search-input"
+            value={query}
+            placeholder="Filter by title"
+            theme={CHAT_THEME}
+            style={{
+              width: '100%',
+              height: 32,
+              fontSize: 13,
+              color: C.text,
+              backgroundColor: C.composer,
+              borderRadius: 8,
+              paddingLeft: 10,
+              paddingRight: 10,
+            }}
+            onChange={(event) => setQuery(event.value ?? '')}
+          />
+          {searchHits.map((conversation) => (
+            <div
+              key={conversation.id}
+              testId={`search-${conversation.id}`}
+              onClick={() => goTo(conversation.id)}
+              style={{
+                paddingTop: 8,
+                paddingBottom: 8,
+                paddingLeft: 8,
+                paddingRight: 8,
+                borderRadius: 8,
+                cursor: 'pointer',
+                hover: { backgroundColor: C.overlay },
+              }}
+            >
+              <text style={{ fontSize: 13, color: C.text }}>{conversation.title}</text>
+            </div>
+          ))}
+        </OverlayCard>
+      )}
+      {overlay === 'settings' && (
+        <OverlayCard title="Settings" onClose={() => setOverlay(null)}>
+          <text style={{ fontSize: 13, lineHeight: 18, color: C.secondary }}>
+            This is the GPUIX chat demo. Threads, drafts, and replies stay in this window.
+          </text>
+          <div
+            testId="cycle-overlay"
+            onClick={() => renderer?.cycleDebugFrameOverlay?.()}
+            style={{
+              height: 32,
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              paddingLeft: 10,
+              cursor: 'pointer',
+              backgroundColor: C.overlay,
+              hover: { backgroundColor: C.overlayStrong },
+            }}
+          >
+            <text style={{ fontSize: 13, color: C.text }}>Cycle frame overlay</text>
+          </div>
+        </OverlayCard>
+      )}
     </div>
   )
 }
