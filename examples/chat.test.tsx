@@ -231,6 +231,11 @@ describeNative('chat example', () => {
       const shot = path.join(SHOTS, 'chat-model-picker.png')
       renderer.captureScreenshot(shot)
       expect(fs.statSync(shot).size).toBeGreaterThan(0)
+
+      await app.getByTestId('model-opus-4.6').click()
+      expect(renderer.getPaintedText()).toContain('Claude Opus 4.6')
+      expect(renderer.getPaintedText()).not.toContain('DeepSeek V4 Flash')
+      expect(renderer.getPaintedText()).not.toContain('GPT-5.4')
     } finally {
       await app.close()
     }
@@ -255,6 +260,10 @@ describeNative('chat example', () => {
     expect(
       renderer.getPaintedText().some((line) => line.includes('GPUIX chat demo')),
     ).toBe(true)
+    expect(renderer.getPaintedText().some((line) => line.trimStart().startsWith('. '))).toBe(false)
+    expect(
+      renderer.getPaintedText().some((line) => line.includes('No model ran') && line.startsWith(' ')),
+    ).toBe(false)
   })
 
   it('switches the transcript when a sidebar thread is clicked', async () => {
@@ -322,6 +331,41 @@ describeNative('chat example', () => {
       expect(renderer.getPaintedText()).toContain('DeepSeek V4 Flash')
       await app.getByTestId('inspector-toggle').click()
       expect(renderer.getPaintedText()).not.toContain('Inspector')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('closes search on an outside press and focuses the search field', async () => {
+    const { render, renderer } = createTestRoot()
+    render(<ChatApp />)
+
+    const app = await connectTest(renderer)
+    try {
+      await app.getByTestId('search').click()
+      expect(renderer.getPaintedText()).toContain('Search threads')
+      expect(renderer.getFocusedElementId()).toBe(renderer.findByTestId('search-input')?.id)
+
+      renderer.nativeSimulateClick(900, 40)
+      expect(renderer.getPaintedText()).not.toContain('Search threads')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('focuses the composer after New Task and after switching threads', async () => {
+    const { render, renderer } = createTestRoot()
+    render(<ChatApp />)
+
+    const app = await connectTest(renderer)
+    try {
+      await app.getByTestId('new-task').click()
+      const composer = renderer.findByTestId('composer')
+      expect(composer).toBeDefined()
+      expect(renderer.getFocusedElementId()).toBe(composer?.id)
+
+      await app.getByTestId('thread-c2').click()
+      expect(renderer.getFocusedElementId()).toBe(renderer.findByTestId('composer')?.id)
     } finally {
       await app.close()
     }

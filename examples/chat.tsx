@@ -121,7 +121,12 @@ const ICONS = {
 type IconName = keyof typeof ICONS
 
 function Icon({ name, size = 14, color }: { name: IconName; size?: number; color: string }) {
-  return <svg source={ICONS[name]} style={{ width: size, height: size, flexShrink: 0, color }} />
+  return (
+    <svg
+      source={ICONS[name]}
+      style={{ width: size, height: size, flexShrink: 0, color, pointerEvents: 'none' }}
+    />
+  )
 }
 
 const CHAT_THEME = {
@@ -891,7 +896,7 @@ function demoReply({
     { kind: 'fold', duration: 'Worked for 2 seconds' },
     {
       kind: 'markdown',
-      source: `This is the **GPUIX chat demo**. No model ran. You wrote "${quoted}". ${modelLabel} would answer here. ${modeLine}`,
+      source: `This is the GPUIX chat demo. No model ran. You wrote "${quoted}". ${modelLabel} would answer here. ${modeLine}`,
     },
   ]
 }
@@ -961,10 +966,12 @@ function OverlayCard({
   title,
   onClose,
   children,
+  height,
 }: {
   title: string
   onClose: () => void
   children: React.ReactNode
+  height?: number
 }) {
   return (
     <div
@@ -978,12 +985,14 @@ function OverlayCard({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#00000066',
-        pointerEvents: 'auto',
+        pointerEvents: 'none',
       }}
     >
       <div
+        onMouseDownOutside={onClose}
         style={{
           width: 420,
+          height,
           maxWidth: '90%',
           backgroundColor: C.raised,
           borderRadius: 12,
@@ -993,6 +1002,7 @@ function OverlayCard({
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
+          pointerEvents: 'auto',
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
@@ -1152,19 +1162,31 @@ const MENU = {
   borderRadius: 12,
 } satisfies StyleDesc
 
+function menuItemStyle(state: { selected: boolean; highlighted: boolean; description?: boolean }): StyleDesc {
+  return {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    padding: 0,
+    borderRadius: 7,
+    backgroundColor: state.highlighted ? '#404040' : state.selected ? '#2C2C2C' : C.raised,
+    hover: { backgroundColor: '#404040' },
+    cursor: 'pointer',
+  }
+}
+
 function MenuRow({
   label,
   description,
   icon,
   selected,
-  highlighted,
   hint,
 }: {
   label: string
   description?: string
   icon?: IconName
   selected: boolean
-  highlighted: boolean
   hint?: string
 }) {
   return (
@@ -1179,9 +1201,7 @@ function MenuRow({
         paddingBottom: description ? 6 : 5,
         paddingLeft: 8,
         paddingRight: 8,
-        borderRadius: 7,
-        backgroundColor: highlighted ? '#404040' : selected ? '#2C2C2C' : C.raised,
-        hover: { backgroundColor: '#404040' },
+        pointerEvents: 'none',
       }}
     >
       {icon && <Icon name={icon} size={14} color={C.tertiary} />}
@@ -1311,14 +1331,14 @@ function ModelPicker({ value, onChange }: { value: string; onChange: (next: stri
             <text style={{ fontSize: 11.5, fontWeight: 500, color: C.ghost }}>{group.name}</text>
           </SelectLabel>
           {group.items.map((model) => (
-            <SelectItem key={model.id} value={model.id}>
+            <SelectItem
+              key={model.id}
+              value={model.id}
+              testId={`model-${model.id}`}
+              style={(state) => menuItemStyle(state)}
+            >
               {(state) => (
-                <MenuRow
-                  label={model.label}
-                  icon={model.icon}
-                  selected={state.selected}
-                  highlighted={state.highlighted}
-                />
+                <MenuRow label={model.label} icon={model.icon} selected={state.selected} />
               )}
             </SelectItem>
           ))}
@@ -1350,14 +1370,14 @@ function ReasoningPicker({ value, onChange }: { value: string; onChange: (next: 
         <text style={{ fontSize: 11.5, fontWeight: 500, color: C.ghost }}>Reasoning</text>
       </SelectLabel>
       {REASONING.map((option) => (
-        <SelectItem key={option.id} value={option.id}>
+        <SelectItem
+          key={option.id}
+          value={option.id}
+          testId={`reasoning-${option.id}`}
+          style={(state) => menuItemStyle(state)}
+        >
           {(state) => (
-            <MenuRow
-              label={option.label}
-              hint={option.hint}
-              selected={state.selected}
-              highlighted={state.highlighted}
-            />
+            <MenuRow label={option.label} hint={option.hint} selected={state.selected} />
           )}
         </SelectItem>
       ))}
@@ -1378,14 +1398,18 @@ function AccessPicker({ value, onChange }: { value: string; onChange: (next: str
       menuWidth={288}
     >
       {ACCESS.map((option) => (
-        <SelectItem key={option.id} value={option.id}>
+        <SelectItem
+          key={option.id}
+          value={option.id}
+          testId={`access-${option.id}`}
+          style={(state) => menuItemStyle({ ...state, description: true })}
+        >
           {(state) => (
             <MenuRow
               label={option.label}
               description={option.description}
               icon={option.icon}
               selected={state.selected}
-              highlighted={state.highlighted}
             />
           )}
         </SelectItem>
@@ -1406,15 +1430,13 @@ function ProjectPicker({ value, onChange }: { value: string; onChange: (next: st
       caret={false}
     >
       {PROJECTS.map((option) => (
-        <SelectItem key={option.id} value={option.id}>
-          {(state) => (
-            <MenuRow
-              label={option.label}
-              icon="folder"
-              selected={state.selected}
-              highlighted={state.highlighted}
-            />
-          )}
+        <SelectItem
+          key={option.id}
+          value={option.id}
+          testId={`project-${option.id}`}
+          style={(state) => menuItemStyle(state)}
+        >
+          {(state) => <MenuRow label={option.label} icon="folder" selected={state.selected} />}
         </SelectItem>
       ))}
     </ChipSelect>
@@ -1443,14 +1465,14 @@ function WorkspacePicker({ value, onChange }: { value: string; onChange: (next: 
         <text style={{ fontSize: 11.5, fontWeight: 500, color: C.ghost }}>Work in</text>
       </SelectLabel>
       {WORKSPACES.map((option) => (
-        <SelectItem key={option.id} value={option.id}>
+        <SelectItem
+          key={option.id}
+          value={option.id}
+          testId={`workspace-${option.id}`}
+          style={(state) => menuItemStyle(state)}
+        >
           {(state) => (
-            <MenuRow
-              label={option.label}
-              icon={option.icon}
-              selected={state.selected}
-              highlighted={state.highlighted}
-            />
+            <MenuRow label={option.label} icon={option.icon} selected={state.selected} />
           )}
         </SelectItem>
       ))}
@@ -1469,15 +1491,13 @@ function BranchPicker({ value, onChange }: { value: string; onChange: (next: str
       label={selected.label}
     >
       {BRANCHES.map((option) => (
-        <SelectItem key={option.id} value={option.id}>
-          {(state) => (
-            <MenuRow
-              label={option.label}
-              icon="gitBranch"
-              selected={state.selected}
-              highlighted={state.highlighted}
-            />
-          )}
+        <SelectItem
+          key={option.id}
+          value={option.id}
+          testId={`branch-${option.id}`}
+          style={(state) => menuItemStyle(state)}
+        >
+          {(state) => <MenuRow label={option.label} icon="gitBranch" selected={state.selected} />}
         </SelectItem>
       ))}
     </ChipSelect>
@@ -1528,6 +1548,7 @@ function Composer({
   onAccessChange,
   mode,
   onModeChange,
+  focusTick,
 }: {
   value: string
   onChange: (next: string) => void
@@ -1540,7 +1561,15 @@ function Composer({
   onAccessChange: (next: string) => void
   mode: 'build' | 'plan'
   onModeChange: (next: 'build' | 'plan') => void
+  focusTick: number
 }) {
+  const composerRef = useRef<PublicInstance | null>(null)
+  const { renderer } = useGpuix()
+  useEffect(() => {
+    const id = composerRef.current?.id
+    if (id == null) return
+    renderer?.focusElement?.(id)
+  }, [focusTick, renderer])
   const ready = value.trim().length > 0
   const send = (text: string) => {
     const next = text.trim()
@@ -1576,6 +1605,7 @@ function Composer({
         }}
       >
         <textarea
+          ref={composerRef}
           testId="composer"
           value={value}
           placeholder="Do anything..."
@@ -2117,6 +2147,7 @@ export function ChatApp({
   const [workspace, setWorkspace] = useState('local')
   const [branch, setBranch] = useState('main')
   const [tailTick, setTailTick] = useState(0)
+  const [focusTick, setFocusTick] = useState(0)
 
   const listRef = useRef<PublicInstance | null>(null)
   const nextTask = useRef(1)
@@ -2140,12 +2171,16 @@ export function ChatApp({
 
   const goTo = (id: string) => {
     setOverlay(null)
-    if (id === activeId) return
+    if (id === activeId) {
+      setFocusTick((value) => value + 1)
+      return
+    }
     setActiveId(id)
     setNav((current) => ({
       stack: current.stack.slice(0, current.index + 1).concat(id),
       index: current.index + 1,
     }))
+    setFocusTick((value) => value + 1)
   }
 
   const goBack = () => {
@@ -2153,6 +2188,7 @@ export function ChatApp({
     const index = nav.index - 1
     setActiveId(nav.stack[index]!)
     setNav({ ...nav, index })
+    setFocusTick((value) => value + 1)
   }
 
   const goForward = () => {
@@ -2160,6 +2196,7 @@ export function ChatApp({
     const index = nav.index + 1
     setActiveId(nav.stack[index]!)
     setNav({ ...nav, index })
+    setFocusTick((value) => value + 1)
   }
 
   useEffect(() => {
@@ -2279,6 +2316,7 @@ export function ChatApp({
         <Composer
           value={draft}
           onChange={setDraft}
+          focusTick={focusTick}
           onSend={(text) => {
             const modelLabel = MODELS.find((item) => item.id === model)?.label ?? model
             const reply = demoReply({ text, modelLabel, mode })
@@ -2326,15 +2364,17 @@ export function ChatApp({
         />
       )}
       {overlay === 'search' && (
-        <OverlayCard title="Search threads" onClose={() => setOverlay(null)}>
+        <OverlayCard title="Search threads" height={420} onClose={() => setOverlay(null)}>
           <input
             testId="search-input"
             value={query}
             placeholder="Filter by title"
+            autoFocus
             theme={CHAT_THEME}
             style={{
               width: '100%',
               height: 32,
+              flexShrink: 0,
               fontSize: 13,
               color: C.text,
               backgroundColor: C.composer,
@@ -2344,24 +2384,26 @@ export function ChatApp({
             }}
             onChange={(event) => setQuery(event.value ?? '')}
           />
-          {searchHits.map((conversation) => (
-            <div
-              key={conversation.id}
-              testId={`search-${conversation.id}`}
-              onClick={() => goTo(conversation.id)}
-              style={{
-                paddingTop: 8,
-                paddingBottom: 8,
-                paddingLeft: 8,
-                paddingRight: 8,
-                borderRadius: 8,
-                cursor: 'pointer',
-                hover: { backgroundColor: C.overlay },
-              }}
-            >
-              <text style={{ fontSize: 13, color: C.text }}>{conversation.title}</text>
-            </div>
-          ))}
+          <div style={{ flexGrow: 1, minHeight: 0, overflowY: 'scroll' }}>
+            {searchHits.map((conversation) => (
+              <div
+                key={conversation.id}
+                testId={`search-${conversation.id}`}
+                onClick={() => goTo(conversation.id)}
+                style={{
+                  paddingTop: 8,
+                  paddingBottom: 8,
+                  paddingLeft: 8,
+                  paddingRight: 8,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  hover: { backgroundColor: C.overlay },
+                }}
+              >
+                <text style={{ fontSize: 13, color: C.text }}>{conversation.title}</text>
+              </div>
+            ))}
+          </div>
         </OverlayCard>
       )}
       {overlay === 'settings' && (
