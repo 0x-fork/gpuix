@@ -1,5 +1,186 @@
 # Changelog
 
+## 0.8.0
+
+1. **Expose GPUI accessibility through React `role` and `aria-*` props.** VoiceOver, Accessibility Inspector, and other AX clients can now see labelled controls instead of an empty window. A node is in the platform tree only with both a GPUI id and a role.
+
+   ```tsx
+   <div
+     role="button"
+     aria-label="Delete note"
+     aria-id="notes.delete"
+     onClick={remove}
+   >
+     Delete
+   </div>
+   ```
+
+   Prop names match React DOM (`aria-label`, not `ariaLabel`). Role values are ARIA tokens (`"button"`, `"heading"`). `"none"` / `"presentation"` produce no node. `<text>` defaults to `Label`, `<input>` to `TextInput`, `<textarea>` to `MultilineTextInput`, `<img>` to `Image` with `alt`. `onClick` registers AccessKit Click, so VoiceOver Press fires the same JS handler. Browser / wasm has no AccessKit adapter; these props are no-ops there.
+
+   Fixes https://github.com/remorses/gpuix/issues/47
+
+2. **Let component libraries wrap Select without rewriting children.** Select follows Base UI’s split between Root label data and mounted Item interaction data. `items` on Root is optional. It is a label lookup for `SelectValue` while the menu is closed. Keyboard nav and clicks read the mounted `SelectItem` children, so a styled wrapper around `Item` works. Without `items`, `SelectValue` shows the raw value. `disabled` lives on `SelectItem`.
+
+   ```tsx
+   const models = [
+     { value: 'sonnet', label: 'Sonnet' },
+     { value: 'opus', label: 'Opus', disabled: true },
+   ]
+
+   <Select items={models} value={model} onValueChange={setModel}>
+     <SelectTrigger>
+       <SelectValue placeholder="Select a model" />
+     </SelectTrigger>
+     <SelectContent>
+       {models.map((item) => (
+         <SelectItem key={item.value} value={item.value}>
+           {item.label}
+         </SelectItem>
+       ))}
+     </SelectContent>
+   </Select>
+   ```
+
+   GPUI has no bubbling. Use `asChild` on `SelectItem` and `ComboboxItem` when a styled row paints the fill, so that row becomes the real hit target:
+
+   ```tsx
+   <SelectItem value="opus" asChild>
+     <MenuRow>Claude Opus 4.6</MenuRow>
+   </SelectItem>
+   ```
+
+   The child must forward its ref and host props. Native hover, event ids, disabled state, selection, and popup close stay on one hit target.
+
+   `@gpuix/react` now exports `Props`, `GpuixTheme`, `GpuixMetrics`, `InputProps`, `AnchoredProps`, and the other host prop types. Import `FloatingLayer` and `renderSlot` from `@gpuix/react/floating`. `getElementBounds(id)` is on the live renderer and returns `{ x, y, width, height }`, or `null`. `getFocusedElementId()`, `focusNextWithin(id)`, and `focusPreviousWithin(id)` walk GPUI's painted tab map. `visibility: "hidden"` maps to GPUI `invisible()`, so a hidden tab stop is skipped.
+
+   Fixes https://github.com/remorses/gpuix/issues/59
+
+3. **Add `onFileDrop` for Finder and OS file drops.** Put the listener on the element that should receive the drop. GPUI hit-tests the pointer and delivers the paths to that node, the same way `onClick` works. Nested targets work: the inner listener gets the drop.
+
+   ```tsx
+   <div
+     onFileDrop={(event) => openFiles(event.paths ?? [])}
+     style={{ width: 400, height: 300 }}
+   >
+     <text>Drop files here</text>
+   </div>
+   ```
+
+   `event.paths` is `string[]`: absolute Unicode filesystem paths. `event.x` and `event.y` are the drop point in window pixels. An empty drop, or a drop that contains a non-Unicode path, does not fire. Works on `div`, `text`, `img`, `svg`, `input`, `textarea`, `code`, `markdown`, `diff`, and `anchored`. `<virtual-list>` does not take this event; wrap it in a `div`. Desktop only.
+
+4. **Add `checkUpdate()` on `@gpuix/native` so a packaged app can update itself from GitHub Releases.** HTTP uses the same `reqwest_client` as `<img>`. There is no second native addon and no feed JSON.
+
+   ```tsx
+   import { checkUpdate } from '@gpuix/native'
+
+   const update = await checkUpdate('0.1.0', {
+     endpoints: ['https://github.com/OWNER/REPO/releases/latest'],
+     pubkey: '<public key from cargo packager signer generate>',
+   })
+   if (update) await update.downloadAndInstall()
+   ```
+
+   Create the GitHub release first. On each OS run `cargo packager --release --config packager.json` with `CARGO_PACKAGER_SIGN_PRIVATE_KEY` set, then `gh release upload` the bundle and its `.sig`. The updater reads `api.github.com` latest, matches the host asset, and GETs the sibling `.sig`. `downloadAndInstall()` replaces the packaged files and does not relaunch. Desktop only. The browser wasm build does not export this.
+
+5. **Open a window as a Wayland `wlr-layer-shell` surface via `WindowOptions.layerShell`.** `render(node, { layerShell })` opens a compositor-anchored bar, dock, notification overlay, or wallpaper instead of a normal floating window: no native titlebar, positioned by its `anchor` rather than by `window_bounds.origin`, with an optional `exclusiveZone` so tiled windows keep clear of it.
+
+   ```tsx
+   render(<Bar />, {
+     appId: 'my-panel',
+     height: 34,
+     windowBackground: 'opaque',
+     focus: false,
+     layerShell: {
+       namespace: 'my-panel',
+       layer: 'top',
+       anchor: ['top', 'left', 'right'],
+       exclusiveZone: 34,
+       keyboardInteractivity: 'none',
+     },
+   })
+   ```
+
+   Options map to GPUI's `WindowKind::LayerShell`: `layer` (`background` | `bottom` | `top` | `overlay`), `anchor` (any of `top` / `bottom` / `left` / `right`; two opposite edges stretch that axis), `exclusiveZone`, `exclusiveEdge`, `margin` (`[top, right, bottom, left]`), `keyboardInteractivity` (`none` | `on-demand` | `exclusive`). Linux/Wayland only; ignored on macOS and Windows. `appId` also sets the Wayland `app_id` / X11 `WM_CLASS` on a normal window.
+
+6. **Add http(s) `src` support to `<img>`.** GPUI fetches the URL in the background and paints when decode finishes. The React tree does not wait. Pass both `width` and `height` so the box does not jump after load.
+
+   ```tsx
+   <img
+     src="https://example.com/avatar.png"
+     objectFit="cover"
+     style={{ width: 48, height: 48, borderRadius: 24 }}
+   />
+   ```
+
+   Filesystem paths and data URLs still work. Failed loads still show the existing fallback placeholder.
+
+7. **Add `textDecoration` style** with `"underline"`, `"line-through"`, and `"none"`:
+
+   ```tsx
+   <text style={{ color: '#3b82f6', textDecoration: 'underline' }}>
+     Learn more
+   </text>
+   ```
+
+8. **Make Enter insert a newline in `<textarea>` unless `onSubmit` is set.** Plain Enter used to always fire `onSubmit` in both `<input>` and `<textarea>`. A normal multiline editor could not insert a newline, and Enter did nothing when no `onSubmit` listener was set.
+
+   ```tsx
+   <textarea value={draft} onChange={(event) => setDraft(event.value ?? '')} />
+
+   <textarea
+     value={draft}
+     onChange={(event) => setDraft(event.value ?? '')}
+     onSubmit={send}
+   />
+   ```
+
+   `<textarea>`: Enter and Shift+Enter insert a newline and emit `onChange`. `<textarea onSubmit={send}>`: Enter emits `onSubmit`; Shift+Enter still inserts a newline. `<input>`: Enter still emits `onSubmit`.
+
+   Fixes https://github.com/remorses/gpuix/issues/46
+
+9. **`<input>` and `<textarea>` size their rows from `style.fontSize` and `style.lineHeight`.** Without an explicit `lineHeight`, the row follows GPUI's default leading, so a larger `fontSize` grows the box. Pass `lineHeight` to set the row in pixels. `minRows` and `maxRows` still multiply that row height.
+
+   ```tsx
+   <textarea
+     value={draft}
+     minRows={1}
+     maxRows={8}
+     style={{ fontSize: 14, lineHeight: 20 }}
+   />
+   ```
+
+   Single-line `<input>` now vertically centers text when given extra height, clips content to its own `borderRadius`, and draws the caret at about 75% of `fontSize` instead of the full line box.
+
+   Fixes https://github.com/remorses/gpuix/issues/63
+
+10. **Keep the macOS window alive after a JavaScript runtime error, and show a stack overlay with Reload.** A throw used to kill the AppKit pump or leave the window empty. `render()` now catches `tick()` errors, native event callbacks, `uncaughtException`, and `unhandledRejection`, paints the message and stack, and **Reload** remounts the last tree. Save under `bun --hot` still remounts too.
+
+    ```tsx
+    render(<App />)
+    ```
+
+11. **Keep click, keyboard, and other event handlers active after `bun --hot` remounts an app on its existing native window.** Renderer event ownership and element IDs now survive JavaScript module reloads for the full life of the native renderer.
+
+    Fixes https://github.com/remorses/gpuix/issues/37
+
+12. **Deliver `onClick` from primary-button mouse-up** for retained and custom native elements so embedded macOS windows receive clicks reliably.
+
+    Fixes https://github.com/remorses/gpuix/issues/41
+
+13. **Keep Bun responsive while GPUIX pumps embedded AppKit events on macOS.** `GpuixRenderer.tick()` now drains only native work that is ready. It no longer waits for a display-link wake, so continuously producing PTYs, timers, promises, and sockets can make progress between frames.
+
+    Fixes https://github.com/remorses/gpuix/issues/39
+
+14. **Prevent live-app mouse automation from aborting the GPUI process** when a locator clicks, hovers, wheels, or drags. Mouse input now enters through the window without already holding the root view.
+
+    Fixes https://github.com/remorses/gpuix/issues/38
+
+15. **Keep an element's style when React hides it.** `hideInstance` used to send `{ visibility: "hidden" }` and drop every other declaration. Suspense retries and hidden Activity trees then lost their layout box. The hide now keeps the existing style and only adds `visibility: "hidden"`. Hover and active still drop. `unhideInstance` restores the style React passed in.
+
+16. **Stop the browser chat example from dying before the WebGPU window opens.** The error overlay no longer reads `process.platform` at module load. Window-key listeners and `focusElement()` calls made while the asynchronous WebGPU window opens are queued until the window exists. Applications can focus an input from a mount effect without a `GPUIX web window is not ready` startup error.
+
+17. **Document how to ship a GPUIX React app on [hermes-node](https://github.com/tmikov/hermes-node).** The guide is at `website/src/guides/hermes.mdx` and is linked from the README. It covers the macOS rebuild, `bun build --format=cjs`, wrapping the two files in a `.app` with [cargo-packager](https://github.com/crabnebula-dev/cargo-packager), shrinking the `.node`, and the measured ship set.
+
 ## 0.7.0
 
 1. **Add native two-stop linear gradients to `style.background`.** Gradients use GPUI's GPU shaders on every renderer. Angles follow CSS direction, stop positions range from `0` to `1`, rounded corners work as expected, and `hover` or `active` can replace the gradient.
