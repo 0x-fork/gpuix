@@ -14,7 +14,7 @@ function GitHubIcon({ className }: { className?: string }) {
 }
 
 export function HeroSection({
-  lines = ['native React', 'on the GPU'],
+  lines = ['GPUI and React', 'for native apps'],
 }: {
   lines?: [string, string]
 }) {
@@ -31,9 +31,9 @@ export function HeroSection({
       <VideoBackgroundShader
         src='/hero-bg.mp4'
         className='absolute inset-0 w-full h-full'
-        canvasClassName='dark:opacity-30 opacity-20'
         dotStyle='dots'
         dotColor='#fdba74'
+        dotAlphaMultiplier={0.7}
         dotSize={6}
       />
 

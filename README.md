@@ -1,8 +1,12 @@
 # GPUIX
 
-React bindings for [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) - Zed's GPU-accelerated UI framework.
+**GPUIX** is **React** for **[GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui)**. GPUI is Zed's GPU UI framework. Write a React tree in TypeScript. GPUIX paints it with GPUI on Metal, DirectX, or Vulkan. No Electron. No web view.
 
-Build native GPU-accelerated desktop apps with React and TypeScript. Your components render directly to the GPU via Metal, DirectX, or Vulkan. No Electron, no web views.
+Use GPUIX when you want a **native desktop app** with the GPUI renderer and a React component model. `useState`, JSX, and the usual React tree still apply. Layout, text, and input go through GPUI, not the DOM.
+
+**GPUI** is the UI crate inside [Zed](https://github.com/zed-industries/zed). It lays out with Taffy flexbox and paints with Metal on macOS, DirectX on Windows, Vulkan on Linux, and WebGPU or WebGL2 in the browser. A GPUI app is usually Rust. GPUIX is the React and TypeScript layer on that same GPUI renderer: one `render()` call opens a window, and each React commit becomes a GPUI frame.
+
+Search for **GPUI React**, **GPUI TypeScript**, or **GPUI native app** and this is the binding. The packages are `@gpuix/react` and `@gpuix/native`.
 
 ![mail.tax example](./docs/images/mail-app.jpg)
 
