@@ -1,22 +1,15 @@
 # GPUIX
 
-**GPUIX** is **React** for **[GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui)**. GPUI is Zed's GPU UI framework. Write a React tree in TypeScript. GPUIX paints it with GPUI on Metal, DirectX, or Vulkan. No Electron. No web view.
+**React** for [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), Zed's GPU UI framework.
 
-Use GPUIX when you want a **native desktop app** with the GPUI renderer and a React component model. `useState`, JSX, and the usual React tree still apply. Layout, text, and input go through GPUI, not the DOM.
+Write a React tree in TypeScript. GPUIX paints it with Metal, DirectX, or Vulkan. No Electron. No web view.
 
-**GPUI** is the UI crate inside [Zed](https://github.com/zed-industries/zed). It lays out with Taffy flexbox and paints with Metal on macOS, DirectX on Windows, Vulkan on Linux, and WebGPU or WebGL2 in the browser. A GPUI app is usually Rust. GPUIX is the React and TypeScript layer on that same GPUI renderer: one `render()` call opens a window, and each React commit becomes a GPUI frame.
-
-Search for **GPUI React**, **GPUI TypeScript**, or **GPUI native app** and this is the binding. The packages are `@gpuix/react` and `@gpuix/native`.
+`useState` and JSX still apply. Layout, text, and input go through GPUI, not the DOM.
 
 ![mail.tax example](./docs/images/mail-app.jpg)
 
 Everything above is GPUIX: the sidebar, the thread list, the reading pane,
-and native `<markdown>`. Start it with **`bun --hot`** so a save remounts React
-on the same window:
-
-```bash
-cd examples && bun --hot mail.tsx
-```
+and native `<markdown>`.
 
 ## Quickstart
 
@@ -325,8 +318,8 @@ gpuix completions install
 | **diff** | `bun --hot diff.tsx` | A diff viewer composed from `<div>` and `<text>` in JS, for comparison |
 | **web** | `bun run web` from the repository root | The ChatGPT example rendered in a browser canvas with WebGPU |
 
-The todo app lives in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) and is meant to be copied.
-The rest live in [`examples/`](https://github.com/remorses/gpuix/tree/main/examples). Those use hardcoded data.
+The todo app lives in [`example-app/`](https://github.com/remorses/gpuix/tree/main/example-app) and is meant to be copied with `bunx @gpuix/cli new`.
+The rest live in [`examples/`](https://github.com/remorses/gpuix/tree/main/examples). Those `bun --hot` commands need a clone of this repo and a local native build. They will not run against the published packages alone.
 
 Or download a standalone **chat** build from the [GitHub release](https://github.com/remorses/gpuix/releases). No Bun or Rust install is required.
 
@@ -827,7 +820,6 @@ window.
 
 ```bash
 bun --hot app.tsx
-cd examples && bun --hot chat.tsx
 ```
 
 ### 3. Save the file
