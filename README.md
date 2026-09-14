@@ -1663,7 +1663,9 @@ the window listener cannot stop the native event, so Tab would jump twice.
 `focusNext()` and `focusPrevious()` map directly to GPUI's
 `window.focus_next()` and `window.focus_prev()`.
 `focusNextWithin(id)` / `focusPreviousWithin(id)` wrap inside that subtree.
-`getFocusedElementId()` returns the host id, or `null`.
+`getFocusedElementId()` returns the host id, or `null`. Browser focus requests made
+while WebGPU opens are queued and applied after the first focus handles exist. If
+several requests arrive before that render, the latest request wins.
 
 Use a ref for imperative focus:
 

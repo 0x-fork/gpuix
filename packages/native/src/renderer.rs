@@ -123,6 +123,8 @@ thread_local! {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     static PENDING_WINDOW_KEY_EVENTS: RefCell<Option<(bool, bool, u64)>> =
         const { RefCell::new(None) };
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    static PENDING_FOCUS_ELEMENT: RefCell<Option<u64>> = const { RefCell::new(None) };
     /// Shared scroll handles — GpuixView writes here during render(),
     /// platform-local handlers read from here for programmatic scroll control.
     /// ScrollHandle is Rc<RefCell<...>> so its methods (set_offset, offset,
@@ -613,11 +615,7 @@ async fn run_ui_commands(
                 })
             }
             UiCommand::FocusElement(id) => window.update(cx, move |view, window, cx| {
-                view.reveal_virtual_list_ancestor(id);
-                if let Some(handle) = view.focus_handles.get(&id) {
-                    handle.focus(window, cx);
-                }
-                cx.notify();
+                view.request_focus(id, window, cx);
                 window.refresh();
             }),
             UiCommand::FocusNext => window.update(cx, |_view, window, cx| window.focus_next(cx)),
@@ -1527,11 +1525,7 @@ impl GpuixRenderer {
         let id = to_element_id(element_id)?;
         #[cfg(target_os = "macos")]
         return update_window(move |view, window, cx| {
-            view.reveal_virtual_list_ancestor(id);
-            if let Some(handle) = view.focus_handles.get(&id) {
-                handle.focus(window, cx);
-            }
-            cx.notify();
+            view.request_focus(id, window, cx);
             window.refresh();
         });
 
@@ -2567,13 +2561,9 @@ impl WebGpuixRenderer {
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = focusElement)]
     pub fn focus_element(&self, element_id: f64) -> Result<(), wasm_bindgen::JsValue> {
         let id = web_element_id(element_id)?;
-        update_web_window(move |view, window, cx| {
-            view.reveal_virtual_list_ancestor(id);
-            if let Some(handle) = view.focus_handles.get(&id) {
-                handle.focus(window, cx);
-            }
-            cx.notify();
-        })
+        PENDING_FOCUS_ELEMENT.with(|pending| *pending.borrow_mut() = Some(id));
+        notify_web();
+        Ok(())
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = focusNext)]
@@ -2977,6 +2967,7 @@ pub(crate) struct GpuixView {
     /// Created lazily for elements with keyboard or focus/blur listeners.
     /// Handles persist across renders so GPUI maintains focus state.
     pub(crate) focus_handles: HashMap<u64, gpui::FocusHandle>,
+    pending_focus_element: Option<u64>,
     /// Active focus/blur subscriptions keyed by element and event type.
     pub(crate) focus_subscriptions: HashMap<(u64, String), gpui::Subscription>,
     /// Registry for custom element types (input, editor, diff, etc.).
@@ -3179,6 +3170,7 @@ impl GpuixView {
             window_key_up: false,
             window_key_event_id: 0,
             focus_handles: HashMap::new(),
+            pending_focus_element: None,
             focus_subscriptions: HashMap::new(),
             custom_registry: CustomElementRegistry::with_defaults(),
             scroll_handles: HashMap::new(),
@@ -3787,6 +3779,22 @@ impl VirtualListEntry {
 }
 
 impl GpuixView {
+    fn request_focus(
+        &mut self,
+        id: u64,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.reveal_virtual_list_ancestor(id);
+        if let Some(handle) = self.focus_handles.get(&id) {
+            self.pending_focus_element = None;
+            handle.focus(window, cx);
+        } else {
+            self.pending_focus_element = Some(id);
+        }
+        cx.notify();
+    }
+
     pub(crate) fn focused_element_id(&self, window: &gpui::Window) -> Option<u64> {
         self.focus_handles.iter().find_map(|(id, handle)| {
             handle.is_focused(window).then_some(*id)
@@ -3992,6 +4000,12 @@ impl GpuixView {
             }
         }
 
+        if let Some(id) = self.pending_focus_element.take() {
+            if let Some(handle) = self.focus_handles.get(&id) {
+                handle.focus(window, cx);
+            }
+        }
+
         self.focus_subscriptions.retain(|(id, event), _| {
             tree.elements
                 .get(id)
@@ -4037,6 +4051,11 @@ impl gpui::Render for GpuixView {
         use gpui::IntoElement;
 
         window.set_window_title(&self.window_title);
+
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        if let Some(id) = PENDING_FOCUS_ELEMENT.with(|pending| pending.borrow_mut().take()) {
+            self.pending_focus_element = Some(id);
+        }
 
         // Clone Arc so we don't borrow self.tree — frees self for focus_handles access.
         let tree_arc = self.tree.clone();
