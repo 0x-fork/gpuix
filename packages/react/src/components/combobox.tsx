@@ -377,13 +377,14 @@ export interface ComboboxItemState {
 export interface ComboboxItemProps extends Omit<Props, "children" | "style"> {
   value: string
   disabled?: boolean
+  asChild?: boolean
   children?: ReactNode | ((state: ComboboxItemState) => ReactNode)
   style?: StateStyle<ComboboxItemState>
 }
 
 export const ComboboxItem = forwardRef<PublicInstance, ComboboxItemProps>(
   function ComboboxItem(
-    { value, disabled = false, children, style, onClick, onMouseEnter, ...props },
+    { value, disabled = false, asChild, children, style, onClick, onMouseEnter, ...props },
     ref
   ) {
     const context = useComboboxContext("ComboboxItem")
@@ -396,23 +397,25 @@ export const ComboboxItem = forwardRef<PublicInstance, ComboboxItemProps>(
       context.registerItem({ value, disabled, mounted: instance !== null })
       setRefs(instance, ref)
     }
-    return (
-      <div
-        {...props}
-        ref={itemRef}
-        style={resolveStyle(style, state)}
-        onMouseEnter={(event: EventPayload) => {
-          onMouseEnter?.(event)
-          if (!disabled && index >= 0) context.setActiveIndex(index)
-        }}
-        onClick={(event: EventPayload) => {
-          onClick?.(event)
-          if (!disabled) context.selectItem(value)
-        }}
-      >
-        {typeof children === "function" ? children(state) : children}
-      </div>
-    )
+    const onItemMouseEnter = (event: EventPayload) => {
+      onMouseEnter?.(event)
+      if (!disabled && index >= 0) context.setActiveIndex(index)
+    }
+    const onItemClick = (event: EventPayload) => {
+      onClick?.(event)
+      if (!disabled) context.selectItem(value)
+    }
+    return renderSlot({
+      asChild,
+      children: typeof children === "function" ? children(state) : children,
+      props: {
+        ...props,
+        style: resolveStyle(style, state),
+        onMouseEnter: onItemMouseEnter,
+        onClick: onItemClick,
+      },
+      ref: itemRef,
+    })
   }
 )
 

@@ -227,6 +227,9 @@ describeNative('chat example', () => {
     try {
       await app.getByTestId('model-picker').click()
       expect(renderer.getPaintedText()).toContain('Claude Opus 4.6')
+      expect(
+        renderer.getElementBounds(renderer.findByTestId('model-opus-4.6').id).height,
+      ).toBeGreaterThanOrEqual(26)
 
       const shot = path.join(SHOTS, 'chat-model-picker.png')
       renderer.captureScreenshot(shot)

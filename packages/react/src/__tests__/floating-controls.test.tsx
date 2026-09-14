@@ -56,6 +56,27 @@ const itemStyle = ({ highlighted, selected, disabled }) => ({
   backgroundColor: highlighted ? "#334155" : selected ? "#1e3a5f" : "#111827",
 })
 
+const FilledRow = React.forwardRef(function FilledRow(
+  { label, style, ...props },
+  ref
+) {
+  return (
+    <div
+      {...props}
+      ref={ref}
+      style={{
+        width: "100%",
+        height: 32,
+        padding: 6,
+        backgroundColor: "#1e3a5f",
+        ...style,
+      }}
+    >
+      <text>{label}</text>
+    </div>
+  )
+})
+
 describeNative("floating controls", () => {
   let testRoot: ReturnType<typeof createTestRoot>
 
@@ -281,6 +302,45 @@ describeNative("floating controls", () => {
     expect(testRoot.renderer.getAllText()).toContain("Two")
   })
 
+  it("selects a filled SelectItem asChild row", () => {
+    function Demo() {
+      const [value, setValue] = useState("one")
+      return (
+        <div style={{ width: 400, height: 300, padding: 12 }}>
+          <Select
+            items={[
+              { value: "one", label: "One" },
+              { value: "two", label: "Two" },
+            ]}
+            value={value}
+            onValueChange={setValue}
+          >
+            <SelectTrigger style={triggerStyle}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent sideOffset={4} style={contentStyle}>
+              <SelectItem value="one" asChild>
+                <FilledRow label="One" />
+              </SelectItem>
+              <SelectItem value="two" testId="two" asChild>
+                <FilledRow label="Two" />
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <text>{`Value: ${value}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Demo />)
+    testRoot.renderer.nativeSimulateClick(30, 25)
+    const two = testRoot.renderer.findByTestId("two")
+    expect(two).toBeDefined()
+    const bounds = testRoot.renderer.getElementBounds(two.id)
+    testRoot.renderer.nativeSimulateClick(bounds.x + 8, bounds.y + 8)
+    expect(testRoot.renderer.getAllText()).toContain("Value: two")
+  })
+
   it("filters and selects through the shadcn Combobox shape", () => {
     const frameworks = ["Astro", "SvelteKit", "Next.js"]
 
@@ -327,6 +387,39 @@ describeNative("floating controls", () => {
     testRoot.renderer.nativeSimulateKeystrokes(input.id, "enter")
 
     expect(testRoot.renderer.getAllText()).toContain("Selected: SvelteKit")
+  })
+
+  it("selects a filled ComboboxItem asChild row", () => {
+    function Demo() {
+      const [value, setValue] = useState<string | null>(null)
+      const items = ["Alpha", "Beta"]
+      return (
+        <div style={{ width: 400, height: 300, padding: 12 }}>
+          <Combobox items={items} value={value} onValueChange={setValue}>
+            <ComboboxInput style={triggerStyle} />
+            <ComboboxContent sideOffset={4} style={contentStyle}>
+              <ComboboxList>
+                {(item) => (
+                  <ComboboxItem key={item} value={item} testId={item} asChild>
+                    <FilledRow label={item} />
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+          <text>{`Selected: ${value ?? "none"}`}</text>
+        </div>
+      )
+    }
+
+    testRoot.render(<Demo />)
+    const input = testRoot.renderer.findByType("input")[0]
+    testRoot.renderer.nativeSimulateClick(30, 25)
+    const beta = testRoot.renderer.findByTestId("Beta")
+    expect(beta).toBeDefined()
+    const bounds = testRoot.renderer.getElementBounds(beta.id)
+    testRoot.renderer.nativeSimulateClick(bounds.x + 8, bounds.y + 8)
+    expect(testRoot.renderer.getAllText()).toContain("Selected: Beta")
   })
 
   it("renders ComboboxEmpty when filtering removes every item", () => {

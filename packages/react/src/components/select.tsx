@@ -331,13 +331,14 @@ export interface SelectItemState {
 export interface SelectItemProps extends Omit<Props, "children" | "style"> {
   value: string
   disabled?: boolean
+  asChild?: boolean
   children?: ReactNode | ((state: SelectItemState) => ReactNode)
   style?: StateStyle<SelectItemState>
 }
 
 export const SelectItem = forwardRef<PublicInstance, SelectItemProps>(
   function SelectItem(
-    { value, disabled = false, children, style, onClick, onMouseEnter, ...props },
+    { value, disabled = false, asChild, children, style, onClick, onMouseEnter, ...props },
     ref
   ) {
     const context = useSelectContext("SelectItem")
@@ -350,23 +351,25 @@ export const SelectItem = forwardRef<PublicInstance, SelectItemProps>(
       context.registerItem({ value, disabled, mounted: true })
       return () => context.registerItem({ value, disabled, mounted: false })
     }, [context.registerItem, value, disabled])
-    return (
-      <div
-        {...props}
-        ref={ref}
-        style={resolveStyle(style, state)}
-        onMouseEnter={(event: EventPayload) => {
-          onMouseEnter?.(event)
-          if (!disabled && !context.disabled) context.setActiveValue(value)
-        }}
-        onClick={(event: EventPayload) => {
-          onClick?.(event)
-          if (!disabled && !context.disabled) context.selectValue(value)
-        }}
-      >
-        {typeof children === "function" ? children(state) : children}
-      </div>
-    )
+    const onItemMouseEnter = (event: EventPayload) => {
+      onMouseEnter?.(event)
+      if (!disabled && !context.disabled) context.setActiveValue(value)
+    }
+    const onItemClick = (event: EventPayload) => {
+      onClick?.(event)
+      if (!disabled && !context.disabled) context.selectValue(value)
+    }
+    return renderSlot({
+      asChild,
+      children: typeof children === "function" ? children(state) : children,
+      props: {
+        ...props,
+        style: resolveStyle(style, state),
+        onMouseEnter: onItemMouseEnter,
+        onClick: onItemClick,
+      },
+      ref,
+    })
   }
 )
 

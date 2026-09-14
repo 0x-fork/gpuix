@@ -1816,6 +1816,18 @@ The trigger participates in normal tab navigation. Opening the Select focuses
 its content. `Up`, `Down`, `Ctrl+P`, `Ctrl+N`, `Enter`, and `Escape` control the
 menu. Closing it restores focus to the trigger. Disabled items are skipped.
 
+GPUI does not bubble clicks. Use `asChild` when a styled row paints the item
+fill, so that row becomes the real hit target:
+
+```tsx
+<SelectItem value="opus" asChild>
+  <MenuRow>Claude Opus 4.6</MenuRow>
+</SelectItem>
+```
+
+The child must forward its ref and host props. `ComboboxItem` supports the same
+pattern.
+
 ### Style Combobox and Tooltip the same way
 
 Start their local files from namespace imports too:
@@ -1912,7 +1924,8 @@ nothing behind it. It does not disable the listeners on that same element, and
 it does not inherit, so children keep their own hitboxes.
 
 A filled child of a click target (switch thumb, radio dot, check icon) needs
-**`pointerEvents: "none"`**, or it eats the parent's click.
+**`pointerEvents: "none"`**, or it eats the parent's click. For Select and
+Combobox rows, use the item primitive's `asChild` prop instead.
 
 ### Measure an element
 

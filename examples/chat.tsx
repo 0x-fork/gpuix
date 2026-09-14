@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   useGpuix,
   useWindowInsets,
+  type Props,
   type PublicInstance,
   type StyleDesc,
 } from '@gpuix/react'
@@ -1162,13 +1163,12 @@ const MENU = {
   borderRadius: 12,
 } satisfies StyleDesc
 
-function menuItemStyle(state: { selected: boolean; highlighted: boolean; description?: boolean }): StyleDesc {
+function menuItemStyle(state: { selected: boolean; highlighted: boolean }): StyleDesc {
   return {
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    padding: 0,
     borderRadius: 7,
     backgroundColor: state.highlighted ? '#404040' : state.selected ? '#2C2C2C' : C.raised,
     hover: { backgroundColor: '#404040' },
@@ -1176,21 +1176,22 @@ function menuItemStyle(state: { selected: boolean; highlighted: boolean; descrip
   }
 }
 
-function MenuRow({
-  label,
-  description,
-  icon,
-  selected,
-  hint,
-}: {
+type MenuRowProps = Props & {
   label: string
   description?: string
   icon?: IconName
   selected: boolean
   hint?: string
-}) {
+}
+
+const MenuRow = React.forwardRef<PublicInstance, MenuRowProps>(function MenuRow(
+  { label, description, icon, selected, hint, style, ...props },
+  ref,
+) {
   return (
     <div
+      {...props}
+      ref={ref}
       style={{
         display: 'flex',
         flexDirection: 'row',
@@ -1201,7 +1202,7 @@ function MenuRow({
         paddingBottom: description ? 6 : 5,
         paddingLeft: 8,
         paddingRight: 8,
-        pointerEvents: 'none',
+        ...style,
       }}
     >
       {icon && <Icon name={icon} size={14} color={C.tertiary} />}
@@ -1227,7 +1228,7 @@ function MenuRow({
       {selected && <Icon name="check" size={11} color={C.tertiary} />}
     </div>
   )
-}
+})
 
 function ChipSelect({
   value,
@@ -1332,6 +1333,7 @@ function ModelPicker({ value, onChange }: { value: string; onChange: (next: stri
           </SelectLabel>
           {group.items.map((model) => (
             <SelectItem
+              asChild
               key={model.id}
               value={model.id}
               testId={`model-${model.id}`}
@@ -1371,6 +1373,7 @@ function ReasoningPicker({ value, onChange }: { value: string; onChange: (next: 
       </SelectLabel>
       {REASONING.map((option) => (
         <SelectItem
+          asChild
           key={option.id}
           value={option.id}
           testId={`reasoning-${option.id}`}
@@ -1399,10 +1402,11 @@ function AccessPicker({ value, onChange }: { value: string; onChange: (next: str
     >
       {ACCESS.map((option) => (
         <SelectItem
+          asChild
           key={option.id}
           value={option.id}
           testId={`access-${option.id}`}
-          style={(state) => menuItemStyle({ ...state, description: true })}
+          style={(state) => menuItemStyle(state)}
         >
           {(state) => (
             <MenuRow
@@ -1431,6 +1435,7 @@ function ProjectPicker({ value, onChange }: { value: string; onChange: (next: st
     >
       {PROJECTS.map((option) => (
         <SelectItem
+          asChild
           key={option.id}
           value={option.id}
           testId={`project-${option.id}`}
@@ -1466,6 +1471,7 @@ function WorkspacePicker({ value, onChange }: { value: string; onChange: (next: 
       </SelectLabel>
       {WORKSPACES.map((option) => (
         <SelectItem
+          asChild
           key={option.id}
           value={option.id}
           testId={`workspace-${option.id}`}
@@ -1492,6 +1498,7 @@ function BranchPicker({ value, onChange }: { value: string; onChange: (next: str
     >
       {BRANCHES.map((option) => (
         <SelectItem
+          asChild
           key={option.id}
           value={option.id}
           testId={`branch-${option.id}`}
