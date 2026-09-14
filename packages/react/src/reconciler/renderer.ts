@@ -223,12 +223,7 @@ function thrownToError(thrown: unknown): Error | string {
   }
 }
 
-const OVERLAY_MONO =
-  process.platform === "win32"
-    ? "Consolas"
-    : process.platform === "darwin"
-      ? "Menlo"
-      : "DejaVu Sans Mono"
+const OVERLAY_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
 function overlayStackLines(error: { message: string; stack: string }): string[] {
   const lines = error.stack.length === 0 ? [error.message] : error.stack.split("\n")
@@ -466,7 +461,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
   if (!injected && host instanceof GpuixRenderer && !slot.loop) {
     slot.loop = startFrameLoop(host, {
       onTerminated: () => {
-        process.exit(0)
+        if (typeof process !== "undefined") process.exit(0)
       },
     })
   }

@@ -2,13 +2,13 @@
 /// and calls render() again; the native host must stay the same instance.
 
 import { spawn, spawnSync } from "node:child_process"
-import { unlinkSync, writeFileSync } from "node:fs"
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import React, { useState } from "react"
 import { beforeEach, describe, expect, it } from "vitest"
-import { hasNativeTestRenderer, TestRenderer } from "../testing.js"
+import { hasNativeTestRenderer, readMacCpuThrottle, TestRenderer } from "../testing.js"
 import {
   installBrowserAutomation,
   render,
@@ -78,6 +78,32 @@ function collectOutput(child: ReturnType<typeof spawn>) {
     },
   }
 }
+
+describe("browser bundle safety", () => {
+  it("does not read process when choosing the overlay font", () => {
+    const source = readFileSync(
+      new URL("../reconciler/renderer.ts", import.meta.url),
+      "utf8",
+    )
+    const match = source.match(/const OVERLAY_MONO =[\s\S]*?;/)
+    expect(match).toBeTruthy()
+    expect(match![0]).not.toMatch(/\bprocess\b/)
+  })
+
+  it("treats a missing process as no THROTTLE", () => {
+    const previous = process
+    const previousThrottle = process.env.THROTTLE
+    // @ts-expect-error browser bundles have no process
+    globalThis.process = undefined
+    try {
+      expect(readMacCpuThrottle()).toBeNull()
+    } finally {
+      globalThis.process = previous
+      if (previousThrottle === undefined) delete process.env.THROTTLE
+      else process.env.THROTTLE = previousThrottle
+    }
+  })
+})
 
 describe("TestGpuixRenderer availability", () => {
   it("exports a constructor, and a flag that is true only when construction works", () => {

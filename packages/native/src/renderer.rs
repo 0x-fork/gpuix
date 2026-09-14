@@ -120,6 +120,9 @@ thread_local! {
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     static PENDING_DEBUG_OVERLAY: RefCell<Option<gpui::DebugFrameOverlayMode>> =
         const { RefCell::new(None) };
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    static PENDING_WINDOW_KEY_EVENTS: RefCell<Option<(bool, bool, u64)>> =
+        const { RefCell::new(None) };
     /// Shared scroll handles — GpuixView writes here during render(),
     /// platform-local handlers read from here for programmatic scroll control.
     /// ScrollHandle is Rc<RefCell<...>> so its methods (set_offset, offset,
@@ -2356,12 +2359,20 @@ fn start_web_app(
                 window.set_debug_frame_overlay_mode(mode);
             }
             cx.new(|_| {
-                GpuixView::new(
+                let mut view = GpuixView::new(
                     tree,
                     Some(event_callback),
                     "GPUIX Web".to_string(),
                     selection,
-                )
+                );
+                if let Some((key_down, key_up, event_id)) =
+                    PENDING_WINDOW_KEY_EVENTS.with(|pending| pending.borrow_mut().take())
+                {
+                    view.window_key_down = key_down;
+                    view.window_key_up = key_up;
+                    view.window_key_event_id = event_id;
+                }
+                view
             })
         });
         match window {
@@ -2610,6 +2621,13 @@ impl WebGpuixRenderer {
         event_id: f64,
     ) -> Result<(), wasm_bindgen::JsValue> {
         let event_id = web_element_id(event_id)?;
+        // Graphics init is async. createRoot() sets this before WEB_WINDOW exists.
+        if WEB_WINDOW.with(|window| window.borrow().is_none()) {
+            PENDING_WINDOW_KEY_EVENTS.with(|pending| {
+                *pending.borrow_mut() = Some((key_down, key_up, event_id));
+            });
+            return Ok(());
+        }
         update_web_window(move |view, _window, cx| {
             view.window_key_down = key_down;
             view.window_key_up = key_up;
