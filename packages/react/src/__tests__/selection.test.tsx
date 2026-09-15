@@ -174,6 +174,18 @@ describe("text selection", () => {
     expect(renderer.dragSelect(40, 30, 40, 30)).toBeNull()
   })
 
+  it("survives a click that leases the root view", () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ display: "flex", flexDirection: "column", padding: 20 }}>
+        <text style={{ fontSize: 20 }}>just a click</text>
+      </div>
+    )
+
+    renderer.nativeSimulateClick(40, 30)
+    expect(renderer.getSelectedText()).toBeNull()
+  })
+
   it("applies lineHeight to wrapped text", () => {
     const a = createTestRoot()
     a.render(
