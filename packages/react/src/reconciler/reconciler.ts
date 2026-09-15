@@ -15,6 +15,7 @@ import {
   detachRoot,
   idAllocatorFor,
   nextWindowKeyEventId,
+  nextWindowSelectionEventId,
 } from "./event-registry.js"
 import { hostConfig } from "./host-config.js"
 
@@ -67,12 +68,14 @@ export function createRoot(
   const batchedRenderer = wrapWithBatching(renderer)
   const ids = idAllocatorFor(renderer)
   const windowKeyEventId = nextWindowKeyEventId(renderer)
+  const windowSelectionEventId = nextWindowSelectionEventId(renderer)
   const gpuixContainer: Container = {
     renderer: batchedRenderer,
     ids,
     eventHandlers: new Map(),
     windowKeyEventHandlers: rootEventHandlers,
     windowKeyEventId,
+    windowSelectionEventId,
     onEvent: rootEventHandlers.onEvent,
   }
   attachRoot(renderer, gpuixContainer)
@@ -81,6 +84,10 @@ export function createRoot(
       Boolean(rootEventHandlers.onKeyDown),
       Boolean(rootEventHandlers.onKeyUp),
       windowKeyEventId
+    )
+    renderer.setWindowSelectionChange?.(
+      Boolean(rootEventHandlers.onSelectionChange),
+      windowSelectionEventId
     )
   } catch (error) {
     detachRoot(renderer, gpuixContainer)
@@ -97,6 +104,7 @@ export function createRoot(
     }
     if (detachRoot(renderer, gpuixContainer)) {
       renderer.setWindowKeyEvents?.(false, false, windowKeyEventId)
+      renderer.setWindowSelectionChange?.(false, windowSelectionEventId)
     }
   }
 

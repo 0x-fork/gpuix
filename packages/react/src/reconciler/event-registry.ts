@@ -10,6 +10,7 @@ interface RendererState {
   container?: Container
   ids: ElementIdAllocator
   windowKeyEventId: number
+  windowSelectionEventId: number
 }
 
 // bun --hot preserves the renderer, so its React state must survive module reloads too.
@@ -30,6 +31,7 @@ function stateFor(renderer: NativeRenderer): RendererState {
     state = {
       ids: { nextElementId: 0 },
       windowKeyEventId: 0,
+      windowSelectionEventId: 0,
     }
     rendererStates.set(renderer, state)
   }
@@ -44,6 +46,12 @@ export function nextWindowKeyEventId(renderer: NativeRenderer): number {
   const state = stateFor(renderer)
   state.windowKeyEventId += 1
   return state.windowKeyEventId
+}
+
+export function nextWindowSelectionEventId(renderer: NativeRenderer): number {
+  const state = stateFor(renderer)
+  state.windowSelectionEventId += 1
+  return state.windowSelectionEventId
 }
 
 export function attachRoot(renderer: NativeRenderer, container: Container): void {
@@ -88,6 +96,20 @@ export function handleGpuixEvent(payload: EventPayload, renderer: NativeRenderer
         ...payload,
         elementId: 0,
         eventType: payload.eventType === "windowKeyDown" ? "keyDown" : "keyUp",
+      },
+      renderer
+    )
+    onEvent?.(payload)
+    return true
+  }
+  if (payload.eventType === "selectionChange") {
+    if (payload.elementId !== container.windowSelectionEventId) return false
+    const handler = container.windowKeyEventHandlers.onSelectionChange
+    if (!handler) return false
+    handler(
+      {
+        ...payload,
+        elementId: 0,
       },
       renderer
     )

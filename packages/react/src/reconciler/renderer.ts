@@ -348,7 +348,7 @@ function mountRoot(args: {
   options: RenderOptions
 }): Root {
   const { slot, node, options } = args
-  const { onEvent, onKeyDown, onKeyUp } = options
+  const { onEvent, onKeyDown, onKeyUp, onSelectionChange } = options
   const host = slot.renderer
   if (!host) throw new Error("GPUIX renderer is not initialized")
   if (slot.root) slot.root.unmount()
@@ -356,6 +356,7 @@ function mountRoot(args: {
     onEvent,
     onKeyDown,
     onKeyUp,
+    onSelectionChange,
     onUncaughtError: (error, errorInfo) => {
       scheduleRuntimeError(error, errorInfo.componentStack)
     },
@@ -437,6 +438,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
     onEvent,
     onKeyDown,
     onKeyUp,
+    onSelectionChange,
     renderer: injected,
     debugFrameOverlay,
     ...windowOptions
@@ -479,7 +481,7 @@ export function render(node: ReactNode, options: RenderOptions = {}): Root {
     console.log("[gpuix] remount: unmount previous tree")
   }
   slot.lastNode = node
-  slot.lastOptions = { onEvent, onKeyDown, onKeyUp }
+  slot.lastOptions = { onEvent, onKeyDown, onKeyUp, onSelectionChange }
   const root = mountRoot({ slot, node, options: slot.lastOptions })
   console.log(remount ? "[gpuix] remount complete" : "[gpuix] mount complete")
   return root

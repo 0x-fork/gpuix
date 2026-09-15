@@ -630,6 +630,7 @@ export interface NativeRenderer {
   focusPreviousWithin?(elementId: number): void
   blur?(): void
   setWindowKeyEvents?(keyDown: boolean, keyUp: boolean, eventId: number): void
+  setWindowSelectionChange?(enabled: boolean, eventId: number): void
 
   // ── Bounds API ─────────────────────────────────────────────────
   /** Last painted box, or null if the node did not paint. */
@@ -728,6 +729,8 @@ export interface WindowKeyEventHandlers {
   onKeyDown?: WindowKeyEventHandler
   /** Window-level GPUI listener. */
   onKeyUp?: WindowKeyEventHandler
+  /** Window-level text selection. Fires when the selected ranges change. */
+  onSelectionChange?: WindowKeyEventHandler
 }
 
 export interface RootEventHandlers extends WindowKeyEventHandlers {
@@ -751,6 +754,7 @@ export interface Container {
   eventHandlers: EventHandlerMap
   windowKeyEventHandlers: WindowKeyEventHandlers
   windowKeyEventId: number
+  windowSelectionEventId: number
   onEvent?: (event: EventPayload) => void
 }
 

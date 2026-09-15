@@ -41,6 +41,7 @@ interface NativeTestRendererApi extends NativeRenderer {
   focusNextWithin(elementId: number): void
   focusPreviousWithin(elementId: number): void
   setWindowKeyEvents(keyDown: boolean, keyUp: boolean, eventId: number): void
+  setWindowSelectionChange(enabled: boolean, eventId: number): void
   simulateKeyDown(keystroke: string, isHeld?: boolean): void
   simulateKeyUp(keystroke: string): void
   simulateClick(x: number, y: number, button?: number, modifiers?: string): void
@@ -169,6 +170,7 @@ export class TestRenderer implements NativeRenderer {
   readonly applyBatch: NativeRenderer["applyBatch"]
   readonly focusNext: () => void
   readonly focusPrevious: () => void
+  readonly setWindowSelectionChange: NativeRenderer["setWindowSelectionChange"]
   readonly setWindowKeyEvents: (
     keyDown: boolean,
     keyUp: boolean,
@@ -186,6 +188,9 @@ export class TestRenderer implements NativeRenderer {
     this.focusNext = this.native.focusNext.bind(this.native)
     this.focusPrevious = this.native.focusPrevious.bind(this.native)
     this.setWindowKeyEvents = this.native.setWindowKeyEvents.bind(this.native)
+    this.setWindowSelectionChange = this.native.setWindowSelectionChange.bind(
+      this.native
+    )
   }
 
   // ── GPUI pipeline methods ───────────────────────────────────────
@@ -665,6 +670,7 @@ export function createTestRoot(options: TestWindowOptions = {}): TestRoot {
   const root = createRoot(renderer, {
     onKeyDown: options.onKeyDown,
     onKeyUp: options.onKeyUp,
+    onSelectionChange: options.onSelectionChange,
   })
 
   const render = (node: ReactNode): void => {

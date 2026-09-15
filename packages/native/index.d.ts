@@ -97,6 +97,8 @@ export declare class GpuixRenderer {
   /** Enable the window key events requested by the React renderer. */
   setWindowKeyEvents(keyDown: boolean, keyUp: boolean, eventId: number): void
   blur(): void
+  /** Enable the window selectionChange event requested by the React renderer. */
+  setWindowSelectionChange(enabled: boolean, eventId: number): void
   /** The current text selection joined in document order, or null. */
   getSelectedText(): string | null
   /** Drop the current selection and request a repaint. */
@@ -245,6 +247,7 @@ export declare class TestGpuixRenderer {
   focusNextWithin(elementId: number): void
   focusPreviousWithin(elementId: number): void
   setWindowKeyEvents(keyDown: boolean, keyUp: boolean, eventId: number): void
+  setWindowSelectionChange(enabled: boolean, eventId: number): void
   /**
    * Simulate a mouse down event at the given window coordinates.
    * Button: 0=left, 1=middle, 2=right. Defaults to left (0).
@@ -515,7 +518,8 @@ export interface EventPayload {
    * Element-defined string payload.
    * Populated for: `<diff>` toggleFile (the file path), showMore (the
    * hidden line count), and lineClick (the line text); `<markdown>`
-   * linkClick (the URL).
+   * linkClick (the URL); `selectionChange` (joined selected text, or
+   * absent when the selection is empty).
    */
   value?: string
   /** Line number on the pre-change side. Populated for: `<diff>` lineClick. */
@@ -572,18 +576,6 @@ export interface HighlightRect {
   height: number
 }
 
-/** One extra HTTP header on the feed or download request. */
-export interface UpdaterHeader {
-  name: string
-  value: string
-}
-
-export interface WindowInsets {
-  safeArea: EdgeInsets
-  ime: EdgeInsets
-  effective: EdgeInsets
-}
-
 /**
  * Wayland `wlr-layer-shell` surface options. Linux/Wayland only; ignored on
  * every other platform. When present on `WindowOptions`, the window is opened
@@ -628,6 +620,18 @@ export interface LayerShellOptions {
    * overlay that never takes keyboard focus.
    */
   keyboardInteractivity?: string
+}
+
+/** One extra HTTP header on the feed or download request. */
+export interface UpdaterHeader {
+  name: string
+  value: string
+}
+
+export interface WindowInsets {
+  safeArea: EdgeInsets
+  ime: EdgeInsets
+  effective: EdgeInsets
 }
 
 export interface WindowOptions {
