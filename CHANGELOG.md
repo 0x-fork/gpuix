@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.0
+
+1. **Add a window-level `onSelectionChange` callback** so React apps can react when the text selection changes.
+
+   Pass it to `render()` or `createRoot()`, the same way as `onKeyDown`. The payload is a normal `EventPayload`. `value` is the joined selected text, or omitted when the selection is empty.
+
+   ```tsx
+   render(<App />, {
+     onSelectionChange(event) {
+       setCopied(event.value ?? '')
+     },
+   })
+   ```
+
+   The event fires once per real change, including a clear. An unchanged frame does not fire.
+
+2. **Fix a live-window panic on ordinary mouse clicks and text-selection drags.** A physical left click aborted the app with `cannot update GpuixView while it is already being updated`. AppKit dispatches the event with the root view already leased, and GPUIX then nested-updated that same view from the text-selection mouse-up listener.
+
+   A tap now skips drag-end cleanup when no drag was active. Real selection-drag move and end work run after the current GPUI effect cycle, so the root lease is released first.
+
+   Fixes https://github.com/remorses/gpuix/issues/38
+
+3. **Pin `@gpuix/react` and `@gpuix/native` to the same exact version.** GPUIX is still pre-1.0. A new release can break either package. `@gpuix/react` depends on `@gpuix/native` with a version range, so that range can install a newer native binary under an older React package. Add both as direct dependencies and upgrade them together.
+
+   ```bash
+   bun add --exact @gpuix/react @gpuix/native react
+   ```
+
 ## 0.8.0
 
 1. **Expose GPUI accessibility through React `role` and `aria-*` props.** VoiceOver, Accessibility Inspector, and other AX clients can now see labelled controls instead of an empty window. A node is in the platform tree only with both a GPUI id and a role.

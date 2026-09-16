@@ -32,9 +32,15 @@ new tree without recreating the window.
 Install the packages directly when you do not want the example app:
 
 ```bash
-bun add @gpuix/react react
+bun add --exact @gpuix/react @gpuix/native react
 bun add -d @types/react typescript
 ```
+
+**Pin `@gpuix/react` and `@gpuix/native` to the same exact version.** GPUIX is
+still pre-1.0, so a new release can break either package. `@gpuix/react` pulls
+`@gpuix/native` with a version range, and that range can install a newer native
+binary under an older React package. Add both as direct dependencies. Upgrade
+them together.
 
 ### 1. Point TypeScript at the GPUIX JSX types
 
@@ -502,6 +508,9 @@ Event handlers are stored in a JS-side registry keyed by `(elementId, eventType)
 - **`@gpuix/native`** — Rust bindings to GPUI. It publishes napi-rs desktop binaries and a wasm-bindgen browser build, both backed by `GpuixRenderer`, `RetainedTree`, `build_element()`, and `apply_styles()`.
 - **`@gpuix/react`** — React reconciler, event registry, and TypeScript types. Implements the `react-reconciler` host config using the mutation API.
 - **`@gpuix/cli`** — `gpuix new` downloads `example-app/`, sets its published React dependency, and installs it as a standalone project.
+
+Pin `@gpuix/react` and `@gpuix/native` to the **same exact version**. GPUIX is
+still pre-1.0. Breaking changes can land before v1. Upgrade both together.
 
 ## Building
 
