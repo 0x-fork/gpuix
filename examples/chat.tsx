@@ -1137,7 +1137,15 @@ function Header({
         {title}
       </text>
       {turnCount > TURNS.length && (
-        <text style={{ fontSize: 12, fontWeight: 500, color: C.tertiary, flexShrink: 0 }}>
+        <text
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: C.tertiary,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
           {turnCount.toLocaleString('en-US')} messages
         </text>
       )}
