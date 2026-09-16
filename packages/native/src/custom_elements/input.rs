@@ -71,7 +71,6 @@ const TEXTAREA_KEY_CONTEXT: &str = "GpuixTextarea";
 const TEXTAREA_SUBMIT_KEY_CONTEXT: &str = "GpuixTextareaSubmit";
 const CARET_BLINK_MS: u64 = 500;
 const CARET_WIDTH: Pixels = px(2.0);
-const CARET_HEIGHT_RATIO: f32 = 0.75;
 const DRAG_SCROLL_FRAME_MS: u64 = 16;
 const UNDO_COALESCE: Duration = Duration::from_millis(700);
 const UNDO_LIMIT: usize = 200;
@@ -80,11 +79,10 @@ fn caret_visible(ms_since_activity: u64) -> bool {
     (ms_since_activity / CARET_BLINK_MS) % 2 == 0
 }
 
-// Size the bar to cap height, not the line box. Default leading is phi, so a
-// full-height caret sticks out above and below the glyphs. Cap height is about
-// 0.75em; the em square itself still looks taller than the letters.
+// Size the bar to the em square, not the line box. Default leading is phi, so a
+// full-height caret sticks out above and below the glyphs.
 fn caret_rect(origin: Point<Pixels>, line_height: Pixels, font_size: Pixels) -> Bounds<Pixels> {
-    let height = (font_size * CARET_HEIGHT_RATIO).min(line_height);
+    let height = font_size.min(line_height);
     let y_offset = (line_height - height) / 2.;
     Bounds::new(
         point(origin.x, origin.y + y_offset),
@@ -2038,8 +2036,8 @@ mod tests {
     #[test]
     fn caret_matches_the_font_size_inside_the_line() {
         let bounds = caret_rect(point(px(10.0), px(4.0)), px(20.0), px(16.0));
-        assert_eq!(bounds.origin, point(px(10.0), px(8.0)));
-        assert_eq!(bounds.size, size(px(2.0), px(12.0)));
+        assert_eq!(bounds.origin, point(px(10.0), px(6.0)));
+        assert_eq!(bounds.size, size(px(2.0), px(16.0)));
         assert_eq!(
             caret_rect(point(px(0.0), px(0.0)), px(20.0), px(40.0))
                 .size
