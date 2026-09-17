@@ -122,6 +122,22 @@ describe("TestGpuixRenderer availability", () => {
       )
     }
   })
+
+  it("rejects invalid options through the production promise bridge", async () => {
+    const native = createRequire(import.meta.url)("@gpuix/native") as {
+      GpuixRenderer: new () => {
+        promptForPaths(options: {
+          files: boolean
+          directories: boolean
+        }): Promise<string[] | null>
+      }
+    }
+    const renderer = new native.GpuixRenderer()
+
+    await expect(
+      renderer.promptForPaths({ files: false, directories: false })
+    ).rejects.toThrow("requires files or directories")
+  })
 })
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
@@ -142,6 +158,23 @@ describeNative("render()", () => {
     renderer.flush()
     expect(renderer.getAllText()).toEqual(["two"])
     expect(ignored.getAllText()).toEqual([])
+  })
+
+  it("resolves null when a path prompt is cancelled", async () => {
+    await expect(
+      renderer.promptForPaths({
+        files: true,
+        directories: false,
+        multiple: true,
+        prompt: "Import",
+      })
+    ).resolves.toBeNull()
+  })
+
+  it("rejects a path prompt that selects nothing", async () => {
+    await expect(
+      renderer.promptForPaths({ files: false, directories: false })
+    ).rejects.toThrow("requires files or directories")
   })
 
     it("replaces painted text when the entry is evaluated again", () => {

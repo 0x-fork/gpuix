@@ -102,6 +102,7 @@ export type {
   MotionTransition,
   NativeRenderer,
   NativeWindowInsets,
+  PathPromptOptions,
   Props,
   PublicInstance,
   StyleDesc,

@@ -613,6 +613,17 @@ export interface ElementBounds {
   height: number
 }
 
+export interface PathPromptOptions {
+  /** Select files. Defaults to true unless `directories` is true. */
+  files?: boolean
+  /** Select directories. Defaults to false. */
+  directories?: boolean
+  /** Allow several paths. Defaults to false. */
+  multiple?: boolean
+  /** Label for the picker confirmation button. */
+  prompt?: string
+}
+
 /// Native renderer transport. React sends one atomic batch per commit.
 export interface NativeRenderer {
   /** Apply one React commit. Returns every element id destroyed by the batch. */
@@ -667,6 +678,8 @@ export interface NativeRenderer {
   getWindowSize?(): { width: number; height: number }
   getWindowInsets?(): NativeWindowInsets
   setWindowTitle?(title: string): void
+  /** Open the platform path picker. Resolves null when the user cancels. */
+  promptForPaths?(options?: PathPromptOptions): Promise<string[] | null>
   /** Bring the window forward and focus it. Reveals a `show: false` window. */
   activateWindow?(): void
   setDebugFrameOverlay?(mode: DebugFrameOverlayMode): string

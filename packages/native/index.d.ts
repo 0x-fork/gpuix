@@ -83,6 +83,8 @@ export declare class GpuixRenderer {
    */
   activateWindow(): void
   setWindowTitle(title: string): void
+  /** Open the platform path picker. Returns null when the user cancels. */
+  promptForPaths(options?: PathPromptOptions | undefined | null): Promise<Array<string> | null>
   focusElement(elementId: number): void
   /** Move focus to the next GPUI tab stop. */
   focusNext(): void
@@ -243,6 +245,7 @@ export declare class TestGpuixRenderer {
   focusElement(id: number): void
   focusNext(): void
   focusPrevious(): void
+  promptForPaths(options?: PathPromptOptions | undefined | null): Promise<Array<string> | null>
   getFocusedElementId(): number | null
   focusNextWithin(elementId: number): void
   focusPreviousWithin(elementId: number): void
@@ -620,6 +623,17 @@ export interface LayerShellOptions {
    * overlay that never takes keyboard focus.
    */
   keyboardInteractivity?: string
+}
+
+export interface PathPromptOptions {
+  /** Select files. Defaults to true unless `directories` is true. */
+  files?: boolean
+  /** Select directories. Defaults to false. */
+  directories?: boolean
+  /** Allow several paths. Defaults to false. */
+  multiple?: boolean
+  /** Label for the picker confirmation button. */
+  prompt?: string
 }
 
 /** One extra HTTP header on the feed or download request. */

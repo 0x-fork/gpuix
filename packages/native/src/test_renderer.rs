@@ -23,7 +23,7 @@ use crate::element_tree::EventPayload;
 use crate::renderer::{
     apply_batch_to_tree, debug_frame_overlay_mode_name, debug_frame_overlay_stats_js,
     parse_debug_frame_overlay_mode, to_element_id, DebugFrameOverlayStats, EventCallback,
-    GpuixView,
+    GpuixView, PathPromptOptions, PromptForPathsTask,
 };
 use crate::retained_tree::RetainedTree;
 
@@ -495,6 +495,17 @@ impl TestGpuixRenderer {
             cx.run_until_parked();
             Ok(())
         })
+    }
+
+    #[napi]
+    pub fn prompt_for_paths(
+        &self,
+        options: Option<PathPromptOptions>,
+    ) -> AsyncTask<PromptForPathsTask> {
+        let receiver = PathPromptOptions::to_gpui(options).and_then(|options| {
+            with_test_state(|cx, _window, _view| Ok(cx.update(|cx| cx.prompt_for_paths(options))))
+        });
+        AsyncTask::new(PromptForPathsTask::new(receiver))
     }
 
     #[napi]

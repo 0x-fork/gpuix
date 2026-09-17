@@ -665,6 +665,41 @@ function Reveal() {
 
 Outside React, call it on the renderer that `createRenderer()` returned.
 
+### File picker
+
+`promptForPaths()` opens the operating system's file picker. It resolves with
+the selected absolute paths, or `null` when the user cancels.
+
+```tsx
+import { useGpuixRequired } from '@gpuix/react'
+
+function AttachFiles() {
+  const renderer = useGpuixRequired()
+
+  const attach = async () => {
+    const paths = await renderer.promptForPaths?.({
+      files: true,
+      multiple: true,
+      prompt: 'Attach',
+    })
+    if (paths) console.log(paths)
+  }
+
+  return <div onClick={attach}>Attach files</div>
+}
+```
+
+With no options, the picker selects one file. Set `directories: true` to select
+directories instead. macOS can select files and directories in one prompt;
+Windows and Linux require one kind per prompt. Invalid options and platform
+picker failures reject. The browser method rejects because browsers return
+`File` objects, not operating-system paths. An injected custom renderer can
+omit this optional capability.
+
+On the current Windows GPUI backend, the system dialog does not distinguish
+cancellation from other `IFileDialog::Show` errors, so both resolve with
+`null`. This needs a fix in GPUI before GPUIX can report those errors.
+
 | Platform | `focus: false` | `show: false` |
 |---|---|---|
 | macOS | window orders in front without becoming key, like `open -g` | honored |

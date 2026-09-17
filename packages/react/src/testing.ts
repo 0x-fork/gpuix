@@ -19,6 +19,7 @@ import type {
   ElementBounds,
   HighlightMatch,
   NativeRenderer,
+  PathPromptOptions,
   WindowKeyEventHandlers,
 } from "./types/host.js"
 import { createRoot, flushSync, type Root } from "./reconciler/reconciler.js"
@@ -31,6 +32,7 @@ export {
 export type { MacCpuThrottle } from "./cpu-throttle.js"
 
 interface NativeTestRendererApi extends NativeRenderer {
+  promptForPaths(options?: PathPromptOptions): Promise<string[] | null>
   flush(): void
   drainEvents(): EventPayload[]
   simulateKeystrokes(keystrokes: string): void
@@ -170,6 +172,7 @@ export class TestRenderer implements NativeRenderer {
   readonly applyBatch: NativeRenderer["applyBatch"]
   readonly focusNext: () => void
   readonly focusPrevious: () => void
+  readonly promptForPaths: NonNullable<NativeRenderer["promptForPaths"]>
   readonly setWindowSelectionChange: NativeRenderer["setWindowSelectionChange"]
   readonly setWindowKeyEvents: (
     keyDown: boolean,
@@ -187,6 +190,7 @@ export class TestRenderer implements NativeRenderer {
     this.applyBatch = this.native.applyBatch.bind(this.native)
     this.focusNext = this.native.focusNext.bind(this.native)
     this.focusPrevious = this.native.focusPrevious.bind(this.native)
+    this.promptForPaths = this.native.promptForPaths.bind(this.native)
     this.setWindowKeyEvents = this.native.setWindowKeyEvents.bind(this.native)
     this.setWindowSelectionChange = this.native.setWindowSelectionChange.bind(
       this.native

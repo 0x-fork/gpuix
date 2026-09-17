@@ -12,6 +12,8 @@
 //!     if (!renderer.tick()) process.exit(0)
 //!     setTimeout(loop, 8)
 //!   })
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use futures::channel::oneshot;
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
 use futures::{channel::mpsc, StreamExt as _};
 use gpui::AppContext as _;
@@ -19,6 +21,8 @@ use gpui::AppContext as _;
 use napi::bindgen_prelude::*;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use napi::JsDeferred;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi_derive::napi;
 use std::cell::RefCell;
@@ -379,6 +383,10 @@ enum UiCommand {
     Invalidate,
     ActivateWindow,
     SetWindowTitle(String),
+    PromptForPaths {
+        options: gpui::PathPromptOptions,
+        deferred: PathPromptDeferred,
+    },
     SetDebugFrameOverlay(gpui::DebugFrameOverlayMode),
     CycleDebugFrameOverlay {
         response: SyncSender<String>,
@@ -484,6 +492,12 @@ async fn run_ui_commands(
                 cx.notify();
                 window.refresh();
             }),
+            UiCommand::PromptForPaths { options, deferred } => {
+                let background_executor = cx.background_executor().clone();
+                let receiver = cx.update(|cx| cx.prompt_for_paths(options));
+                settle_path_prompt(background_executor, receiver, deferred);
+                Ok(())
+            }
             UiCommand::SetDebugFrameOverlay(mode) => {
                 window.update(cx, move |_view, window, _cx| {
                     window.set_debug_frame_overlay_mode(mode);
@@ -854,6 +868,63 @@ impl GpuixRenderer {
             .ok_or_else(|| Error::from_reason("GPUI application is not initialized"))?
             .unbounded_send(command)
             .map_err(|_| Error::from_reason("The GPUI UI thread is not running"))
+    }
+
+    fn begin_path_prompt(&self, options: gpui::PathPromptOptions, deferred: PathPromptDeferred) {
+        #[cfg(target_os = "macos")]
+        {
+            let prompt = GPUI_APP.with(|app| {
+                let app = app.borrow();
+                let app = app
+                    .as_ref()
+                    .ok_or_else(|| Error::from_reason("GPUI application is not initialized"))?;
+                Ok(app.update(|cx| {
+                    (
+                        cx.background_executor().clone(),
+                        cx.prompt_for_paths(options),
+                    )
+                }))
+            });
+            match prompt {
+                Ok((background_executor, receiver)) => {
+                    settle_path_prompt(background_executor, receiver, deferred)
+                }
+                Err(error) => deferred.reject(error),
+            }
+            return;
+        }
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            if !self.ui_running.load(Ordering::Acquire) {
+                deferred.reject(Error::from_reason("The GPUI UI thread is not running"));
+                return;
+            }
+            let sender = self.ui_commands.lock().unwrap().as_ref().cloned();
+            let Some(sender) = sender else {
+                deferred.reject(Error::from_reason("GPUI application is not initialized"));
+                return;
+            };
+            if let Err(error) =
+                sender.unbounded_send(UiCommand::PromptForPaths { options, deferred })
+            {
+                if let UiCommand::PromptForPaths { deferred, .. } = error.into_inner() {
+                    deferred.reject(Error::from_reason("The GPUI UI thread is not running"));
+                }
+            }
+            return;
+        }
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        {
+            let _ = options;
+            deferred.reject(Error::from_reason("Unsupported operating system"));
+        }
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
@@ -1532,6 +1603,21 @@ impl GpuixRenderer {
         Err(Error::from_reason(
             "The production GPUIX renderer does not support this operating system",
         ))
+    }
+
+    /// Open the platform path picker. Returns null when the user cancels.
+    #[napi(ts_return_type = "Promise<Array<string> | null>")]
+    pub fn prompt_for_paths<'env>(
+        &self,
+        env: &'env Env,
+        options: Option<PathPromptOptions>,
+    ) -> Result<Object<'env>> {
+        let (deferred, promise): (PathPromptDeferred, Object<'env>) = env.create_deferred()?;
+        match PathPromptOptions::to_gpui(options) {
+            Ok(options) => self.begin_path_prompt(options, deferred),
+            Err(error) => deferred.reject(error),
+        }
+        Ok(promise)
     }
 
     #[napi]
@@ -2598,6 +2684,13 @@ impl WebGpuixRenderer {
             view.window_title = title;
             cx.notify();
         })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = promptForPaths)]
+    pub fn prompt_for_paths(&self, _options: wasm_bindgen::JsValue) -> js_sys::Promise {
+        js_sys::Promise::reject(
+            &js_sys::Error::new("promptForPaths is not supported on the web").into(),
+        )
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = focusElement)]
@@ -5809,6 +5902,128 @@ pub fn apply_batch_to_tree(tree: &mut RetainedTree, bytes: &[u8]) -> BatchResult
 
 // ── Types ────────────────────────────────────────────────────────────
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+type PathPromptReceiver = oneshot::Receiver<anyhow::Result<Option<Vec<std::path::PathBuf>>>>;
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+type PathPromptResolver = Box<dyn FnOnce(Env) -> Result<Option<Vec<String>>> + Send>;
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+type PathPromptDeferred = JsDeferred<Option<Vec<String>>, PathPromptResolver>;
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn path_prompt_result(
+    result: anyhow::Result<Option<Vec<std::path::PathBuf>>>,
+) -> Result<Option<Vec<String>>> {
+    result
+        .map_err(|error| Error::from_reason(error.to_string()))?
+        .filter(|paths| !paths.is_empty())
+        .map(|paths| {
+            paths
+                .into_iter()
+                .map(|path| {
+                    path.into_os_string()
+                        .into_string()
+                        .map_err(|_| Error::from_reason("The selected path is not valid Unicode"))
+                })
+                .collect()
+        })
+        .transpose()
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn settle_path_prompt(
+    executor: gpui::BackgroundExecutor,
+    receiver: PathPromptReceiver,
+    deferred: PathPromptDeferred,
+) {
+    executor
+        .spawn(async move {
+            let result = receiver
+                .await
+                .map_err(|_| Error::from_reason("The path prompt closed without a result"))
+                .and_then(path_prompt_result);
+            match result {
+                Ok(paths) => deferred.resolve(Box::new(move |_env| Ok(paths))),
+                Err(error) => deferred.reject(error),
+            }
+        })
+        .detach();
+}
+
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
+pub struct PathPromptOptions {
+    /// Select files. Defaults to true unless `directories` is true.
+    pub files: Option<bool>,
+    /// Select directories. Defaults to false.
+    pub directories: Option<bool>,
+    /// Allow several paths. Defaults to false.
+    pub multiple: Option<bool>,
+    /// Label for the picker confirmation button.
+    pub prompt: Option<String>,
+}
+
+impl PathPromptOptions {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    pub(crate) fn to_gpui(options: Option<Self>) -> Result<gpui::PathPromptOptions> {
+        let options = options.unwrap_or_default();
+        let directories = options.directories.unwrap_or(false);
+        let files = options.files.unwrap_or(!directories);
+        if !files && !directories {
+            return Err(Error::from_reason(
+                "promptForPaths requires files or directories",
+            ));
+        }
+        if files && directories && !cfg!(target_os = "macos") {
+            return Err(Error::from_reason(
+                "Selecting files and directories together is only supported on macOS",
+            ));
+        }
+        Ok(gpui::PathPromptOptions {
+            files,
+            directories,
+            multiple: options.multiple.unwrap_or(false),
+            prompt: options.prompt.map(Into::into),
+        })
+    }
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub struct PromptForPathsTask {
+    receiver: Option<Result<PathPromptReceiver>>,
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+impl PromptForPathsTask {
+    pub(crate) fn new(receiver: Result<PathPromptReceiver>) -> Self {
+        Self {
+            receiver: Some(receiver),
+        }
+    }
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+#[napi]
+impl Task for PromptForPathsTask {
+    type Output = Option<Vec<String>>;
+    type JsValue = Option<Vec<String>>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let receiver = self
+            .receiver
+            .take()
+            .ok_or_else(|| Error::from_reason("Path prompt was already awaited"))??;
+        let result = futures::executor::block_on(receiver)
+            .map_err(|_| Error::from_reason("The path prompt closed without a result"))?;
+        path_prompt_result(result)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
 #[derive(Debug, Clone)]
 #[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), napi(object))]
 pub struct WindowSize {
@@ -6489,6 +6704,65 @@ mod batch_tests {
         apply(&mut tree, r#"[["destroyElement",1]]"#).expect("valid batch");
         tree.styles.sweep();
         assert_eq!(tree.styles.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod path_prompt_options_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_to_one_file_and_maps_directory_prompts() {
+        let defaults = PathPromptOptions::to_gpui(None).expect("default prompt");
+        assert!(defaults.files);
+        assert!(!defaults.directories);
+        assert!(!defaults.multiple);
+        assert!(defaults.prompt.is_none());
+
+        let directories = PathPromptOptions::to_gpui(Some(PathPromptOptions {
+            directories: Some(true),
+            multiple: Some(true),
+            prompt: Some("Choose folder".to_string()),
+            ..PathPromptOptions::default()
+        }))
+        .expect("directory prompt");
+        assert!(!directories.files);
+        assert!(directories.directories);
+        assert!(directories.multiple);
+        assert_eq!(directories.prompt.as_deref(), Some("Choose folder"));
+    }
+
+    #[test]
+    fn rejects_a_prompt_that_selects_nothing() {
+        let error = PathPromptOptions::to_gpui(Some(PathPromptOptions {
+            files: Some(false),
+            directories: Some(false),
+            ..PathPromptOptions::default()
+        }))
+        .expect_err("an empty path prompt must fail");
+        assert!(error.reason.contains("requires files or directories"));
+    }
+
+    #[test]
+    fn mixed_selection_matches_platform_support() {
+        let result = PathPromptOptions::to_gpui(Some(PathPromptOptions {
+            files: Some(true),
+            directories: Some(true),
+            ..PathPromptOptions::default()
+        }));
+        if cfg!(target_os = "macos") {
+            assert!(result.is_ok());
+        } else {
+            assert!(result
+                .expect_err("mixed selection must fail")
+                .reason
+                .contains("only supported on macOS"));
+        }
+    }
+
+    #[test]
+    fn an_empty_platform_selection_is_cancellation() {
+        assert_eq!(path_prompt_result(Ok(Some(Vec::new()))).unwrap(), None);
     }
 }
 
