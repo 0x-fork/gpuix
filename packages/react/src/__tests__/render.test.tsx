@@ -138,6 +138,27 @@ describe("TestGpuixRenderer availability", () => {
       renderer.promptForPaths({ files: false, directories: false })
     ).rejects.toThrow("requires files or directories")
   })
+
+  it("exports desktop window controls through the production renderer", () => {
+    const native = createRequire(import.meta.url)("@gpuix/native") as {
+      GpuixRenderer: new () => {
+        minimizeWindow(): void
+        zoomWindow(): void
+        toggleFullscreen(): void
+      }
+    }
+    const renderer = new native.GpuixRenderer()
+
+    for (const control of [
+      renderer.minimizeWindow,
+      renderer.zoomWindow,
+      renderer.toggleFullscreen,
+    ]) {
+      expect(() => control.call(renderer)).toThrow(
+        /GPUI (window|application) is not initialized/
+      )
+    }
+  })
 })
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip

@@ -1187,6 +1187,7 @@ belong in README. This list is only the remaining engineering work.
 - [x] `highlight` prop: search matches and explicit ranges
 - [x] Headless Select, Combobox, Tooltip
 - [x] `setWindowTitle`
+- [x] Native window controls (`minimizeWindow`, `zoomWindow`, `toggleFullscreen`)
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)
 - [x] macOS menu bar (`crate::app_menu`, `appName`)
 - [x] Background launch (`focus`, `show`, `activateWindow`)
@@ -1207,7 +1208,7 @@ belong in README. This list is only the remaining engineering work.
 
 #### Low Priority
 
-- [ ] **Window controls** - resize, minimize (title already works)
+- [ ] **Window resize** - expose GPUI's runtime resize API
 - [ ] **Multiple windows** - Support multiple GPUI windows
 - [x] **JS remount** - `render()` plus `bun --hot` remounts the React tree on the same window
 - [x] **React Refresh in the browser** - `bun run web` keeps `useState` across saves

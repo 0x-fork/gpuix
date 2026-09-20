@@ -665,6 +665,29 @@ function Reveal() {
 
 Outside React, call it on the renderer that `createRenderer()` returned.
 
+### Window controls
+
+The desktop renderer exposes GPUI's native minimize, zoom, and fullscreen
+operations. Reach them through `useGpuixRequired()` or the renderer returned by
+`createRenderer()`.
+
+```tsx
+function WindowControls() {
+  const renderer = useGpuixRequired()
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <div onClick={() => renderer.minimizeWindow?.()}>Minimize</div>
+      <div onClick={() => renderer.zoomWindow?.()}>Zoom</div>
+      <div onClick={() => renderer.toggleFullscreen?.()}>Fullscreen</div>
+    </div>
+  )
+}
+```
+
+`minimizeWindow()`, `zoomWindow()`, and `toggleFullscreen()` work on macOS,
+Windows, Linux, and FreeBSD. `zoomWindow()` uses the platform's native zoom or
+maximize operation. These methods are not available in the browser renderer.
+
 ### File picker
 
 `promptForPaths()` opens the operating system's file picker. It resolves with
@@ -3126,6 +3149,7 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [x] Headless Select, Combobox, and Tooltip
 - [x] Native `hover` and `active` styles
 - [x] Window title (`setWindowTitle`)
+- [x] Native window controls (`minimizeWindow`, `zoomWindow`, `toggleFullscreen`)
 - [x] Window chrome (`titlebarTransparent`, `windowBackground`, traffic-light position)
 - [x] macOS menu bar with the standard shortcuts (`appName`)
 - [ ] App-declared menus and menu callbacks

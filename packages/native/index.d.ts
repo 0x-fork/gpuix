@@ -82,6 +82,12 @@ export declare class GpuixRenderer {
    * with `show: false` or `focus: false` is revealed later.
    */
   activateWindow(): void
+  /** Minimize the native window. */
+  minimizeWindow(): void
+  /** Run the native zoom or maximize operation. */
+  zoomWindow(): void
+  /** Enter or exit native fullscreen. */
+  toggleFullscreen(): void
   setWindowTitle(title: string): void
   /** Open the platform path picker. Returns null when the user cancels. */
   promptForPaths(options?: PathPromptOptions | undefined | null): Promise<Array<string> | null>

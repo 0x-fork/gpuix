@@ -682,6 +682,12 @@ export interface NativeRenderer {
   promptForPaths?(options?: PathPromptOptions): Promise<string[] | null>
   /** Bring the window forward and focus it. Reveals a `show: false` window. */
   activateWindow?(): void
+  /** Minimize the native desktop window. */
+  minimizeWindow?(): void
+  /** Run the native desktop zoom or maximize operation. */
+  zoomWindow?(): void
+  /** Enter or exit native desktop fullscreen. */
+  toggleFullscreen?(): void
   setDebugFrameOverlay?(mode: DebugFrameOverlayMode): string
   getDebugFrameOverlay?(): string
   cycleDebugFrameOverlay?(): string
