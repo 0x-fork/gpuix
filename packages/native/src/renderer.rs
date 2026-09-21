@@ -3247,6 +3247,22 @@ struct HighlightCacheEntry {
     reported: Option<u64>,
 }
 
+fn emit_motion_settled(
+    callback: &Option<EventCallback>,
+    tree: &crate::retained_tree::RetainedTree,
+    ids: &[u64],
+) {
+    for &id in ids {
+        let Some(element) = tree.elements.get(&id) else {
+            continue;
+        };
+        if !element.events.contains("motionComplete") {
+            continue;
+        }
+        emit_event_full(callback, id, "motionComplete", |_| {});
+    }
+}
+
 fn emit_highlight_events(callback: &Option<EventCallback>, events: &[(u64, usize)]) {
     for &(id, total) in events {
         emit_event_full(callback, id, "highlight", |payload| {
@@ -3501,6 +3517,7 @@ impl GpuixView {
         let callback = self.event_callback.clone();
         let now = self.clock.now();
         let mut motion_active = false;
+        let mut motion_settled = Vec::new();
         let mut highlight_events = Vec::new();
 
         // Re-resolve against the tree as it is NOW. gpui calls this during
@@ -3537,6 +3554,7 @@ impl GpuixView {
             motion_states: &mut self.motion_states,
             now,
             motion_active: &mut motion_active,
+            motion_settled: &mut motion_settled,
             selection: self.selection.clone(),
             inherited,
             highlights: &mut self.highlights,
@@ -3544,6 +3562,7 @@ impl GpuixView {
         };
         let child = build_element(expected_child_id, &mut build_ctx, window, cx);
         emit_highlight_events(&callback, &highlight_events);
+        emit_motion_settled(&callback, &tree, &motion_settled);
         if motion_active {
             window.request_animation_frame();
         }
@@ -3661,6 +3680,7 @@ pub(crate) struct BuildCtx<'a> {
     pub motion_states: &'a mut HashMap<u64, crate::motion::MotionState>,
     pub now: web_time::Instant,
     pub motion_active: &'a mut bool,
+    pub motion_settled: &'a mut Vec<u64>,
     pub selection: SharedSelection,
     /// Inherited text state, resolved the way CSS inherits it. The renderer's
     /// own theme only seeds the root selection wash; custom elements resolve
@@ -4353,6 +4373,7 @@ impl gpui::Render for GpuixView {
         let theme = Theme::dark();
         let now = self.clock.now();
         let mut motion_active = false;
+        let mut motion_settled = Vec::new();
         // Pruned by DECLARATION, not existence: an element that drops its
         // `highlight` prop keeps living, and its cached group list holds a copy
         // of every string in its subtree.
@@ -4374,6 +4395,7 @@ impl gpui::Render for GpuixView {
                     motion_states: &mut self.motion_states,
                     now,
                     motion_active: &mut motion_active,
+                    motion_settled: &mut motion_settled,
                     selection: self.selection.clone(),
                     inherited: Inherited::root(&theme),
                     highlights: &mut self.highlights,
@@ -4386,6 +4408,7 @@ impl gpui::Render for GpuixView {
         // Flushed after the root build so a `setState` in the handler cannot
         // re-enter this build.
         emit_highlight_events(&callback, &highlight_events);
+        emit_motion_settled(&callback, &tree, &motion_settled);
         self.emit_selection_change(&callback);
 
         // The frame reset must paint BEFORE any text, so it is the first child of
@@ -4499,6 +4522,9 @@ pub(crate) fn build_element(
         state.is_valid().then(|| {
             let frame = state.frame(ctx.now);
             *ctx.motion_active |= frame.active;
+            if frame.just_settled {
+                ctx.motion_settled.push(id);
+            }
             // `Arc<StyleDesc>` is shared, so the animated frame is applied to a
             // copy. Mutating through the pointer would restyle every element
             // that declared the same style.

@@ -66,6 +66,7 @@ const EVENT_PROPS = [
   ["onLinkClick", "linkClick"],
   ["onVisibleRange", "visibleRange"],
   ["onHighlight", "highlight"],
+  ["onMotionComplete", "motionComplete"],
   ["onChange", "change"],
   ["onSubmit", "submit"],
   // Mouse events

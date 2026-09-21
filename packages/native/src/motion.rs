@@ -122,6 +122,7 @@ struct MotionDescription {
 pub(crate) struct MotionFrame {
     pub style: MotionStyle,
     pub active: bool,
+    pub just_settled: bool,
 }
 
 pub(crate) struct MotionState {
@@ -131,6 +132,7 @@ pub(crate) struct MotionState {
     transition: MotionTransition,
     started: Instant,
     valid: bool,
+    needs_settle: bool,
 }
 
 impl MotionState {
@@ -149,6 +151,7 @@ impl MotionState {
             transition: description.transition,
             started: now,
             valid: true,
+            needs_settle: from != description.animate,
         })
     }
 
@@ -160,6 +163,7 @@ impl MotionState {
             transition: MotionTransition::default(),
             started: now,
             valid: false,
+            needs_settle: false,
         }
     }
 
@@ -181,7 +185,7 @@ impl MotionState {
             }
         };
         self.from = if self.valid {
-            self.frame(now).style
+            self.visible_style(now)
         } else {
             match description.initial {
                 Some(MotionInitial::Style(style)) => style,
@@ -194,26 +198,47 @@ impl MotionState {
         self.started = now;
         self.source = source.clone();
         self.valid = true;
+        self.needs_settle = self.from != self.target;
         Ok(())
     }
 
-    pub(crate) fn frame(&self, now: Instant) -> MotionFrame {
+    fn visible_style(&self, now: Instant) -> MotionStyle {
+        self.sample(now).0
+    }
+
+    fn sample(&self, now: Instant) -> (MotionStyle, bool) {
         let delay = seconds(self.transition.delay);
         let duration = seconds(self.transition.duration);
         let elapsed = now.saturating_duration_since(self.started);
-        let raw = if elapsed <= delay {
+        let raw = if duration.is_zero() {
+            if elapsed < delay {
+                0.0
+            } else {
+                1.0
+            }
+        } else if elapsed <= delay {
             0.0
-        } else if duration.is_zero() {
-            1.0
         } else {
             elapsed.saturating_sub(delay).as_secs_f64() / duration.as_secs_f64()
         };
         let active = self.from != self.target && raw < 1.0;
         let progress = ease(raw.clamp(0.0, 1.0), &self.transition.ease);
+        (self.from.interpolate(self.target, progress), active)
+    }
 
+    pub(crate) fn frame(&mut self, now: Instant) -> MotionFrame {
+        let (style, active) = self.sample(now);
+        if active {
+            self.needs_settle = true;
+        }
+        let just_settled = self.needs_settle && !active;
+        if just_settled {
+            self.needs_settle = false;
+        }
         MotionFrame {
-            style: self.from.interpolate(self.target, progress),
+            style,
             active,
+            just_settled,
         }
     }
 }
@@ -353,6 +378,7 @@ mod tests {
         let middle = state.frame(started + Duration::from_millis(500));
         assert_eq!(middle.style.width, Some(50.0));
         assert!(middle.active);
+        assert!(!middle.just_settled);
 
         let reversed = serde_json::json!({
             "initial": false,
@@ -383,6 +409,7 @@ mod tests {
 
         assert_eq!(frame.style.width, Some(260.0));
         assert!(!frame.active);
+        assert!(!frame.just_settled);
     }
 
     #[test]
@@ -406,10 +433,35 @@ mod tests {
             "animate": { "width": 100.0 },
             "transition": { "duration": 0.2, "ease": "linear" }
         });
-        let state = MotionState::new(&description, started).unwrap();
+        let mut state = MotionState::new(&description, started).unwrap();
         let frame = state.frame(started + Duration::from_millis(200));
 
         assert_eq!(frame.style.width, Some(100.0));
         assert!(!frame.active);
+        assert!(frame.just_settled);
+        assert!(!state.frame(started + Duration::from_millis(201)).just_settled);
+    }
+
+    #[test]
+    fn retarget_with_zero_duration_settles_on_the_next_frame() {
+        let started = Instant::now();
+        let initial = serde_json::json!({
+            "initial": false,
+            "animate": { "opacity": 1.0 },
+            "transition": { "duration": 0.2, "ease": "linear" }
+        });
+        let mut state = MotionState::new(&initial, started).unwrap();
+        assert!(!state.frame(started).just_settled);
+
+        let exit = serde_json::json!({
+            "initial": false,
+            "animate": { "opacity": 0.0 },
+            "transition": { "duration": 0.0, "ease": "linear" }
+        });
+        state.sync(&exit, started).unwrap();
+        let frame = state.frame(started);
+        assert_eq!(frame.style.opacity, Some(0.0));
+        assert!(!frame.active);
+        assert!(frame.just_settled);
     }
 }

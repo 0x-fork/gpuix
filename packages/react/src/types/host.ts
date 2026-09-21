@@ -32,6 +32,8 @@ export interface MotionTransition {
 export interface MotionProps {
   initial?: MotionStyle | false
   animate: MotionStyle
+  /** Target applied while this node is leaving `AnimatePresence`. */
+  exit?: MotionStyle
   transition?: MotionTransition
 }
 
@@ -419,6 +421,8 @@ export interface Props {
   onVisibleRange?: (event: EventPayload) => void
   /** Match count changed for this element's `highlight`. See `matchCount`. */
   onHighlight?: (event: EventPayload) => void
+  /** A native `motion` track reached its current target. */
+  onMotionComplete?: (event: EventPayload) => void
 
   // ── Highlight ──────────────────────────────────────────────────
   /**
