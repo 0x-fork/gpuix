@@ -1,4 +1,4 @@
-import type { MutationRenderer, NativeRenderer } from "./host.js"
+import type { MutationHost, MutationRenderer } from "./host.js"
 
 export type MutationValue = number | string | boolean | object | null
 export type MutationTuple = [string, ...MutationValue[]]
@@ -9,7 +9,7 @@ export interface MutationQueue extends MutationRenderer {
 }
 
 export function createMutationQueue(
-  renderer: NativeRenderer,
+  renderer: MutationHost,
   onDestroyed: (ids: readonly number[]) => void = () => {},
   scheduleFlush?: (flush: () => void) => void
 ): MutationQueue {

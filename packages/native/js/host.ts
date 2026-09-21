@@ -1,4 +1,22 @@
-import type { EventPayload } from "../index.js"
+import type {
+  DebugFrameOverlayStats,
+  EdgeInsets,
+  ElementBounds,
+  EventPayload,
+  GpuixRenderer,
+  HighlightMatch,
+  PathPromptOptions,
+  WindowInsets as NativeWindowInsets,
+} from "../index.js"
+
+export type {
+  DebugFrameOverlayStats,
+  EdgeInsets,
+  ElementBounds,
+  HighlightMatch,
+  NativeWindowInsets,
+  PathPromptOptions,
+}
 
 export * from "./host-runtime.js"
 export * from "./mutations.js"
@@ -358,20 +376,6 @@ export interface HighlightSpec {
   radius?: number
 }
 
-/** One highlight wash painted in the last frame. Test-facing. */
-export interface HighlightMatch {
-  elementId: number
-  /** Index of the run within that element. 0 for a plain `<text>`. */
-  sub: number
-  /** The run's full string, so `text.slice(start, end)` is the match. */
-  text: string
-  start: number
-  end: number
-  active: boolean
-  /** One box per visual row, so a soft-wrapped match has two. */
-  rects: Array<{ x: number; y: number; width: number; height: number }>
-}
-
 // Props passed to elements.
 // Element IDs are auto-generated numeric IDs (not user-settable).
 // Framework adapters add their own children, key, and ref fields.
@@ -603,94 +607,47 @@ export interface AnchoredProps extends HostProps {
   occlude?: boolean
 }
 
-export interface ElementBounds {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export interface PathPromptOptions {
-  /** Select files. Defaults to true unless `directories` is true. */
-  files?: boolean
-  /** Select directories. Defaults to false. */
-  directories?: boolean
-  /** Allow several paths. Defaults to false. */
-  multiple?: boolean
-  /** Label for the picker confirmation button. */
-  prompt?: string
-}
-
-/// Native renderer transport. Framework adapters send atomic mutation batches.
-export interface NativeRenderer {
-  /** Apply one commit. Returns every element id destroyed by the batch. */
-  applyBatch(json: string): Array<number>
-
-  // ── Focus API ──────────────────────────────────────────────────
-  focusElement?(elementId: number): void
-  focusNext?(): void
-  focusPrevious?(): void
-  /** Host id of the focused element, or null when nothing is focused. */
-  getFocusedElementId?(): number | null
-  /** Next tab stop inside `elementId`, wrapping in that subtree. */
-  focusNextWithin?(elementId: number): void
-  /** Previous tab stop inside `elementId`, wrapping in that subtree. */
-  focusPreviousWithin?(elementId: number): void
-  blur?(): void
-  setWindowKeyEvents?(keyDown: boolean, keyUp: boolean, eventId: number): void
-  setWindowSelectionChange?(enabled: boolean, eventId: number): void
-
-  // ── Bounds API ─────────────────────────────────────────────────
-  /** Last painted box, or null if the node did not paint. */
-  getElementBounds?(elementId: number): ElementBounds | null
-
-  // ── Scroll API ─────────────────────────────────────────────────
-  /** Set the scroll offset of a scrollable element (overflow: "scroll").
-   *  x and y are negative pixel values (scroll down = more negative y). */
-  scrollTo?(elementId: number, x: number, y: number): void
-  /** Scroll a child into view by its index in the children list.
-   *  `offsetInItem` is in pixels; a negative value anchors the viewport top
-   *  above the item, resolved against measured row heights at layout time. */
-  scrollToItem?(elementId: number, index: number, offsetInItem?: number): void
-  /** Get the current scroll offset [x, y] or null if element is not scrollable. */
-  getScrollOffset?(elementId: number): Array<number> | null
-  /** The logical scroll anchor of a `<virtual-list>`:
-   *  `[itemIndex, offsetInItemPx, viewportHeightPx]`, or null for anything
-   *  else. `itemIndex == item count` is gpui's at-end sentinel. */
-  getListScrollTop?(elementId: number): Array<number> | null
-
-  // ── Selection API ──────────────────────────────────────────────
-  /** The current text selection joined in document order, or null. */
-  getSelectedText?(): string | null
-  /** Drop the current selection. */
-  clearSelection?(): void
-
-  // ── Highlight API ──────────────────────────────────────────────
-  /** Every highlight wash painted in the last frame, in paint order.
-   *  A quad never appears in getPaintedText(), so this is how `highlight`
-   *  is asserted without a screenshot. */
-  getPaintedHighlights?(): HighlightMatch[]
-
-  // ── Window API ─────────────────────────────────────────────────
-  getWindowSize?(): { width: number; height: number }
-  getWindowInsets?(): NativeWindowInsets
-  setWindowTitle?(title: string): void
-  /** Open the platform path picker. Resolves null when the user cancels. */
-  promptForPaths?(options?: PathPromptOptions): Promise<string[] | null>
-  /** Bring the window forward and focus it. Reveals a `show: false` window. */
-  activateWindow?(): void
-  /** Minimize the native desktop window. */
-  minimizeWindow?(): void
-  /** Run the native desktop zoom or maximize operation. */
-  zoomWindow?(): void
-  /** Enter or exit native desktop fullscreen. */
-  toggleFullscreen?(): void
-  setDebugFrameOverlay?(mode: DebugFrameOverlayMode): string
-  getDebugFrameOverlay?(): string
-  cycleDebugFrameOverlay?(): string
-  resetDebugFrameOverlayStats?(): void
-  getDebugFrameOverlayStats?(): DebugFrameOverlayStats
-}
+export type MutationHost = Pick<GpuixRenderer, "applyBatch">
+export type WindowSizeHost = Pick<GpuixRenderer, "getWindowSize">
+export type WindowInsetsHost = Pick<GpuixRenderer, "getWindowInsets">
+export type SelectionHost = Pick<GpuixRenderer, "getSelectedText">
+/** `applyBatch` plus the live renderer methods a host may also expose. */
+export type NativeRenderer = MutationHost &
+  Partial<
+    Pick<
+      GpuixRenderer,
+      | "focusElement"
+      | "focusNext"
+      | "focusPrevious"
+      | "getFocusedElementId"
+      | "focusNextWithin"
+      | "focusPreviousWithin"
+      | "blur"
+      | "setWindowKeyEvents"
+      | "setWindowSelectionChange"
+      | "getElementBounds"
+      | "scrollTo"
+      | "scrollToItem"
+      | "getScrollOffset"
+      | "getListScrollTop"
+      | "getSelectedText"
+      | "clearSelection"
+      | "getPaintedHighlights"
+      | "getWindowSize"
+      | "getWindowInsets"
+      | "setWindowTitle"
+      | "promptForPaths"
+      | "activateWindow"
+      | "minimizeWindow"
+      | "zoomWindow"
+      | "toggleFullscreen"
+      | "setDebugFrameOverlay"
+      | "getDebugFrameOverlay"
+      | "cycleDebugFrameOverlay"
+      | "resetDebugFrameOverlayStats"
+      | "getDebugFrameOverlayStats"
+    >
+  >
 
 /** Commit-phase mutation facade shared by framework adapters. */
 export interface MutationRenderer {
@@ -707,28 +664,6 @@ export interface MutationRenderer {
 }
 
 export type DebugFrameOverlayMode = "hidden" | "minimal" | "full"
-
-export interface EdgeInsets {
-  top: number
-  right: number
-  bottom: number
-  left: number
-}
-
-export interface NativeWindowInsets {
-  safeArea: EdgeInsets
-  ime: EdgeInsets
-  effective: EdgeInsets
-}
-
-export interface DebugFrameOverlayStats {
-  currentMs?: number
-  p90Ms?: number
-  p99Ms?: number
-  maxMs?: number
-  frames: number
-  samples: number
-}
 
 export type EventHandlerMap = Map<
   number,

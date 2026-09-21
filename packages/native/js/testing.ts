@@ -159,12 +159,10 @@ export class TestRenderer implements NativeRenderer {
   readonly focusNext: () => void
   readonly focusPrevious: () => void
   readonly promptForPaths: NonNullable<NativeRenderer["promptForPaths"]>
-  readonly setWindowSelectionChange: NativeRenderer["setWindowSelectionChange"]
-  readonly setWindowKeyEvents: (
-    keyDown: boolean,
-    keyUp: boolean,
-    eventId: number
-  ) => void
+  readonly setWindowSelectionChange: NonNullable<
+    NativeRenderer["setWindowSelectionChange"]
+  >
+  readonly setWindowKeyEvents: NonNullable<NativeRenderer["setWindowKeyEvents"]>
   private readonly dispatchEvent: (event: EventPayload) => void
 
   constructor(options: TestRendererOptions = {}) {

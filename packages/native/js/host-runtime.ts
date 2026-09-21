@@ -5,6 +5,9 @@ import type {
   HostProps,
   NativeRenderer,
   NativeWindowInsets,
+  SelectionHost,
+  WindowInsetsHost,
+  WindowSizeHost,
 } from "./host.js"
 
 export interface WindowSize {
@@ -26,7 +29,9 @@ export interface WindowInsets extends NativeWindowInsets {
 const DEFAULT_WINDOW_SIZE: WindowSize = { width: 800, height: 600 }
 const ZERO_EDGES: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 }
 
-export function readWindowSize(renderer: NativeRenderer | null): WindowSize {
+export function readWindowSize(
+  renderer: WindowSizeHost | NativeRenderer | null
+): WindowSize {
   try {
     const size = renderer?.getWindowSize?.()
     if (size && size.width > 0 && size.height > 0) return { ...size }
@@ -36,7 +41,9 @@ export function readWindowSize(renderer: NativeRenderer | null): WindowSize {
   return DEFAULT_WINDOW_SIZE
 }
 
-export function readWindowInsets(renderer: NativeRenderer | null): WindowInsets {
+export function readWindowInsets(
+  renderer: (WindowSizeHost & WindowInsetsHost) | NativeRenderer | null
+): WindowInsets {
   let size = DEFAULT_WINDOW_SIZE
   let insets: NativeWindowInsets = {
     safeArea: ZERO_EDGES,
@@ -94,7 +101,7 @@ function observe<Value>(
 }
 
 export function observeWindowSize(
-  renderer: NativeRenderer | null,
+  renderer: WindowSizeHost | NativeRenderer | null,
   callback: (size: WindowSize) => void,
   options: ObserverOptions = {}
 ): () => void {
@@ -102,7 +109,7 @@ export function observeWindowSize(
 }
 
 export function observeWindowInsets(
-  renderer: NativeRenderer | null,
+  renderer: (WindowSizeHost & WindowInsetsHost) | NativeRenderer | null,
   callback: (insets: WindowInsets) => void,
   options: ObserverOptions = {}
 ): () => void {
@@ -110,11 +117,11 @@ export function observeWindowInsets(
 }
 
 export function observeSelectedText(
-  renderer: NativeRenderer,
+  renderer: SelectionHost,
   subscribe: (listener: (event: EventPayload) => void) => () => void,
   callback: (text: string | null) => void
 ): () => void {
-  callback(renderer.getSelectedText?.() ?? null)
+  callback(renderer.getSelectedText() ?? null)
   return subscribe((event) => callback(event.value ?? null))
 }
 

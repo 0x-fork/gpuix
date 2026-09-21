@@ -6,10 +6,12 @@ import {
   observeWindowInsets,
   observeWindowSize,
   observeSelectedText,
+  readWindowInsets,
+  readWindowSize,
 } from "../host.js"
-import type { NativeRenderer } from "../host.js"
+import type { MutationHost, WindowInsetsHost, WindowSizeHost } from "../host.js"
 
-class RecordingRenderer implements NativeRenderer {
+class RecordingRenderer implements MutationHost, WindowSizeHost, WindowInsetsHost {
   batches: unknown[][] = []
   fail = false
   width = 320
@@ -35,6 +37,43 @@ class RecordingRenderer implements NativeRenderer {
 }
 
 describe("shared host runtime", () => {
+  it("queues mutations from an applyBatch-only host", () => {
+    const batches: unknown[][] = []
+    const renderer: MutationHost = {
+      applyBatch(json) {
+        batches.push(JSON.parse(json))
+        return []
+      },
+    }
+    const mutations = createMutationQueue(renderer)
+    mutations.createElement(1, "div")
+    mutations.flushMutations()
+    expect(batches).toEqual([[["createElement", 1, "div"]]])
+  })
+
+  it("reads window size from a size-only host", () => {
+    const renderer: WindowSizeHost = {
+      getWindowSize: () => ({ width: 12, height: 8 }),
+    }
+    expect(readWindowSize(renderer)).toEqual({ width: 12, height: 8 })
+  })
+
+  it("reads insets from a size-and-insets host", () => {
+    const renderer: WindowSizeHost & WindowInsetsHost = {
+      getWindowSize: () => ({ width: 100, height: 50 }),
+      getWindowInsets: () => ({
+        safeArea: { top: 1, right: 0, bottom: 0, left: 0 },
+        ime: { top: 0, right: 0, bottom: 10, left: 0 },
+        effective: { top: 1, right: 0, bottom: 10, left: 0 },
+      }),
+    }
+    expect(readWindowInsets(renderer)).toMatchObject({
+      keyboardTop: 40,
+      keyboardVisible: true,
+      visibleHeight: 39,
+    })
+  })
+
   it("retains failed mutations and cleans handlers after success", () => {
     const renderer = new RecordingRenderer()
     const removed: number[] = []

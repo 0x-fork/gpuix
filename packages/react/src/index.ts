@@ -114,6 +114,7 @@ export type {
   MotionProps,
   MotionStyle,
   MotionTransition,
+  MutationHost,
   NativeRenderer,
   NativeWindowInsets,
   PathPromptOptions,
@@ -121,11 +122,14 @@ export type {
   PublicInstance,
   StyleDesc,
   SvgProps,
+  SelectionHost,
   SyntaxTheme,
   TextareaProps,
   VirtualListProps,
+  WindowInsetsHost,
   WindowKeyEventHandler,
   WindowKeyEventHandlers,
+  WindowSizeHost,
 } from "./types/host.js"
 export { handleGpuixEvent } from "./reconciler/event-registry.js"
 export {
