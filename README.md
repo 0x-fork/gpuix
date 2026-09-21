@@ -2620,33 +2620,35 @@ function Waveform({ samples }: { samples: Float32Array }) {
   const img = useRef<ImgInstance>(null)
 
   useLayoutEffect(() => {
-    const canvas = createCanvas(800, 80)
+    const width = 1600
+    const height = 160
+    const canvas = createCanvas(width, height)
     const ctx = canvas.getContext('2d')
     ctx.fillStyle = '#1a1a2e'
-    ctx.fillRect(0, 0, 800, 80)
+    ctx.fillRect(0, 0, width, height)
     ctx.strokeStyle = '#5ca9ff'
+    ctx.lineWidth = 2
     ctx.beginPath()
     for (let x = 0; x < samples.length; x++) {
-      const y = 40 - samples[x]! * 36
+      const y = height / 2 - samples[x]! * (height / 2 - 8)
       if (x === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     }
     ctx.stroke()
-    img.current?.setImage(canvas.toBuffer('image/png'))
+    const { data } = ctx.getImageData(0, 0, width, height)
+    img.current?.setImagePixels(width, height, data)
   }, [samples])
 
   return <img ref={img} objectFit="fill" style={{ width: 800, height: 80 }} />
 }
 ```
 
-A live waveform that already has RGBA should skip PNG:
+`getImageData().data` is packed **RGBA**. That is what `setImagePixels` wants.
+Do not use node-canvas `toBuffer('raw')`. That buffer is BGRA or ARGB, native
+endian, and may include stride padding.
 
-```tsx
-img.current?.setImagePixels(1600, 160, rgbaBytes)
-```
-
-That buffer is **1600x160**. The layout box stays `800x80`. The
-[waveform example](./examples/waveform.tsx) does the same at 2x.
+The [waveform example](./examples/waveform.tsx) writes the same RGBA layout by
+hand, at 2x.
 
 ### `<svg>`
 
