@@ -1,8 +1,8 @@
 # GPUIX
 
-**React** for [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), Zed's GPU UI framework.
+**React and Solid** for [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), Zed's GPU UI framework.
 
-Write a React tree in TypeScript. GPUIX paints it with Metal, DirectX, or Vulkan. No Electron. No web view.
+Write a React or Solid tree in TypeScript. GPUIX paints it with Metal, DirectX, or Vulkan. No Electron. No web view.
 
 `useState` and JSX still apply. Layout, text, and input go through GPUI, not the DOM.
 
@@ -27,6 +27,8 @@ bun run dev
 the running window remounts on save. Click and keyboard handlers switch to the
 new tree without recreating the window.
 
+Using Solid 1 instead? Start with the [Solid quick start](#solid-quick-start).
+
 ### Build from scratch
 
 Install the packages directly when you do not want the example app:
@@ -36,11 +38,11 @@ bun add --exact @gpuix/react @gpuix/native react
 bun add -d @types/react typescript
 ```
 
-**Pin `@gpuix/react` and `@gpuix/native` to the same exact version.** GPUIX is
-still pre-1.0, so a new release can break either package. `@gpuix/react` pulls
+**Pin your adapter and `@gpuix/native` to the same exact version.** GPUIX is
+still pre-1.0, so a new release can break either package. The adapter pulls
 `@gpuix/native` with a version range, and that range can install a newer native
-binary under an older React package. Add both as direct dependencies. Upgrade
-them together.
+binary under an older adapter. Add both as direct dependencies. Upgrade them
+together.
 
 ### 1. Point TypeScript at the GPUIX JSX types
 
@@ -408,11 +410,15 @@ Markdown, code and a virtualized diff in one frame:
 
 ## Architecture
 
-GPUIX bridges React to GPUI using a **mutation-based protocol**. Desktop apps use napi-rs; browser apps load the same Rust renderer through wasm-bindgen. React collects changed elements into one atomic mutation batch per commit. Rust applies that batch to a retained element tree that GPUI reads each frame.
+GPUIX bridges React and Solid to GPUI using a **shared mutation-based runtime**.
+Desktop apps use napi-rs; browser apps load the same Rust renderer through
+wasm-bindgen. Each framework adapter collects changed elements into one atomic
+mutation batch. Rust applies that batch to a retained element tree that GPUI
+reads each frame.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  React (JavaScript)                                             │
+│  React or Solid (JavaScript)                                    │
 │                                                                 │
 │  function App() {                                               │
 │    const [count, setCount] = useState(0)                        │
@@ -454,13 +460,15 @@ GPUIX bridges React to GPUI using a **mutation-based protocol**. Desktop apps us
 
 GPUI is an **immediate-mode** UI framework — it rebuilds the entire element tree every frame. Instead of fighting this, GPUIX embraces it:
 
-1. React reconciler detects a state change and queues host mutations (`createElement`, `setStyle`, `appendChild`, etc.)
+1. The React or Solid adapter detects a state change and queues host mutations (`createElement`, `setStyle`, `appendChild`, etc.)
 2. `applyBatch()` validates and applies the complete commit to the Rust **RetainedTree**
 3. On each GPUI frame, `GpuixView::render()` walks the RetainedTree and calls `build_element()` to produce ephemeral GPUI elements
 4. GPUI lays them out (Taffy flexbox) and renders to the GPU
-5. Only **changed elements** cross the FFI boundary — React's reconciler diffs the virtual tree and sends minimal mutations
+5. Only **changed elements** cross the FFI boundary. The framework adapter sends minimal mutations
 
-This is the same protocol React uses for the DOM (`createElement`, `appendChild`, `removeChild`, `commitUpdate`), but targeting a GPU renderer instead of a browser.
+React and Solid use the same IDs, mutation queue, event routing, testing API,
+automation client, observers, and text-search matcher. Their framework-specific
+schedulers and component contexts stay in the adapter packages.
 
 ## Mutation API
 
@@ -505,12 +513,87 @@ Event handlers are stored in a JS-side registry keyed by `(elementId, eventType)
 
 ## Packages
 
-- **`@gpuix/native`** — Rust bindings to GPUI. It publishes napi-rs desktop binaries and a wasm-bindgen browser build, both backed by `GpuixRenderer`, `RetainedTree`, `build_element()`, and `apply_styles()`.
-- **`@gpuix/react`** — React reconciler, event registry, and TypeScript types. Implements the `react-reconciler` host config using the mutation API.
+- **`@gpuix/native`**: Rust bindings plus the framework-neutral TypeScript host runtime. It owns host types, mutation batching, renderer state, event routing, observers, native testing, and automation.
+- **`@gpuix/native/host`**: host contracts, mutation helpers, renderer ownership, window observers, selection observation, and text search. Importing it does not load the `.node` addon.
+- **`@gpuix/native/testing`**: the shared `TestRenderer` over the real `TestGpuixRenderer`.
+- **`@gpuix/native/automation`**: the shared automation protocol, client, locators, and process launcher.
+- **`@gpuix/react`**: the React reconciler and React components. It preserves its existing exports and re-exports shared testing, automation, search, and observer APIs.
+- **`@gpuix/solid`**: the Solid 1 universal renderer, Solid primitives, motion, Select, Combobox, Tooltip, Bun preload, and build plugin.
 - **`@gpuix/cli`** — `gpuix new` downloads `example-app/`, sets its published React dependency, and installs it as a standalone project.
 
-Pin `@gpuix/react` and `@gpuix/native` to the **same exact version**. GPUIX is
-still pre-1.0. Breaking changes can land before v1. Upgrade both together.
+Pin the selected adapter and `@gpuix/native` to the **same exact version**.
+GPUIX is still pre-1.0. Breaking changes can land before v1. Upgrade them
+together.
+
+### Solid quick start
+
+Install Solid and the official Solid adapter:
+
+```bash
+bun add --exact @gpuix/solid @gpuix/native solid-js
+```
+
+Use Solid's preserved JSX. The preload compiles application `.tsx` and `.jsx`
+files for Solid's universal renderer and selects the reactive client runtime.
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "@gpuix/solid",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  }
+}
+```
+
+```toml
+preload = ["@gpuix/solid/preload"]
+```
+
+```tsx
+import { createSignal } from 'solid-js'
+import { render } from '@gpuix/solid'
+
+function App() {
+  const [count, setCount] = createSignal(0)
+  return (
+    <div style={{ padding: 24, backgroundColor: '#1a1a1a', height: '100%' }}>
+      <div onClick={() => setCount((value) => value + 1)}>
+        <text style={{ color: '#e2e2e2' }}>Count: {count()}</text>
+      </div>
+    </div>
+  )
+}
+
+render(() => <App />, { title: 'Solid GPUIX', width: 800, height: 600 })
+```
+
+Run it directly. No wrapper command or Vite configuration is required.
+
+```bash
+bun app.tsx
+bun --hot app.tsx
+```
+
+For production `Bun.build`, pass the exported plugin:
+
+```ts
+import solidPlugin from '@gpuix/solid/bun-plugin'
+
+await Bun.build({
+  entrypoints: ['./app.tsx'],
+  target: 'bun',
+  outdir: './dist',
+  plugins: [solidPlugin],
+})
+```
+
+`@gpuix/solid` targets stable Solid 1.9. Its peer range is `>=1.9 <2`.
 
 ## Building
 
@@ -540,6 +623,10 @@ bun run build
 
 # Build React package
 cd ../react
+bun run build
+
+# Build Solid package
+cd ../solid
 bun run build
 
 # Run example (use tmux for long-running sessions)
@@ -1067,7 +1154,32 @@ function Toast({ show }: { show: boolean }) {
 
 Give every child a **unique `key`** when more than one child can leave. Set
 **`initial={false}`** on `AnimatePresence` to skip enter on the first paint.
-A child with no `exit` is removed without a tween.
+A child with no `exit` is removed without a tween. Exit still completes when
+the target already matches, when the node is outside a virtual list's painted
+window, or when invalid runtime data makes the native target unusable.
+
+`AnimatePresence` also accepts **`onExitComplete`**, which runs after every
+leaving child is gone. `useIsPresent()` reports whether a custom descendant is
+leaving. `usePresence()` returns the same status plus `safeToRemove`, for a
+custom exit that decides when the retained child can unmount.
+
+```tsx
+import { usePresence } from '@gpuix/react'
+
+function DeferredRemoval() {
+  const [isPresent, safeToRemove] = usePresence()
+
+  return (
+    <div onClick={() => !isPresent && safeToRemove?.()}>
+      <text>{isPresent ? 'Ready' : 'Click to remove'}</text>
+    </div>
+  )
+}
+```
+
+`motion.div` accepts **`onMotionComplete`**. It runs when the current native
+target settles. If React changes the target before an older completion reaches
+JavaScript, the stale completion is ignored.
 
 ### Capture exact frames
 

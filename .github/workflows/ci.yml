@@ -128,6 +128,11 @@ jobs:
         shell: bash
         run: bun run build
 
+      - name: Build Solid package
+        working-directory: packages/solid
+        shell: bash
+        run: bun run build
+
       - name: Compile chat example
         working-directory: examples
         shell: bash
@@ -183,6 +188,10 @@ jobs:
           name: bindings-aarch64-apple-darwin
           path: packages/native/
 
+      - name: Build native shared TypeScript
+        run: bun run build:js
+        working-directory: packages/native
+
       - name: Run React tests
         run: bun run test
         working-directory: packages/react
@@ -190,6 +199,14 @@ jobs:
       - name: Build React package
         run: bun run build
         working-directory: packages/react
+
+      - name: Run Solid tests
+        run: bun run test
+        working-directory: packages/solid
+
+      - name: Build Solid package
+        run: bun run build
+        working-directory: packages/solid
 
       - name: Run example tests
         run: bun run test
@@ -236,14 +253,18 @@ jobs:
           path: packages/native/
 
       - name: Load native binding with Bun
-        run: bun -e "require('./packages/native'); console.log('Windows native binding OK (bun)')"
+        run: bun -e "import('./packages/native/index.js').then(() => console.log('Windows native binding OK (bun)'))"
 
       - name: Load native binding with Node
-        run: node -e "require('./packages/native'); console.log('Windows native binding OK (node)')"
+        run: node -e "import('./packages/native/index.js').then(() => console.log('Windows native binding OK (node)'))"
 
       - name: Verify Windows test renderer
         shell: bash
-        run: bun -e "const { statSync } = require('node:fs'); const { TestGpuixRenderer } = require('./packages/native'); const renderer = new TestGpuixRenderer(320, 200); renderer.applyBatch(JSON.stringify([['createElement',1,'text'],['setText',1,'Windows test renderer'],['setRoot',1]])); renderer.flush(); renderer.captureScreenshot('windows-test-renderer.png'); if (renderer.getAllText()[0] !== 'Windows test renderer' || statSync('windows-test-renderer.png').size === 0) throw new Error('TestGpuixRenderer did not render')"
+        run: bun -e "import { statSync } from 'node:fs'; const { TestGpuixRenderer } = await import('./packages/native/index.js'); const renderer = new TestGpuixRenderer(320, 200); renderer.applyBatch(JSON.stringify([['createElement',1,'text'],['setText',1,'Windows test renderer'],['setRoot',1]])); renderer.flush(); renderer.captureScreenshot('windows-test-renderer.png'); if (renderer.getAllText()[0] !== 'Windows test renderer' || statSync('windows-test-renderer.png').size === 0) throw new Error('TestGpuixRenderer did not render')"
+
+      - name: Build native shared TypeScript
+        run: bun run build:js
+        working-directory: packages/native
 
       - name: Run React tests
         run: bun run test
@@ -252,6 +273,14 @@ jobs:
       - name: Build React package
         run: bun run build
         working-directory: packages/react
+
+      - name: Run Solid tests
+        run: bun run test
+        working-directory: packages/solid
+
+      - name: Build Solid package
+        run: bun run build
+        working-directory: packages/solid
 
       - name: Run example tests
         run: bun run test
@@ -380,6 +409,32 @@ jobs:
           else
             echo "Publishing @gpuix/react@${CURRENT_VERSION}"
             cd packages/react
+            node -e "
+              const fs = require('fs')
+              const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+              const native = require('../native/package.json').version
+              pkg.dependencies['@gpuix/native'] = '^' + native
+              fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n')
+            "
+            bunx sigillo run --command 'printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > "$HOME/.npmrc" && bun publish --access public'
+          fi
+
+      - name: Build @gpuix/solid
+        run: bun run build
+        working-directory: packages/solid
+
+      - name: Publish @gpuix/solid
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_TOKEN }}
+          SIGILLO_PROJECT: ${{ vars.SIGILLO_PROJECT }}
+          SIGILLO_ENVIRONMENT: prod
+        run: |
+          CURRENT_VERSION=$(node -p "require('./packages/solid/package.json').version")
+          if npm view "@gpuix/solid@${CURRENT_VERSION}" version 2>/dev/null; then
+            echo "@gpuix/solid@${CURRENT_VERSION} already published, skipping"
+          else
+            echo "Publishing @gpuix/solid@${CURRENT_VERSION}"
+            cd packages/solid
             node -e "
               const fs = require('fs')
               const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
