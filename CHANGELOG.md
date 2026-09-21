@@ -1,5 +1,132 @@
 # Changelog
 
+## 0.10.0
+
+1. **Add the official Solid 1 renderer** as `@gpuix/solid`. Solid applications run through normal Bun commands with a preload. The framework-neutral JavaScript runtime now lives in `@gpuix/native`.
+
+   ```bash
+   bun add --exact @gpuix/solid @gpuix/native solid-js
+   ```
+
+   ```json
+   {
+     "compilerOptions": {
+       "jsx": "preserve",
+       "jsxImportSource": "@gpuix/solid"
+     }
+   }
+   ```
+
+   ```toml
+   preload = ["@gpuix/solid/preload"]
+   ```
+
+   ```tsx
+   import { createSignal } from 'solid-js'
+   import { render } from '@gpuix/solid'
+
+   const [count, setCount] = createSignal(0)
+
+   render(() => (
+     <div onClick={() => setCount((value) => value + 1)}>
+       <text>Count: {count()}</text>
+     </div>
+   ))
+   ```
+
+   The package includes native motion, Select, Combobox, Tooltip, shared testing and automation, Solid JSX declarations, `@gpuix/solid/preload`, and `@gpuix/solid/bun-plugin` for production `Bun.build` calls. Pin `@gpuix/solid` and `@gpuix/native` to the same exact version.
+
+   Framework-neutral APIs are now available from `@gpuix/native/host`, `@gpuix/native/testing`, and `@gpuix/native/automation`. React keeps its current public imports as adapters and re-exports. The native package now exposes an ESM loader by default; its explicit CommonJS condition remains for the documented Hermes runtime.
+
+   Empty text nodes take zero layout space instead of a full line. Solid's universal renderer creates an empty placeholder for every dynamic hole (`<Show>`, `<For>`, `{cond && <x/>}`). Those placeholders no longer stretch flex columns. React never emits empty text nodes, so this is a no-op for React apps.
+
+2. **Add exit animations for `motion.div`** through an `AnimatePresence` API shaped like Motion for React.
+
+   ```tsx
+   import { AnimatePresence, motion } from '@gpuix/react'
+
+   function Toast({ show }: { show: boolean }) {
+     return (
+       <AnimatePresence>
+         {show ? (
+           <motion.div
+             key="toast"
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             transition={{ duration: 0.2 }}
+           >
+             <text>Saved</text>
+           </motion.div>
+         ) : null}
+       </AnimatePresence>
+     )
+   }
+   ```
+
+   React keeps the leaving node mounted. Native motion tweens to `exit`, then `motionComplete` lets `AnimatePresence` unmount it. Without `AnimatePresence`, unmount is still immediate. Give each leaving child a unique `key`.
+
+   Completion stays tied to the target that started it, including no-op targets, and offscreen virtual-list rows finish without being painted. A partial exit target also keeps animated properties it does not replace. `@gpuix/solid` exports the same `AnimatePresence` and `motion` APIs.
+
+3. **Add live image uploads and `scrollIntoView` on host refs.** `<img>` refs can push image bytes without a data URL or JSON mutation:
+
+   ```tsx
+   const img = useRef<ImgInstance>(null)
+
+   useLayoutEffect(() => {
+     img.current?.setImage(pngBuffer)
+     img.current?.setImagePixels(800, 80, rgbaBytes)
+   }, [pngBuffer, rgbaBytes])
+
+   return <img ref={img} style={{ width: 800, height: 80 }} />
+   ```
+
+   `setImage` takes encoded PNG, JPEG, WebP, GIF, SVG, BMP, TIFF, ICO, or Netpbm. `setImagePixels` takes packed RGBA. Prefer pixels for a live frame. There is no density argument. Upload a 2x bitmap into a 1x layout box on retina. Alpha is straight, not premultiplied. A later React `src` change overwrites the pixels.
+
+   Every host ref now has `scrollIntoView()`, which scrolls the nearest overflow parent or `<virtual-list>` until that node is visible. On a windowed list it uses the logical item index, not the mounted child index.
+
+   The [waveform example](./examples/waveform.tsx) paints a generated buffer through `setImagePixels`.
+
+4. **Add native desktop window controls** to the renderer.
+
+   ```tsx
+   const renderer = useGpuixRequired()
+
+   renderer.minimizeWindow?.()
+   renderer.zoomWindow?.()
+   renderer.toggleFullscreen?.()
+   ```
+
+   The methods forward to GPUI's platform window on macOS, Windows, Linux, and FreeBSD. They are not available in the browser renderer.
+
+   Fixes https://github.com/remorses/gpuix/issues/68
+
+5. **Add `renderer.promptForPaths()`** for opening the operating system's file picker.
+
+   ```tsx
+   const paths = await renderer.promptForPaths({
+     files: true,
+     multiple: true,
+     prompt: 'Attach',
+   })
+   ```
+
+   The promise resolves with absolute paths, resolves with `null` on cancellation, and rejects for invalid options, platform failures, or browsers where operating-system paths are unavailable. Custom renderers can omit the optional capability.
+
+   The current Windows GPUI backend reports `IFileDialog::Show` errors as cancellation. Those cases also resolve with `null` until GPUI distinguishes the system error code.
+
+6. **Draw the `<input>` and `<textarea>` caret at line height**, like Chrome.
+
+   A composer with `fontSize: 14` and `lineHeight: 20` now paints a 20px bar instead of a 14px em-square bar. Extra leading stretches the caret with the row.
+
+7. **Let `Cmd+V` and `Ctrl+V` reach `onKeyDown` when the clipboard has no text.**
+
+   Text still pastes natively, including text accompanied by an image. Applications can now handle image-only and file clipboard contents instead of losing the paste shortcut or inserting a copied file path as text.
+
+8. **Keep uniformly rounded and per-corner rounded Select, Combobox, and Tooltip content rounded** through the complete deferred overlay surface. The anchored fallback background no longer appears as square corners behind a rounded popup.
+
+   The outer surface now also owns visibility and opacity, including hover and active refinements, so its fallback fill follows the content without multiplying opacity. `pointerEvents: "none"` disables the anchored occluder.
+
 ## 0.9.0
 
 1. **Add a window-level `onSelectionChange` callback** so React apps can react when the text selection changes.

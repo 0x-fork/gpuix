@@ -1,6 +1,6 @@
 {
   "name": "@gpuix/solid",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Solid renderer for GPUIX",
   "license": "Apache-2.0",
   "type": "module",

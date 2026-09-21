@@ -68,7 +68,7 @@
     },
     "packages/native": {
       "name": "@gpuix/native",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "dependencies": {
         "eventsource-parser": "^4.1.0",
         "zod": "^4.4.3",
@@ -82,7 +82,7 @@
     },
     "packages/react": {
       "name": "@gpuix/react",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "dependencies": {
         "@gpuix/native": "workspace:^",
         "react-reconciler": "^0.31.0",
@@ -102,7 +102,7 @@
     },
     "packages/solid": {
       "name": "@gpuix/solid",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "dependencies": {
         "@babel/core": "^7.28.0",
         "@babel/preset-typescript": "^7.27.1",
