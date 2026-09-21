@@ -1,21 +1,20 @@
 import React, { type ReactNode } from "react"
 import { GpuixRenderer } from "@gpuix/native"
 import type { EventPayload, WindowOptions } from "@gpuix/native"
+import { App as AutomationApp } from "@gpuix/native/automation"
+import {
+  createNativeRenderer,
+  enableAutomation as enableNativeAutomation,
+  installBrowserAutomation as installNativeBrowserAutomation,
+  startFrameLoop as startNativeFrameLoop,
+} from "@gpuix/native/runtime"
 import { createRoot, flushSync, type Root } from "./reconciler.js"
 import type {
   DebugFrameOverlayMode,
   NativeRenderer,
   WindowKeyEventHandlers,
 } from "../types/host.js"
-import { handleGpuixEvent } from "./event-registry.js"
-import {
-  App as AutomationApp,
-  browserRendererAsTest,
-  InProcessBackend,
-  liveRendererAsTest,
-  serveAutomationStdio,
-  type LiveAutomationRenderer,
-} from "../automation/client.js"
+import type { LiveAutomationRenderer } from "@gpuix/native/automation"
 
 export { createRoot, flushSync, reconciler } from "./reconciler.js"
 export type { Root } from "./reconciler.js"
@@ -59,41 +58,22 @@ function uninstallRuntimeErrorHandlers(): void {
 export function createRenderer(
   onEvent?: (event: import("@gpuix/native").EventPayload) => void
 ): GpuixRenderer {
-  const renderer = new GpuixRenderer((err, event) => {
-    if (err) {
-      console.error("[GPUIX] Native event error:", err)
-      return
-    }
-    try {
-      if (handleGpuixEvent(event, renderer) && onEvent) {
-        onEvent(event)
-      }
-    } catch (error) {
+  return createNativeRenderer({
+    onEvent,
+    onError: (error) => {
       scheduleRuntimeError(thrownToError(error))
-    }
+    },
   })
-  // A pipe means a controller owns stdin. A TTY is a human keyboard.
-  if (typeof process !== "undefined" && process.stdin && !process.stdin.isTTY) {
-    const init = renderer.init.bind(renderer)
-    renderer.init = (options) => {
-      init(options)
-      enableAutomation(renderer)
-    }
-  }
-  return renderer
 }
 
 /** ~125fps. Above any common display refresh rate, so frames are never the
  *  bottleneck, while still leaving the Node event loop almost entirely idle. */
-const DEFAULT_FRAME_MS = 8
-
 export interface FrameLoop {
   stop: () => void
 }
 
-export function enableAutomation(renderer: LiveAutomationRenderer): void {
-  serveAutomationStdio(new InProcessBackend(liveRendererAsTest(renderer)))
-}
+export const enableAutomation: (renderer: LiveAutomationRenderer) => void =
+  enableNativeAutomation
 
 /**
  * Drive GPUI until the last window closes, then run `onTerminated`.
@@ -128,40 +108,10 @@ export function startFrameLoop(
   renderer: Pick<GpuixRenderer, "requiresTick" | "tick">,
   options: { frameMs?: number; onTerminated?: () => void } = {}
 ): FrameLoop {
-  if (!renderer.requiresTick()) {
-    return { stop: () => {} }
-  }
-
-  const frameMs = options.frameMs ?? DEFAULT_FRAME_MS
-  let timer: ReturnType<typeof setTimeout> | null = null
-  let stopped = false
-
-  const stop = (): void => {
-    stopped = true
-    if (timer !== null) clearTimeout(timer)
-    timer = null
-  }
-
-  const loop = (): void => {
-    if (stopped) return
-    const started = performance.now()
-    let running = true
-    try {
-      running = renderer.tick()
-    } catch (error) {
-      scheduleRuntimeError(thrownToError(error))
-    }
-    if (running === false) {
-      stop()
-      options.onTerminated?.()
-      return
-    }
-    const wait = Math.max(0, frameMs - (performance.now() - started))
-    timer = setTimeout(loop, wait)
-  }
-  loop()
-
-  return { stop }
+  return startNativeFrameLoop(renderer, {
+    ...options,
+    onError: (error) => scheduleRuntimeError(thrownToError(error)),
+  })
 }
 
 const RENDER_HOST_KEY = "__gpuixRenderHost"
@@ -177,9 +127,7 @@ export function installBrowserAutomation(
   const existing = Reflect.get(globalThis, BROWSER_AUTOMATION_KEY)
   if (existing instanceof AutomationApp) return existing
 
-  const automation = new AutomationApp(
-    new InProcessBackend(browserRendererAsTest(renderer))
-  )
+  const automation = installNativeBrowserAutomation(renderer)
   Reflect.set(globalThis, BROWSER_AUTOMATION_KEY, automation)
   return automation
 }

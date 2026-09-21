@@ -10,6 +10,14 @@ export {
 export { GpuixContext, useGpuix, useGpuixRequired } from "./hooks/use-gpuix.js"
 export { useWindowInsets, useWindowSize } from "./hooks/use-window-size.js"
 export { findRanges, useTextSearch } from "./hooks/use-text-search.js"
+export {
+  createTextSearchController,
+  observeSelectedText,
+  observeWindowInsets,
+  observeWindowSize,
+  readWindowInsets,
+  readWindowSize,
+} from "@gpuix/native/host"
 export type {
   FindRangesOptions,
   TextSearch,

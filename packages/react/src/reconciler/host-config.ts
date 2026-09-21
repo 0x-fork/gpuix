@@ -6,6 +6,13 @@
 
 import { createContext } from "react"
 import { DefaultEventPriority } from "react-reconciler/constants.js"
+import {
+  BUILT_IN_TYPES,
+  EVENT_PROPS,
+  isReservedProp,
+  serializeCustomProp,
+  UNIVERSAL_PROPS,
+} from "@gpuix/native/host"
 
 const NoEventPriority = 0
 import type {
@@ -58,40 +65,6 @@ function nextId(container: Container): number {
 
 // ── Event wiring helpers ─────────────────────────────────────────────
 
-const EVENT_PROPS = [
-  // Custom element events
-  ["onToggleFile", "toggleFile"],
-  ["onShowMore", "showMore"],
-  ["onLineClick", "lineClick"],
-  ["onLinkClick", "linkClick"],
-  ["onVisibleRange", "visibleRange"],
-  ["onHighlight", "highlight"],
-  ["onMotionComplete", "motionComplete"],
-  ["onChange", "change"],
-  ["onSubmit", "submit"],
-  // Mouse events
-  ["onClick", "click"],
-  ["onAuxClick", "auxClick"],
-  ["onMouseDown", "mouseDown"],
-  ["onMouseUp", "mouseUp"],
-  ["onMouseEnter", "mouseEnter"],
-  ["onMouseLeave", "mouseLeave"],
-  ["onMouseMove", "mouseMove"],
-  ["onMouseDownOutside", "mouseDownOutside"],
-  // Keyboard events (require focus — tabIndex or autoFocus)
-  ["onKeyDown", "keyDown"],
-  ["onKeyUp", "keyUp"],
-  // Focus events
-  ["onFocus", "focus"],
-  ["onBlur", "blur"],
-  // Scroll events
-  ["onScroll", "scroll"],
-  // Finder / OS file drop
-  ["onFileDrop", "fileDrop"],
-] as const
-
-const EVENT_PROP_NAMES = new Set<string>(EVENT_PROPS.map(([name]) => name))
-
 function syncEventListeners(container: Container, id: number, props: Props): void {
   for (const [propName, eventType] of EVENT_PROPS) {
     const handler = props[propName]
@@ -135,45 +108,6 @@ function sendStyle(renderer: MutationRenderer, id: number, props: Props): void {
 // ── Custom prop forwarding ───────────────────────────────────────────
 
 // Props that are handled by the reconciler directly (not forwarded as custom props).
-const RESERVED_PROPS = new Set(["style", "className", "children", "key", "ref"])
-
-// Built-in element types that don't use custom props.
-const BUILT_IN_TYPES = new Set(["div", "text"])
-
-// Props that reach Rust on EVERY element type, including div and text.
-// Custom props are otherwise skipped for built-ins.
-const UNIVERSAL_PROPS = new Set([
-  "autoFocus",
-  "tabIndex",
-  "motion",
-  "testId",
-  // `highlight` is scoped by where it sits in the tree, so it has to reach a
-  // plain `div`. Without it here, custom props are dropped for built-ins and
-  // the prop silently never arrives in Rust.
-  "highlight",
-  "role",
-  "aria-label",
-  "aria-description",
-  "aria-id",
-  "aria-expanded",
-  "aria-selected",
-  "aria-valuetext",
-  "aria-level",
-])
-
-function isReservedProp(name: string): boolean {
-  return RESERVED_PROPS.has(name) || EVENT_PROP_NAMES.has(name)
-}
-
-function serializeCustomProp(
-  _type: string,
-  _key: string,
-  value: object | string | number | boolean | null | undefined
-): string | object | number | boolean | null {
-  if (value === undefined || typeof value === "function") return null
-  return value
-}
-
 /** Send all custom props to Rust for non-built-in element types. */
 function syncCustomProps(
   renderer: MutationRenderer,
@@ -185,7 +119,7 @@ function syncCustomProps(
   for (const [key, value] of Object.entries(props)) {
     if (isReservedProp(key)) continue
     if (builtIn && !UNIVERSAL_PROPS.has(key)) continue
-    renderer.setCustomProp(id, key, serializeCustomProp(type, key, value))
+    renderer.setCustomProp(id, key, serializeCustomProp(value))
   }
 }
 
@@ -206,7 +140,7 @@ function diffCustomProps(
     if (builtIn && !UNIVERSAL_PROPS.has(key)) continue
     const oldValue = oldEntries.find(([oldKey]) => oldKey === key)?.[1]
     if (oldValue !== value) {
-      renderer.setCustomProp(id, key, serializeCustomProp(type, key, value))
+      renderer.setCustomProp(id, key, serializeCustomProp(value))
     }
   }
   // Removed props

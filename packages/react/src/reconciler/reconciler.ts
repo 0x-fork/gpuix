@@ -3,19 +3,18 @@ import type { ReactNode } from "react"
 import ReactReconciler from "react-reconciler"
 import type { OpaqueRoot } from "react-reconciler"
 import { ConcurrentRoot } from "react-reconciler/constants.js"
+import { createMutationQueue } from "@gpuix/native/host"
 import { GpuixContext } from "../hooks/use-gpuix.js"
 import type {
   Container,
   NativeRenderer,
   RootEventHandlers,
 } from "../types/host.js"
-import { wrapWithBatching } from "./batch-renderer.js"
 import {
   attachRoot,
   detachRoot,
   idAllocatorFor,
-  nextWindowKeyEventId,
-  nextWindowSelectionEventId,
+  unregisterEventHandlers,
 } from "./event-registry.js"
 import { hostConfig } from "./host-config.js"
 
@@ -65,20 +64,25 @@ export function createRoot(
   rootEventHandlers: RootEventHandlers = {}
 ): Root {
   let container: OpaqueRoot | null = null
-  const batchedRenderer = wrapWithBatching(renderer)
   const ids = idAllocatorFor(renderer)
-  const windowKeyEventId = nextWindowKeyEventId(renderer)
-  const windowSelectionEventId = nextWindowSelectionEventId(renderer)
-  const gpuixContainer: Container = {
+  let gpuixContainer!: Container
+  const batchedRenderer = createMutationQueue(renderer, (destroyedIds) => {
+    for (const id of destroyedIds) {
+      unregisterEventHandlers(gpuixContainer.eventHandlers, id)
+    }
+  })
+  gpuixContainer = {
+    nativeRenderer: renderer,
     renderer: batchedRenderer,
     ids,
     eventHandlers: new Map(),
     windowKeyEventHandlers: rootEventHandlers,
-    windowKeyEventId,
-    windowSelectionEventId,
+    windowKeyEventId: 0,
+    windowSelectionEventId: 0,
     onEvent: rootEventHandlers.onEvent,
   }
   attachRoot(renderer, gpuixContainer)
+  const { windowKeyEventId, windowSelectionEventId } = gpuixContainer
   try {
     renderer.setWindowKeyEvents?.(
       Boolean(rootEventHandlers.onKeyDown),
