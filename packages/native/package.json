@@ -29,6 +29,11 @@
       "import": "./dist/automation/index.js",
       "default": "./dist/automation/index.js"
     },
+    "./cpu-throttle": {
+      "types": "./dist/cpu-throttle.d.ts",
+      "import": "./dist/cpu-throttle.js",
+      "default": "./dist/cpu-throttle.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",

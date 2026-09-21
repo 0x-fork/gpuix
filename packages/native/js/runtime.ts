@@ -1,5 +1,5 @@
-import { GpuixRenderer } from "../index.js"
-import type { EventPayload } from "../index.js"
+import { GpuixRenderer } from "@gpuix/native"
+import type { EventPayload } from "@gpuix/native"
 import {
   App,
   browserRendererAsTest,

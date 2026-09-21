@@ -20,18 +20,29 @@ function MotionDiv(props: MotionDivProps): JSX.Element {
     }
   })
   const element = createElement("div")
+  let generation = 0
+  let targetKey: string | undefined
   spread(element, mergeProps(hostProps, {
     get motion() {
+      const isExit = Boolean(presence && !presence.isPresent() && motionProps.exit)
+      const initial = presence?.initial === false ? false : motionProps.initial
+      const animate = isExit ? motionProps.exit! : motionProps.animate
+      const nextKey = JSON.stringify([isExit, initial, animate, motionProps.transition])
+      if (nextKey !== targetKey) {
+        targetKey = nextKey
+        generation += 1
+      }
       return {
-        initial: presence?.initial === false ? false : motionProps.initial,
-        animate: presence && !presence.isPresent() && motionProps.exit
-          ? motionProps.exit
-          : motionProps.animate,
+        generation,
+        isExit,
+        initial,
+        animate,
         exit: motionProps.exit,
         transition: motionProps.transition,
       }
     },
     onMotionComplete(event) {
+      if (event.motionGeneration !== generation) return
       hostProps.onMotionComplete?.(event)
       if (presence && !presence.isPresent()) presence.safeToRemove()
     },

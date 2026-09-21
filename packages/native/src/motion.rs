@@ -207,8 +207,7 @@ impl MotionState {
             }
         };
         self.from = if self.valid {
-            self.visible_style(now)
-                .expect("a valid motion state always has a visible style")
+            self.visible_style(now).unwrap_or(self.target)
         } else {
             match description.initial {
                 Some(MotionInitial::Style(style)) => style,

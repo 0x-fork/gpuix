@@ -67,4 +67,25 @@ describe("native ESM package", () => {
     expect(browser.status, browser.stderr).toBe(0)
     expect(browser.stdout).toContain("browser.mjs")
   })
+
+  it("bundles both public adapters for the browser", () => {
+    for (const adapter of ["react", "solid"]) {
+      const entry = join(temp, `${adapter}-browser.mjs`)
+      writeFileSync(
+        entry,
+        `export { render } from ${JSON.stringify(fileURLToPath(new URL(`../../../${adapter}/dist/index.js`, import.meta.url)))}\n`
+      )
+      const output = join(temp, `${adapter}-browser`)
+      const bundled = run([
+        "bun",
+        "build",
+        entry,
+        "--target",
+        "browser",
+        "--outdir",
+        output,
+      ])
+      expect(bundled.status, bundled.stderr).toBe(0)
+    }
+  })
 })

@@ -127,9 +127,10 @@ describe.skipIf(!hasNativeTestRenderer)("Solid renderer", () => {
 
   it("keeps an exiting motion node until native completion", () => {
     const [visible, setVisible] = createSignal(true)
+    let exits = 0
     const app = createTestRoot()
     app.render(() => (
-      <AnimatePresence>
+      <AnimatePresence onExitComplete={() => exits++}>
         {visible() && (
           <motion.div
             testId="toast"
@@ -145,7 +146,51 @@ describe.skipIf(!hasNativeTestRenderer)("Solid renderer", () => {
     expect(app.renderer.findByTestId("toast")?.customProps?.motion).toMatchObject({
       animate: { opacity: 0 },
     })
-    expect(app.root.dispatch({ elementId: toast.id, eventType: "motionComplete" })).toBe(true)
+    const generation = Number(
+      app.renderer.findByTestId("toast")?.customProps?.motion?.generation
+    )
+    expect(app.root.dispatch({
+      elementId: toast.id,
+      eventType: "motionComplete",
+      motionGeneration: generation,
+    })).toBe(true)
     expect(app.renderer.findByTestId("toast")).toBeUndefined()
+    expect(exits).toBe(1)
+  })
+
+  it("ignores stale motion completion targets", async () => {
+    const [opacity, setOpacity] = createSignal(0)
+    let completions = 0
+    const app = createTestRoot()
+    app.render(() => (
+      <motion.div
+        testId="motion-target"
+        animate={{ opacity: opacity() }}
+        onMotionComplete={() => completions++}
+      />
+    ))
+    const target = app.renderer.findByTestId("motion-target")!
+    const firstGeneration = Number(target.customProps?.motion?.generation)
+
+    setOpacity(1)
+    await Promise.resolve()
+    const nextGeneration = Number(
+      app.renderer.findByTestId("motion-target")?.customProps?.motion?.generation
+    )
+    expect(nextGeneration).toBeGreaterThan(firstGeneration)
+
+    expect(app.root.dispatch({
+      elementId: target.id,
+      eventType: "motionComplete",
+      motionGeneration: firstGeneration,
+    })).toBe(true)
+    expect(completions).toBe(0)
+
+    app.root.dispatch({
+      elementId: target.id,
+      eventType: "motionComplete",
+      motionGeneration: nextGeneration,
+    })
+    expect(completions).toBe(1)
   })
 })

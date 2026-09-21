@@ -40,6 +40,11 @@ export interface AnimatePresenceProps {
   onExitComplete?: () => void
 }
 
+type NativeMotionProps = MotionProps & {
+  generation?: number
+  isExit?: boolean
+}
+
 function normalize(value: JSX.Element): JSX.Element[] {
   if (value == null || value === true || value === false) return []
   return Array.isArray(value) ? value.flatMap(normalize) : [value]
@@ -52,7 +57,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   let initial = true
 
   const remove = (item: JSX.Element, entry: Signal<boolean>) => {
-    if (entry[0]()) return
+    if (entry[0]() || !presence.has(item)) return
     presence.delete(item)
     setRendered(rendered().filter((candidate) => candidate !== item))
     if (![...presence.values()].some(([present]) => !present())) {
@@ -81,7 +86,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
         remove(item, entry)
         continue
       }
-      const motion = item.props.get("motion") as MotionProps | undefined
+      const motion = item.props.get("motion") as NativeMotionProps | undefined
       if (!motion?.exit) {
         remove(item, entry)
         continue
@@ -89,11 +94,21 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
       const previous = item.props.get("onMotionComplete") as
         | ((event: EventPayload) => void)
         | undefined
-      setHostProperty(item, "motion", { ...motion, animate: motion.exit }, motion)
+      setHostProperty(item, "motion", {
+        ...motion,
+        generation: (motion.generation ?? 0) + 1,
+        isExit: true,
+        animate: motion.exit,
+      }, motion)
       setHostProperty(
         item,
         "onMotionComplete",
         (event: EventPayload) => {
+          const active = item.props.get("motion") as NativeMotionProps | undefined
+          if (
+            active?.generation !== undefined &&
+            event.motionGeneration !== active.generation
+          ) return
           previous?.(event)
           remove(item, entry)
         },
