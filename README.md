@@ -595,6 +595,8 @@ await Bun.build({
 
 `@gpuix/solid` targets stable Solid 1.9. Its peer range is `>=1.9 <2`.
 
+The full Solid adapter API is in the [Solid guide](./website/src/guides/solid.mdx).
+
 ## Building
 
 This section is for **working on GPUIX itself**. To build an app with it, see

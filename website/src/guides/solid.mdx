@@ -1,0 +1,647 @@
+---
+$schema: https://holocron.so/frontmatter.json
+title: "Build native GPUI desktop apps with Solid 1"
+sidebarTitle: Solid
+description: "Paint a Solid 1 tree with GPUI. Covers preload, render, primitives, motion, Select, testing, automation, and every @gpuix/solid export."
+icon: lucide:layers
+prompt: |
+  Write the Solid renderer guide from @/packages/solid/, @/README.md,
+  @/examples/solid/, @/packages/native/js/host.ts,
+  @/packages/native/js/host-runtime.ts, @/packages/native/js/testing.ts,
+  and @/packages/native/js/automation/index.ts.
+
+  Cover install, jsx preserve, bunfig preload, bun-plugin, render,
+  createRoot, primitives, motion, Select Combobox Tooltip, testing,
+  automation, and every public package export with a usage snippet.
+  Do not invent APIs. Match Solid names (Select, not Root).
+---
+
+**`@gpuix/solid`** paints a Solid 1 tree with GPUI. Same host elements, styles, events, and native addon as React. The adapter is Solid. The window is not a web view.
+
+```diagram
+  bunfig.toml          babel-preset-solid         @gpuix/native
+  preload ──────────►  universal compiler ──────► host mutations ──► GPUI ──► GPU
+       │                      │
+       ▼                      ▼
+  app.tsx              @gpuix/solid renderer
+  createSignal()       render(() => <App />)
+```
+
+<Aside>
+<Note>
+Host elements, styles, events, virtual lists, and native text are the same as React. This page covers the **Solid adapter**. See the [homepage](../index.mdx) for the shared GPUIX surface.
+</Note>
+</Aside>
+
+## Install
+
+Pin **`@gpuix/solid`** and **`@gpuix/native`** to the same exact version. GPUIX is still pre-1.0. Upgrade them together.
+
+```bash
+bun add --exact @gpuix/solid @gpuix/native solid-js
+```
+
+The peer range is **`solid-js` `>=1.9 <2`**.
+
+### TypeScript
+
+**`jsx: "preserve"`** and **`jsxImportSource: "@gpuix/solid"`** are required. Without them TypeScript uses DOM types, so `<virtual-list>`, `<markdown>`, and `style.hover` fail to typecheck.
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "@gpuix/solid",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  }
+}
+```
+
+### Bun preload
+
+The preload compiles application `.tsx` and `.jsx` for Solid's **universal renderer** and selects the reactive client runtime. Do not add Vite.
+
+```toml
+preload = ["@gpuix/solid/preload"]
+```
+
+That is the whole Bun setup. `examples/solid/bunfig.toml` also preloads tests:
+
+```toml
+preload = ["@gpuix/solid/preload"]
+
+[test]
+preload = ["@gpuix/solid/preload"]
+```
+
+## First app
+
+End the file with **`render()`**. That call creates the window, mounts Solid, and starts the frame loop.
+
+```tsx
+import { createSignal } from 'solid-js'
+import { render } from '@gpuix/solid'
+
+function App() {
+  const [count, setCount] = createSignal(0)
+  return (
+    <div style={{ padding: 24, backgroundColor: '#1a1a1a', height: '100%' }}>
+      <div
+        onClick={() => setCount((value) => value + 1)}
+        style={{
+          padding: 12,
+          borderRadius: 8,
+          cursor: 'pointer',
+          backgroundColor: '#232323',
+          hover: { backgroundColor: '#2c2c2c' },
+        }}
+      >
+        <text style={{ color: '#e2e2e2' }}>Count: {count()}</text>
+      </div>
+    </div>
+  )
+}
+
+render(() => <App />, { title: 'Solid GPUIX', width: 800, height: 600 })
+```
+
+Give every **`<text>`** a `color`. GPUI does not inherit color from a parent. Text with no color paints black and disappears on a dark surface.
+
+Read signals with **`count()`**. `render` takes a function, not a pre-built element: `render(() => <App />)`.
+
+## Run
+
+```bash
+bun app.tsx
+bun --hot app.tsx
+```
+
+Use **`bun --hot`** so a save remounts Solid on the same window. `render()` is idempotent. The first call owns the window. Later calls only remount.
+
+Do **not** call `createRenderer()` or `init()` in the app entry. `bun --hot` re-runs the file. A second `init()` would open a second window.
+
+<Aside>
+<Warning>
+Desktop `bun --hot` remounts the tree. It does not keep `createSignal` state. That is the same remount path as React, not Fast Refresh.
+</Warning>
+</Aside>
+
+### Production bundle
+
+For **`Bun.build`**, pass the exported plugin. The preload is for `bun app.tsx`. The plugin is for a production build.
+
+```ts
+import solidPlugin from '@gpuix/solid/bun-plugin'
+
+await Bun.build({
+  entrypoints: ['./app.tsx'],
+  target: 'bun',
+  outdir: './dist',
+  plugins: [solidPlugin],
+})
+```
+
+```bash
+bun build --compile dist/app.js --outfile dist/app
+./dist/app
+```
+
+A worked chat lives in `examples/solid/chat.tsx`. Run it with `cd examples && bun --hot solid/chat.tsx`.
+
+## Package exports
+
+| Import                         | What it is                                           |
+| ------------------------------ | ---------------------------------------------------- |
+| `@gpuix/solid`                 | Renderer, primitives, motion, controls, host types   |
+| `@gpuix/solid/jsx-runtime`     | `jsx`, `jsxs`, `Fragment`. Used by `jsxImportSource` |
+| `@gpuix/solid/jsx-dev-runtime` | `jsxDEV`, `Fragment`                                 |
+| `@gpuix/solid/preload`         | Bun preload. Put it in `bunfig.toml`                 |
+| `@gpuix/solid/bun-plugin`      | `Bun.build` plugin                                   |
+| `@gpuix/solid/testing`         | `createTestRoot`, `TestRenderer`                     |
+| `@gpuix/solid/automation`      | `launch`, `connectTest`                              |
+| `@gpuix/solid/select`          | Select primitives                                    |
+| `@gpuix/solid/combobox`        | Combobox primitives                                  |
+| `@gpuix/solid/tooltip`         | Tooltip primitives                                   |
+| `@gpuix/solid/floating`        | `FloatingLayer`, `renderSlot`                        |
+
+There is no **`./cpu-throttle`**. Testing and automation are subpaths only.
+
+## `render()`
+
+```ts
+function render(code: () => JSX.Element, options?: RenderOptions): Root
+function createRenderer(onEvent?: (event: EventPayload) => void): GpuixRenderer
+function resetRender(): void
+```
+
+```ts
+interface RenderOptions extends WindowOptions, RootEventHandlers {
+  renderer?: NativeRenderer
+  debugFrameOverlay?: 'hidden' | 'minimal' | 'full'
+}
+```
+
+| Option                            | Purpose                                                    |
+| --------------------------------- | ---------------------------------------------------------- |
+| `title`                           | Window title                                               |
+| `width` / `height`                | Window size                                                |
+| `titlebarTransparent`             | Hide the native titlebar                                   |
+| `windowBackground`                | `"opaque"`, `"transparent"`, `"blurred"`                   |
+| `trafficLightX` / `trafficLightY` | Traffic-light origin                                       |
+| `appName`                         | Name inside macOS Hide and Quit items                      |
+| `focus`                           | `false` opens behind the active app                        |
+| `show`                            | `false` opens hidden. Call `activateWindow()` to reveal it |
+| `debugFrameOverlay`               | `"hidden"`, `"minimal"`, `"full"`                          |
+| `renderer`                        | Inject a `TestRenderer` or custom host                     |
+| `onEvent`                         | Every dispatched native event                              |
+| `onKeyDown` / `onKeyUp`           | Window-level keys                                          |
+| `onSelectionChange`               | Window-level selection                                     |
+| `onUncaughtError`                 | Native and flush errors                                    |
+
+```tsx
+render(() => <App />, {
+  title: 'Notes',
+  width: 800,
+  height: 600,
+  titlebarTransparent: true,
+  windowBackground: 'blurred',
+  focus: process.env.GPUIX_BACKGROUND !== '1',
+  debugFrameOverlay: 'full',
+})
+```
+
+**`createRenderer()`** stays public for tests and custom hosts. Pass `{ renderer }` into `render()` when you already have one.
+
+**`resetRender()`** stops the frame loop and unmounts the global slot. Tests use it between cases.
+
+One renderer drives **one root**. `createRoot()` throws if that renderer already has a mounted root. `render()` unmounts the previous root first.
+
+## `createRoot()`
+
+```ts
+function createRoot(
+  renderer: NativeRenderer,
+  rootHandlers?: RootEventHandlers,
+): Root
+
+interface Root {
+  render(code: () => JSX.Element): void
+  flush(): void
+  flushSync<Value>(fn: () => Value): Value
+  dispatch(event: EventPayload): boolean
+  unmount(): void
+}
+```
+
+`flush()` sends the mutation queue to native. **`flushSync(fn)`** runs `fn`, then flushes. It does not wait for GPUI paint. Call `renderer.flush()` in a test to see pixels.
+
+```tsx
+import { createRoot } from '@gpuix/solid'
+import { TestRenderer } from '@gpuix/solid/testing'
+
+const renderer = new TestRenderer()
+const root = createRoot(renderer)
+root.render(() => <text>hello</text>)
+root.flush()
+```
+
+Prefer **`createTestRoot()`** over this pair. It wires event dispatch for you.
+
+## Context
+
+```ts
+function useGpuix(): GpuixContextValue | undefined
+function useGpuixRequired(): NativeRenderer
+
+interface GpuixContextValue {
+  renderer: NativeRenderer
+  subscribeSelection(callback: (text: string | null) => void): () => void
+}
+```
+
+Call them **inside** a tree that `render()` or `createRoot()` mounted.
+
+```tsx
+import { useGpuixRequired } from '@gpuix/solid'
+
+function WindowControls() {
+  const renderer = useGpuixRequired()
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <div onClick={() => renderer.minimizeWindow?.()}>
+        <text style={{ color: '#e2e2e2' }}>Minimize</text>
+      </div>
+      <div onClick={() => renderer.zoomWindow?.()}>
+        <text style={{ color: '#e2e2e2' }}>Zoom</text>
+      </div>
+      <div onClick={() => renderer.toggleFullscreen?.()}>
+        <text style={{ color: '#e2e2e2' }}>Fullscreen</text>
+      </div>
+    </div>
+  )
+}
+```
+
+```tsx
+function AttachFiles() {
+  const renderer = useGpuixRequired()
+  const attach = async () => {
+    const paths = await renderer.promptForPaths?.({
+      files: true,
+      multiple: true,
+      prompt: 'Attach',
+    })
+    if (paths) console.log(paths)
+  }
+  return (
+    <div onClick={attach}>
+      <text style={{ color: '#e2e2e2' }}>Attach files</text>
+    </div>
+  )
+}
+```
+
+`useGpuix()` returns **`undefined`** outside a root. `useGpuixRequired()` throws.
+
+## Primitives
+
+These are the Solid adapters over `@gpuix/native/host`. Call them in a component under a GPUIX root. They return **accessors**, not hook objects.
+
+<Aside>
+<Tip>
+There is no Solid `useWindowSize`. Use `createWindowSize()`. React keeps `useWindowSize`. The native helpers stay on `@gpuix/native/host`.
+</Tip>
+</Aside>
+
+```ts
+function createWindowSize(options?: ObserverOptions): Accessor<WindowSize>
+function createWindowInsets(options?: ObserverOptions): Accessor<WindowInsets>
+function createSelectedText(): Accessor<string | null>
+function createTextSearch(options: Accessor<TextSearchOptions>): {
+  readonly props: Pick<HostProps, 'highlight' | 'onHighlight'>
+  readonly total: number
+  readonly active: number
+  next(): void
+  previous(): void
+  goTo(index: number): void
+}
+```
+
+```ts
+interface ObserverOptions {
+  intervalMs?: number | false
+}
+```
+
+Poll interval defaults to **100 ms**. Pass `intervalMs: false` for one read.
+
+### Window size and insets
+
+```tsx
+import { createWindowInsets, createWindowSize } from '@gpuix/solid'
+
+function Layout() {
+  const size = createWindowSize()
+  const insets = createWindowInsets()
+  return (
+    <div style={{ width: size().width, paddingBottom: insets().ime.bottom }}>
+      <text style={{ color: '#e2e2e2' }}>
+        {size().width} x {size().height}
+      </text>
+    </div>
+  )
+}
+```
+
+`examples/solid/chat.tsx` uses **`createWindowInsets()`** so the composer stays above the keyboard.
+
+### Selected text
+
+```tsx
+import { createSelectedText } from '@gpuix/solid'
+
+function SelectionLabel() {
+  const selected = createSelectedText()
+  return <text style={{ color: '#e2e2e2' }}>{selected() ?? 'none'}</text>
+}
+```
+
+### Find bar
+
+```tsx
+import { createSignal } from 'solid-js'
+import { createTextSearch } from '@gpuix/solid'
+
+function FindBar() {
+  const [query, setQuery] = createSignal('')
+  const search = createTextSearch(() => ({ query: query() }))
+  return (
+    <div {...search.props} style={{ height: '100%' }}>
+      <input
+        value={query()}
+        onChange={(event) => setQuery(event.value ?? '')}
+      />
+      <text style={{ color: '#e2e2e2' }}>
+        {search.active + 1} / {search.total}
+      </text>
+      <div onClick={() => search.next()}>
+        <text style={{ color: '#e2e2e2' }}>Next</text>
+      </div>
+    </div>
+  )
+}
+```
+
+Pass an **accessor** into `createTextSearch`, so a query signal stays live. Spread **`search.props`** onto the container you want to search.
+
+The agnostic helpers still live on **`@gpuix/native/host`**: `readWindowSize`, `observeWindowSize`, `createTextSearchController`, `findRanges`. The Solid wrappers add a signal and `onCleanup`.
+
+## Motion
+
+```tsx
+import { Show } from 'solid-js'
+import { AnimatePresence, motion } from '@gpuix/solid'
+
+function WelcomeCard() {
+  return (
+    <motion.div
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: 320, opacity: 1 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      style={{ overflow: 'hidden' }}
+    >
+      <text style={{ color: '#ffffff' }}>Welcome</text>
+    </motion.div>
+  )
+}
+
+function Toast(props: { visible: boolean }) {
+  return (
+    <AnimatePresence>
+      <Show when={props.visible}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <text style={{ color: '#e2e2e2' }}>Saved</text>
+        </motion.div>
+      </Show>
+    </AnimatePresence>
+  )
+}
+```
+
+Numeric targets: **`width`**, **`height`**, **`top`**, **`right`**, **`bottom`**, **`left`**, **`opacity`**, **`borderRadius`**. Duration is seconds. Ease is `"linear"`, `"ease"`, `"easeIn"`, `"easeOut"`, `"easeInOut"`, or `[x1, y1, x2, y2]`.
+
+```ts
+function usePresence(): [Accessor<boolean>, () => void]
+function useIsPresent(): Accessor<boolean>
+```
+
+Outside `AnimatePresence`, `usePresence()` is **`[() => true, noop]`**.
+
+Set **`initial={false}`** when the node must mount at its first `animate` target.
+
+## Headless controls
+
+Unstyled primitives, same split as [Base UI](https://base-ui.com/react/components/select). Import a namespace, wrap it in a local file, then use that file in screens.
+
+Solid names the root **`Select`**, not `Root`.
+
+<Aside>
+<Note>
+`@gpuix/react/select` exports `Root`. `@gpuix/solid/select` exports `Select`. Copy a React snippet only after you rename the root.
+</Note>
+</Aside>
+
+```tsx
+import { createSignal } from 'solid-js'
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxInput,
+  ComboboxItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@gpuix/solid'
+
+function Controls() {
+  const [value, setValue] = createSignal('a')
+  return (
+    <Select value={value()} onValueChange={setValue}>
+      <SelectTrigger style={{ width: 220, height: 36, backgroundColor: '#1e293b' }}>
+        <SelectValue placeholder={<text style={{ color: '#94a3b8' }}>Pick</text>} />
+      </SelectTrigger>
+      <SelectContent style={{ width: 220, backgroundColor: '#0f172a' }}>
+        <SelectItem value="a"><text style={{ color: '#e2e8f0' }}>Alpha</text></SelectItem>
+        <SelectItem value="b"><text style={{ color: '#e2e8f0' }}>Beta</text></SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+```
+
+Dedicated subpaths:
+
+```ts
+import { Select, SelectTrigger, SelectContent, SelectItem } from '@gpuix/solid/select'
+import { Combobox, ComboboxInput, ComboboxContent, ComboboxItem } from '@gpuix/solid/combobox'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@gpuix/solid/tooltip'
+import { FloatingLayer, renderSlot } from '@gpuix/solid/floating'
+```
+
+| Root       | Main parts                                                                          |
+| ---------- | ----------------------------------------------------------------------------------- |
+| `Select`   | `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`                       |
+| `Combobox` | `ComboboxInput`, `ComboboxContent`, `ComboboxList`, `ComboboxItem`, `ComboboxEmpty` |
+| `Tooltip`  | `TooltipProvider`, `TooltipTrigger`, `TooltipContent`                               |
+
+`items` on **Select** is optional. It is a label lookup for `SelectValue` while the popup is closed. Keyboard and clicks read the mounted `SelectItem` children.
+
+`style` on **Trigger** and **Item** can be a function of state:
+
+```tsx
+<SelectTrigger
+  style={(state) => ({
+    backgroundColor: state.open ? '#334155' : '#1e293b',
+  })}
+/>
+```
+
+Menus go through **`SelectContent` / `ComboboxContent` / `<anchored deferred>`**. Do not overflow a `position: "absolute"` card into a `<virtual-list>`.
+
+## Testing
+
+```ts
+import { createTestRoot, hasNativeTestRenderer } from '@gpuix/solid/testing'
+
+const app = createTestRoot()
+app.render(() => (
+  <div testId="bump" onClick={() => {}}>
+    <text>hi</text>
+  </div>
+))
+app.renderer.nativeSimulateClick(50, 20)
+expect(app.renderer.getAllText()).toEqual(['hi'])
+app.unmount()
+```
+
+```ts
+function createTestRoot(options?: TestRendererOptions): TestRoot
+
+interface TestRoot {
+  root: Root
+  renderer: TestRenderer
+  render(code: () => JSX.Element): void
+  flushSync<Value>(fn: () => Value): Value
+  unmount(): void
+}
+```
+
+`createTestRoot()` opens **no window**. It uses the GPU test renderer on macOS and Windows. Linux has no test renderer yet.
+
+<Aside>
+<Info>
+Prefer `createTestRoot()` when you can. Reach for `launch()` plus `focus: false` when the check needs a real window or a real process.
+</Info>
+</Aside>
+
+`getAllText()` only sees **`<text>`** nodes. For `<code>`, `<diff>`, and `<markdown>`, use `renderer.getPaintedText()`.
+
+The subpath re-exports **`@gpuix/native/testing`**, including `TestRenderer` and `hasNativeTestRenderer`.
+
+## Automation
+
+```ts
+import { launch } from '@gpuix/solid/automation'
+
+const app = await launch({
+  command: 'bun',
+  args: ['app.tsx'],
+  env: { GPUIX_BACKGROUND: '1' },
+})
+await app.getByTestId('bump').waitFor()
+await app.getByTestId('bump').click()
+await app.screenshot({ path: 'tmp/after-click.png' })
+await app.close()
+```
+
+```ts
+import { createTestRoot } from '@gpuix/solid/testing'
+import { connectTest } from '@gpuix/solid/automation'
+
+const { renderer, render } = createTestRoot()
+render(() => <App />)
+const app = await connectTest(renderer)
+await app.getByTestId('bump').click()
+```
+
+Mark targets with **`testId`**. `click()` hits last painted bounds. `fill()` and `press()` use the live GPUI input pipeline. They do not need window focus.
+
+`@gpuix/solid/automation` re-exports **`@gpuix/native/automation`**: `launch`, `connectTest`, `connectStdio`, `App`, `Locator`.
+
+A browser `render()` installs **`globalThis.gpuix`**.
+
+## Shared host types
+
+`@gpuix/solid` re-exports **`@gpuix/native/host`**. App code can import `StyleDesc`, `HostProps`, `findRanges`, and `createMutationQueue` from either package.
+
+```ts
+import { GpuixRenderer } from '@gpuix/solid'
+import type { EventPayload, WindowOptions, StyleDesc } from '@gpuix/solid'
+```
+
+Host elements are the same as React:
+
+| Element                      | Role                      |
+| ---------------------------- | ------------------------- |
+| `div`                        | Flex container            |
+| `text`                       | Selectable text           |
+| `input` / `textarea`         | Native editors            |
+| `virtual-list`               | Visible rows only         |
+| `code` / `diff` / `markdown` | Native text               |
+| `img` / `svg`                | Images and tintable icons |
+| `anchored`                   | Positioned overlay        |
+
+JSX adds Solid **`children`** and **`ref`** on top of `HostProps`.
+
+## Compiler internals
+
+These exist because **`babel-preset-solid`** targets `@gpuix/solid` as the universal module. Application code does not import them.
+
+```ts
+createElement, createTextNode, insert, insertNode, setProp,
+spread, memo, effect, createComponent, mergeProps, use
+```
+
+```ts
+import { jsx, jsxs, Fragment } from '@gpuix/solid/jsx-runtime'
+```
+
+`jsxImportSource` already points here. Do not import the JSX runtime by hand.
+
+## React vs Solid
+
+|             | React                                        | Solid                                             |
+| ----------- | -------------------------------------------- | ------------------------------------------------- |
+| JSX         | `"react-jsx"`                                | `"preserve"`                                      |
+| Mount       | `render(<App />)`                            | `render(() => <App />)`                           |
+| State       | `useState`                                   | `createSignal`                                    |
+| Window size | `useWindowSize()`                            | `createWindowSize()`                              |
+| Find bar    | `useTextSearch(options)`                     | `createTextSearch(() => options)`                 |
+| Select root | `Select.Root`                                | `Select`                                          |
+| Tests       | `createTestRoot()` then `root.render(<X />)` | `createTestRoot()` then `app.render(() => <X />)` |
+
+The native addon, mutation queue, and automation client are shared. A Solid app and a React app can drive the same window types and the same `testId` locators.

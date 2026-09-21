@@ -131,14 +131,14 @@ describe.skipIf(!hasNativeTestRenderer)("Solid renderer", () => {
     const app = createTestRoot()
     app.render(() => (
       <AnimatePresence onExitComplete={() => exits++}>
-        {visible() && (
+        <Show when={visible()}>
           <motion.div
             testId="toast"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           />
-        )}
+        </Show>
       </AnimatePresence>
     ))
     const toast = app.renderer.findByTestId("toast")!
