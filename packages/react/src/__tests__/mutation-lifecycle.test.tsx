@@ -36,6 +36,7 @@ describe("host config hideInstance", () => {
   it("keeps the element style when React hides the element", () => {
     const renderer = recordingRenderer()
     const container: Container = {
+      nativeRenderer: {},
       renderer,
       ids: { nextElementId: 0 },
       eventHandlers: new Map(),

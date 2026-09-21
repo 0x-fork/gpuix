@@ -149,6 +149,15 @@ export declare class GpuixRenderer {
    * Returns [x, y] or null if the element has no scroll handle.
    */
   getScrollOffset(elementId: number): Array<number> | null
+  /** Scroll this element's nearest scroll parent until the element is visible. */
+  scrollIntoView(elementId: number): void
+  /** Paint packed RGBA pixels onto an `<img>` host node. */
+  setImagePixels(elementId: number, width: number, height: number, pixels: Buffer): void
+  /**
+   * Decode PNG, JPEG, WebP, GIF, SVG, BMP, TIFF, ICO, or Netpbm bytes onto
+   * an `<img>` host node. Prefer `setImagePixels` for live waveforms.
+   */
+  setImage(elementId: number, bytes: Buffer): void
   getAutomationTree(): string
   getElementBounds(id: number): ElementBounds | null
   getAllText(): Array<string>
@@ -337,6 +346,12 @@ export declare class TestGpuixRenderer {
    * viewport top above the item.
    */
   scrollToItem(elementId: number, index: number, offsetInItem?: number | undefined | null): void
+  /** Scroll this element's nearest scroll parent until the element is visible. */
+  scrollIntoView(elementId: number): void
+  /** Packed RGBA pixels onto an `<img>` host node. */
+  setImagePixels(elementId: number, width: number, height: number, pixels: Buffer): void
+  /** Encoded image bytes onto an `<img>` host node. */
+  setImage(elementId: number, bytes: Buffer): void
   /**
    * The logical scroll anchor of a `<virtual-list>`:
    * `[itemIndex, offsetInItemPx, viewportHeightPx]`, or null for anything

@@ -2290,5 +2290,43 @@ describeNative("events", () => {
       expect(offset).not.toBeNull()
       expect(offset![1]).toBe(-60)
     })
+
+    it("scrolls a child into view from the host ref", () => {
+      let childRef: { id: number; scrollIntoView: () => void } | null = null
+
+      function Scroller() {
+        return (
+          <div testId="scroller" style={{ width: 200, height: 100, overflow: "scroll" }}>
+            <div style={{ height: 80 }}>
+              <text>Item A</text>
+            </div>
+            <div style={{ height: 80 }}>
+              <text>Item B</text>
+            </div>
+            <div
+              ref={(instance) => {
+                childRef = instance as { id: number; scrollIntoView: () => void } | null
+              }}
+              testId="item-d"
+              style={{ height: 80 }}
+            >
+              <text>Item D</text>
+            </div>
+          </div>
+        )
+      }
+
+      testRoot.render(<Scroller />)
+
+      const scroller = testRoot.renderer.findByTestId("scroller")!
+      expect(testRoot.renderer.getScrollOffset(scroller.id)).toEqual([0, 0])
+      expect(childRef).not.toBeNull()
+      expect(typeof childRef!.scrollIntoView).toBe("function")
+
+      childRef!.scrollIntoView()
+      const offset = testRoot.renderer.getScrollOffset(scroller.id)
+      expect(offset).not.toBeNull()
+      expect(offset![1]).toBeLessThan(0)
+    })
   })
 })

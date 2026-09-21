@@ -19,6 +19,7 @@ import type {
   Container,
   ElementType,
   HostContext,
+  ImgInstance,
   Instance,
   MutationRenderer,
   Props,
@@ -198,7 +199,28 @@ export const hostConfig = {
     rootContainerInstance: Container,
     _hostContext: HostContext
   ): Instance {
-    const instance: Instance = { id: nextId(rootContainerInstance), type, props }
+    const instance: Instance = {
+      id: nextId(rootContainerInstance),
+      type,
+      props,
+      scrollIntoView() {
+        rootContainerInstance.nativeRenderer.scrollIntoView?.(instance.id)
+      },
+    }
+    if (type === "img") {
+      const img = instance as ImgInstance
+      img.setImage = (bytes) => {
+        rootContainerInstance.nativeRenderer.setImage?.(img.id, Buffer.from(bytes))
+      }
+      img.setImagePixels = (width, height, pixels) => {
+        rootContainerInstance.nativeRenderer.setImagePixels?.(
+          img.id,
+          width,
+          height,
+          Buffer.from(pixels)
+        )
+      }
+    }
     hostNodeStates.set(instance, {
       container: rootContainerInstance,
       initialChildren: [],

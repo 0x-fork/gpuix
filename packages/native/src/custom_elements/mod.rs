@@ -223,6 +223,20 @@ pub trait CustomElement: 'static {
 
     /// Clean up resources (GPUI entities, subscriptions, etc.)
     fn destroy(&mut self);
+
+    /// Current live GPU image on `<img>`, if any.
+    fn live_image(&self) -> Option<std::sync::Arc<gpui::RenderImage>> {
+        None
+    }
+
+    /// Replace the live GPU image on `<img>`. Returns the previous image when
+    /// this adapter already had one, so the renderer can upload in place.
+    fn replace_live_image(
+        &mut self,
+        _image: std::sync::Arc<gpui::RenderImage>,
+    ) -> Option<std::sync::Arc<gpui::RenderImage>> {
+        None
+    }
 }
 
 /// Factory for creating CustomElement instances.
@@ -363,6 +377,18 @@ impl CustomElementRegistry {
             ..ctx
         };
         entry.element.render(ctx, window, cx)
+    }
+
+    /// Store a decoded image on an `<img>` host node, creating the adapter if needed.
+    pub fn set_live_image(
+        &mut self,
+        id: u64,
+        image: std::sync::Arc<gpui::RenderImage>,
+    ) -> std::result::Result<Option<std::sync::Arc<gpui::RenderImage>>, String> {
+        let entry = self
+            .get_or_create(id, "img")
+            .ok_or_else(|| "img factory is not registered".to_string())?;
+        Ok(entry.element.replace_live_image(image))
     }
 
     /// Called when React destroys an element.

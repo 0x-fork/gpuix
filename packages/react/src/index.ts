@@ -105,6 +105,7 @@ export type {
   GpuixTheme,
   HighlightMatch,
   HighlightSpec,
+  ImgInstance,
   ImgProps,
   InputProps,
   LinearGradientBackground,

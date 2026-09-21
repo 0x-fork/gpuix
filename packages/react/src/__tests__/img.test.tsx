@@ -3,9 +3,28 @@
 
 import fs from "fs"
 import { beforeEach, describe, expect, it } from "vitest"
-import React, { useState } from "react"
+import React, { useLayoutEffect, useRef, useState } from "react"
 import { createTestRoot, hasNativeTestRenderer, type TestRoot } from "../testing"
+import type { ImgInstance } from "../types/host.js"
 import { bufferSimilarity, isCI, SHOTS_DIR } from "./test-utils"
+
+function rgbaFill(
+  width: number,
+  height: number,
+  r: number,
+  g: number,
+  b: number,
+  a = 255
+): Buffer {
+  const bytes = Buffer.alloc(width * height * 4)
+  for (let i = 0; i < width * height; i++) {
+    bytes[i * 4] = r
+    bytes[i * 4 + 1] = g
+    bytes[i * 4 + 2] = b
+    bytes[i * 4 + 3] = a
+  }
+  return bytes
+}
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
 
@@ -269,6 +288,77 @@ describeNative("custom element: img", () => {
         const before = fs.readFileSync(path0)
         const after = fs.readFileSync(path1)
         expect(bufferSimilarity(before, after)).toBeLessThan(0.99)
+      }
+    })
+
+    it("paints pixels from setImagePixels on the img ref", () => {
+      function PixelImage() {
+        const imgRef = useRef<ImgInstance>(null)
+        useLayoutEffect(() => {
+          imgRef.current?.setImagePixels(240, 140, rgbaFill(240, 140, 255, 32, 64))
+        }, [])
+        return (
+          <img
+            ref={imgRef}
+            testId="pixels"
+            style={{ width: 240, height: 140 }}
+          />
+        )
+      }
+
+      const emptyPath = `${SHOTS_DIR}/gpuix-img-pixels-empty.png`
+      const filledPath = `${SHOTS_DIR}/gpuix-img-pixels-filled.png`
+      if (fs.existsSync(emptyPath)) fs.unlinkSync(emptyPath)
+      if (fs.existsSync(filledPath)) fs.unlinkSync(filledPath)
+
+      testRoot.render(<img testId="empty" style={{ width: 240, height: 140 }} />)
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(emptyPath)
+
+      testRoot.render(<PixelImage />)
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(filledPath)
+
+      expect(fs.statSync(filledPath).size).toBeGreaterThan(0)
+      if (!isCI) {
+        expect(
+          bufferSimilarity(fs.readFileSync(emptyPath), fs.readFileSync(filledPath))
+        ).toBeLessThan(0.99)
+      }
+    })
+
+    it("replaces pixels in place without a React src", () => {
+      let imgRef: ImgInstance | null = null
+
+      testRoot.render(
+        <img
+          ref={(instance) => {
+            imgRef = instance as ImgInstance | null
+          }}
+          testId="live"
+          style={{ width: 240, height: 140 }}
+        />,
+      )
+      expect(imgRef).not.toBeNull()
+      expect(typeof imgRef!.setImagePixels).toBe("function")
+
+      const redPath = `${SHOTS_DIR}/gpuix-img-pixels-red.png`
+      const bluePath = `${SHOTS_DIR}/gpuix-img-pixels-blue.png`
+      if (fs.existsSync(redPath)) fs.unlinkSync(redPath)
+      if (fs.existsSync(bluePath)) fs.unlinkSync(bluePath)
+
+      imgRef!.setImagePixels(240, 140, rgbaFill(240, 140, 220, 20, 20))
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(redPath)
+
+      imgRef!.setImagePixels(240, 140, rgbaFill(240, 140, 20, 40, 220))
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(bluePath)
+
+      if (!isCI) {
+        expect(
+          bufferSimilarity(fs.readFileSync(redPath), fs.readFileSync(bluePath))
+        ).toBeLessThan(0.99)
       }
     })
   })

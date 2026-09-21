@@ -78,6 +78,14 @@ interface NativeTestRendererApi extends NativeRenderer {
   getAllText(): string[]
   scrollTo(elementId: number, x: number, y: number): void
   scrollToItem(elementId: number, index: number, offsetInItem?: number): void
+  scrollIntoView(elementId: number): void
+  setImage(elementId: number, bytes: Buffer | Uint8Array): void
+  setImagePixels(
+    elementId: number,
+    width: number,
+    height: number,
+    pixels: Buffer | Uint8Array
+  ): void
   getScrollOffset(elementId: number): number[] | null
   getListScrollTop(elementId: number): number[] | null
   setDebugFrameOverlay(mode: DebugFrameOverlayMode): string
@@ -536,6 +544,30 @@ export class TestRenderer implements NativeRenderer {
     this.native.flush()
     this.native.scrollToItem(elementId, index, offsetInItem)
     this.dispatchNativeEvents()
+    this.native.flush()
+  }
+
+  scrollIntoView(elementId: number): void {
+    this.native.flush()
+    this.native.scrollIntoView(elementId)
+    this.dispatchNativeEvents()
+    this.native.flush()
+  }
+
+  setImage(elementId: number, bytes: Buffer | Uint8Array): void {
+    this.native.flush()
+    this.native.setImage(elementId, Buffer.from(bytes))
+    this.native.flush()
+  }
+
+  setImagePixels(
+    elementId: number,
+    width: number,
+    height: number,
+    pixels: Buffer | Uint8Array
+  ): void {
+    this.native.flush()
+    this.native.setImagePixels(elementId, width, height, Buffer.from(pixels))
     this.native.flush()
   }
 

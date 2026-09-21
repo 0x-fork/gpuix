@@ -60,6 +60,7 @@ export function createRoot(
   })
   const container = new HostRoot({
     mutations,
+    nativeRenderer: renderer,
     eventHandlers,
     allocateId: () => ++state.ids.nextElementId,
   })

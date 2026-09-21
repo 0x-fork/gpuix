@@ -42,7 +42,7 @@ export interface TextareaProps extends NativeTextareaProps {
 export interface ImgProps extends NativeImgProps {
   key?: Key | null
   children?: ReactNode
-  ref?: Ref<PublicInstance>
+  ref?: Ref<ImgInstance>
 }
 
 export interface SvgProps extends NativeSvgProps {
@@ -96,6 +96,13 @@ export interface Instance {
   id: number
   type: ElementType
   props: Props
+  scrollIntoView(): void
+}
+
+export interface ImgInstance extends Instance {
+  type: "img"
+  setImage(bytes: Buffer | Uint8Array): void
+  setImagePixels(width: number, height: number, pixels: Buffer | Uint8Array): void
 }
 
 export interface TextInstance {

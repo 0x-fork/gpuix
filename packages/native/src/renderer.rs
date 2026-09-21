@@ -96,8 +96,20 @@ pub(crate) type EventCallback = Arc<dyn Fn(EventPayload) + Send + Sync>;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) type EventCallback = Rc<dyn Fn(EventPayload)>;
 
-/// Validate and convert a JS number (f64) to a u64 element ID.
-/// JS numbers are f64 — lossless for integers up to 2^53.
+fn raw_dimension_u32(value: f64, label: &str) -> std::result::Result<u32, String> {
+    if !value.is_finite() || value <= 0.0 || value.fract() != 0.0 || value > u32::MAX as f64 {
+        return Err(format!(
+            "Image {label} must be a positive integer, got {value}"
+        ));
+    }
+    Ok(value as u32)
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub(crate) fn dimension_u32(value: f64, label: &str) -> Result<u32> {
+    raw_dimension_u32(value, label).map_err(Error::from_reason)
+}
+
 fn raw_element_id(id: f64) -> std::result::Result<u64, String> {
     if !id.is_finite() || id < 0.0 || id.fract() != 0.0 || id > 9_007_199_254_740_991.0 {
         return Err(format!("Invalid element id: {id}"));
@@ -411,6 +423,21 @@ enum UiCommand {
         index: usize,
         offset: f32,
     },
+    ScrollIntoView {
+        id: u64,
+    },
+    SetImagePixels {
+        id: u64,
+        width: u32,
+        height: u32,
+        bytes: Vec<u8>,
+        response: SyncSender<std::result::Result<(), String>>,
+    },
+    SetImage {
+        id: u64,
+        bytes: Vec<u8>,
+        response: SyncSender<std::result::Result<(), String>>,
+    },
     GetScrollOffset {
         id: u64,
         response: SyncSender<Option<[f64; 2]>>,
@@ -577,6 +604,32 @@ async fn run_ui_commands(
                 }
                 refresh_ui_window(window, cx)
             }
+            UiCommand::ScrollIntoView { id } => window.update(cx, |view, window, cx| {
+                if view.scroll_element_into_view(id) {
+                    cx.notify();
+                    window.refresh();
+                }
+            }),
+            UiCommand::SetImagePixels {
+                id,
+                width,
+                height,
+                bytes,
+                response,
+            } => window.update(cx, move |view, window, cx| {
+                response
+                    .send(view.set_image_pixels(id, width, height, bytes, window, cx))
+                    .ok();
+            }),
+            UiCommand::SetImage {
+                id,
+                bytes,
+                response,
+            } => window.update(cx, move |view, window, cx| {
+                response
+                    .send(view.set_encoded_image(id, bytes, window, cx))
+                    .ok();
+            }),
             UiCommand::GetScrollOffset { id, response } => {
                 let offset = VIRTUAL_LIST_STATES
                     .with(|cell| {
@@ -2081,6 +2134,112 @@ impl GpuixRenderer {
         Err(Error::from_reason("Unsupported operating system"))
     }
 
+    /// Scroll this element's nearest scroll parent until the element is visible.
+    #[napi]
+    pub fn scroll_into_view(&self, element_id: f64) -> Result<()> {
+        let id = to_element_id(element_id)?;
+        #[cfg(target_os = "macos")]
+        {
+            update_window(move |view, window, cx| {
+                if view.scroll_element_into_view(id) {
+                    cx.notify();
+                    window.refresh();
+                }
+            })?;
+            return Ok(());
+        }
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        return self.send_ui_command(UiCommand::ScrollIntoView { id });
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
+    }
+
+    /// Paint packed RGBA pixels onto an `<img>` host node.
+    #[napi]
+    pub fn set_image_pixels(
+        &self,
+        element_id: f64,
+        width: f64,
+        height: f64,
+        pixels: Buffer,
+    ) -> Result<()> {
+        let id = to_element_id(element_id)?;
+        let width = dimension_u32(width, "width")?;
+        let height = dimension_u32(height, "height")?;
+        let bytes = pixels.to_vec();
+        #[cfg(target_os = "macos")]
+        {
+            return update_window(move |view, window, cx| {
+                view.set_image_pixels(id, width, height, bytes, window, cx)
+            })?
+            .map_err(Error::from_reason);
+        }
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::SetImagePixels {
+                id,
+                width,
+                height,
+                bytes,
+                response,
+            })?;
+            return recv_ui_response(receiver, "the image pixel upload")?
+                .map_err(Error::from_reason);
+        }
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
+    }
+
+    /// Decode PNG, JPEG, WebP, GIF, SVG, BMP, TIFF, ICO, or Netpbm bytes onto
+    /// an `<img>` host node. Prefer `setImagePixels` for live waveforms.
+    #[napi]
+    pub fn set_image(&self, element_id: f64, bytes: Buffer) -> Result<()> {
+        let id = to_element_id(element_id)?;
+        let bytes = bytes.to_vec();
+        #[cfg(target_os = "macos")]
+        {
+            return update_window(move |view, window, cx| {
+                view.set_encoded_image(id, bytes, window, cx)
+            })?
+            .map_err(Error::from_reason);
+        }
+
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+        {
+            let (response, receiver) = sync_channel(1);
+            self.send_ui_command(UiCommand::SetImage {
+                id,
+                bytes,
+                response,
+            })?;
+            return recv_ui_response(receiver, "the encoded image upload")?
+                .map_err(Error::from_reason);
+        }
+
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "freebsd"
+        )))]
+        Err(Error::from_reason("Unsupported operating system"))
+    }
+
     #[napi]
     pub fn get_automation_tree(&self) -> Result<String> {
         self.request_invalidate()?;
@@ -2918,6 +3077,51 @@ impl WebGpuixRenderer {
         Ok(())
     }
 
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = scrollIntoView)]
+    pub fn scroll_into_view(&self, element_id: f64) -> Result<(), wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        update_web_window(move |view, window, cx| {
+            if view.scroll_element_into_view(id) {
+                cx.notify();
+                window.refresh();
+            }
+        })
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setImagePixels)]
+    pub fn set_image_pixels(
+        &self,
+        element_id: f64,
+        width: f64,
+        height: f64,
+        pixels: js_sys::Uint8Array,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        let width = raw_dimension_u32(width, "width")
+            .map_err(|error| wasm_bindgen::JsValue::from_str(&error))?;
+        let height = raw_dimension_u32(height, "height")
+            .map_err(|error| wasm_bindgen::JsValue::from_str(&error))?;
+        let bytes = pixels.to_vec();
+        update_web_window(move |view, window, cx| {
+            view.set_image_pixels(id, width, height, bytes, window, cx)
+                .map_err(|error| wasm_bindgen::JsValue::from_str(&error))
+        })??
+    }
+
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = setImage)]
+    pub fn set_image(
+        &self,
+        element_id: f64,
+        bytes: js_sys::Uint8Array,
+    ) -> Result<(), wasm_bindgen::JsValue> {
+        let id = web_element_id(element_id)?;
+        let bytes = bytes.to_vec();
+        update_web_window(move |view, window, cx| {
+            view.set_encoded_image(id, bytes, window, cx)
+                .map_err(|error| wasm_bindgen::JsValue::from_str(&error))
+        })??
+    }
+
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = getListScrollTop)]
     pub fn get_list_scroll_top(
         &self,
@@ -3474,6 +3678,93 @@ impl GpuixView {
             selection_scroll_task: None,
             clock: crate::automation::AutomationClock::new(),
             highlights: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn set_live_image(
+        &mut self,
+        id: u64,
+        image: std::sync::Arc<gpui::RenderImage>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> std::result::Result<(), String> {
+        {
+            let tree = self.tree.lock().unwrap();
+            let element = tree
+                .elements
+                .get(&id)
+                .ok_or_else(|| format!("Unknown element id {id}"))?;
+            if element.element_type != "img" {
+                return Err(format!(
+                    "setImage is only valid on <img>, got <{}>",
+                    element.element_type
+                ));
+            }
+        }
+        let previous = self.custom_registry.set_live_image(id, image)?;
+        if let Some(previous) = previous {
+            window.drop_image(previous).ok();
+        }
+        cx.notify();
+        window.refresh();
+        Ok(())
+    }
+
+    pub(crate) fn set_image_pixels(
+        &mut self,
+        id: u64,
+        width: u32,
+        height: u32,
+        bytes: Vec<u8>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> std::result::Result<(), String> {
+        let image = crate::custom_elements::img::render_image_from_rgba(width, height, bytes)?;
+        self.set_live_image(id, image, window, cx)
+    }
+
+    pub(crate) fn set_encoded_image(
+        &mut self,
+        id: u64,
+        bytes: Vec<u8>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> std::result::Result<(), String> {
+        let image = crate::custom_elements::img::render_image_from_encoded(
+            bytes,
+            cx.svg_renderer(),
+        )?;
+        self.set_live_image(id, image, window, cx)
+    }
+
+    pub(crate) fn scroll_element_into_view(&self, id: u64) -> bool {
+        let Some((scroller_id, child_index)) = self.scroll_target(id) else {
+            return false;
+        };
+        if self.scroll_virtual_list_to_item(scroller_id, child_index, 0.0) {
+            return true;
+        }
+        if let Some(handle) = self.scroll_handles.get(&scroller_id) {
+            handle.scroll_to_item(child_index);
+            return true;
+        }
+        false
+    }
+
+    fn scroll_target(&self, id: u64) -> Option<(u64, usize)> {
+        let tree = self.tree.lock().unwrap();
+        let mut current = id;
+        loop {
+            let element = tree.elements.get(&current)?;
+            let parent_id = element.parent?;
+            let parent = tree.elements.get(&parent_id)?;
+            let index = parent.children.iter().position(|child| *child == current)?;
+            if self.virtual_lists.contains_key(&parent_id)
+                || self.scroll_handles.contains_key(&parent_id)
+            {
+                return Some((parent_id, index));
+            }
+            current = parent_id;
         }
     }
 
@@ -5163,7 +5454,12 @@ pub(crate) fn build_host_container(
     }
 
     // Text content — selectable, same as a <text> leaf.
-    if let Some(ref content) = element.content {
+    // An empty string paints no glyphs, so it must take no space: gpui's text
+    // layout still reserves a full line for "", and Solid's universal renderer
+    // creates an empty placeholder text node for every dynamic hole (`<Show>`,
+    // `{cond && x}`). Emitting those as full-height lines inflated every
+    // conditional row. React never sends empty text, so this is a no-op there.
+    if let Some(content) = element.content.as_deref().filter(|value| !value.is_empty()) {
         el = el.child(text_content(element, content, ctx));
     }
 

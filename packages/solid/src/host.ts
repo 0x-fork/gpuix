@@ -15,6 +15,7 @@ import type {
   EventHandlerMap,
   HostProps,
   MutationRenderer,
+  NativeRenderer,
   StyleDesc,
 } from "@gpuix/native/host"
 import type { EventPayload } from "@gpuix/native"
@@ -43,15 +44,18 @@ export class HostRoot {
   readonly children: HostNode[] = []
 
   readonly mutations: MutationRenderer
+  readonly nativeRenderer: NativeRenderer
   readonly eventHandlers: EventHandlerMap
   readonly allocateId: () => number
 
   constructor(options: {
     mutations: MutationRenderer
+    nativeRenderer: NativeRenderer
     eventHandlers: EventHandlerMap
     allocateId: () => number
   }) {
     this.mutations = options.mutations
+    this.nativeRenderer = options.nativeRenderer
     this.eventHandlers = options.eventHandlers
     this.allocateId = options.allocateId
   }
@@ -68,6 +72,27 @@ export class HostElement {
   style: StyleDesc = {}
 
   constructor(readonly type: ElementType) {}
+
+  scrollIntoView(): void {
+    this.root?.nativeRenderer.scrollIntoView?.(this.id)
+  }
+
+  setImage(bytes: Buffer | Uint8Array): void {
+    this.root?.nativeRenderer.setImage?.(this.id, Buffer.from(bytes))
+  }
+
+  setImagePixels(
+    width: number,
+    height: number,
+    pixels: Buffer | Uint8Array
+  ): void {
+    this.root?.nativeRenderer.setImagePixels?.(
+      this.id,
+      width,
+      height,
+      Buffer.from(pixels)
+    )
+  }
 }
 
 export class HostText {

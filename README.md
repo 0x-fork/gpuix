@@ -1309,31 +1309,31 @@ pan. The wheel then costs a handful of style mutations, not one per row. The
 [timeline example](./examples/timeline.tsx) does this for a ruler, a track
 column, and a clip grid.
 
-For programmatic scroll control, use a React ref to get the element's numeric ID, then call the renderer's scroll methods:
+For programmatic scroll, use a host ref. `scrollIntoView()` walks to the nearest
+scroll parent. `scrollTo` and `scrollToItem` still exist on the renderer when
+you already have an id.
 
 ```tsx
 function ProgrammaticScroll() {
-  const listRef = useRef<any>(null)
-
-  const jumpToBottom = () => {
-    if (listRef.current) {
-      renderer.scrollTo(listRef.current.id, 0, -999)
-    }
-  }
+  const lastItem = useRef<PublicInstance>(null)
 
   return (
     <>
-      <div ref={listRef} style={{ height: 200, overflow: 'scroll' }}>
-        {items.map((item, i) => <div key={i}>{item}</div>)}
+      <div style={{ height: 200, overflow: 'scroll' }}>
+        {items.map((item, i) => (
+          <div key={i} ref={i === items.length - 1 ? lastItem : undefined}>
+            {item}
+          </div>
+        ))}
       </div>
-      <div onClick={jumpToBottom}>Jump to bottom</div>
+      <div onClick={() => lastItem.current?.scrollIntoView()}>Jump to last</div>
     </>
   )
 }
 
-// Available scroll methods on the renderer:
 renderer.scrollTo(elementId, x, y)        // set offset directly
 renderer.scrollToItem(elementId, index)   // scroll child into view
+renderer.scrollIntoView(elementId)        // nearest scroll parent
 renderer.getScrollOffset(elementId)       // returns [x, y] or null
 ```
 
@@ -2593,6 +2593,61 @@ child. Put the radius on the image.
 />
 ```
 
+### Live images from a buffer
+
+A data URL still works, but it base64-encodes the bytes into the mutation JSON.
+For a waveform, a canvas dump, or any frame you already have in memory, push
+**raw bytes** through the `<img>` ref. That call skips JSON.
+
+`setImage` takes encoded **PNG, JPEG, WebP, GIF, SVG, BMP, TIFF, ICO, or
+Netpbm**. `setImagePixels` takes packed **RGBA**. Prefer pixels for a live
+waveform. There is no PNG encode, and no JSON.
+
+Call either from `useLayoutEffect` after mount. A later React `src` commit
+overwrites the pixels.
+
+There is **no density argument**. `width` and `height` on `setImagePixels` are
+bitmap pixels. `style.width` and `style.height` are the layout box. On a retina
+display, upload **2x** (or `devicePixelRatio`) the box size so GPUI does not
+stretch one logical pixel into four screen pixels.
+
+```tsx
+import { createCanvas } from 'canvas'
+import { useLayoutEffect, useRef } from 'react'
+import type { ImgInstance } from '@gpuix/react'
+
+function Waveform({ samples }: { samples: Float32Array }) {
+  const img = useRef<ImgInstance>(null)
+
+  useLayoutEffect(() => {
+    const canvas = createCanvas(800, 80)
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#1a1a2e'
+    ctx.fillRect(0, 0, 800, 80)
+    ctx.strokeStyle = '#5ca9ff'
+    ctx.beginPath()
+    for (let x = 0; x < samples.length; x++) {
+      const y = 40 - samples[x]! * 36
+      if (x === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+    img.current?.setImage(canvas.toBuffer('image/png'))
+  }, [samples])
+
+  return <img ref={img} objectFit="fill" style={{ width: 800, height: 80 }} />
+}
+```
+
+A live waveform that already has RGBA should skip PNG:
+
+```tsx
+img.current?.setImagePixels(1600, 160, rgbaBytes)
+```
+
+That buffer is **1600x160**. The layout box stays `800x80`. The
+[waveform example](./examples/waveform.tsx) does the same at 2x.
+
 ### `<svg>`
 
 `<svg>` uses GPUI's **monochrome icon renderer**. Raw `source` works on desktop
@@ -3283,13 +3338,13 @@ The test renderer uses `VisualTestAppContext` with a `TestDispatcher` for determ
 - [x] Click outside (`onMouseDownOutside`)
 - [x] Scroll wheel events with delta and touch phase
 - [x] Scrollable containers (`overflow: "scroll"`) with persistent scroll state
-- [x] Programmatic scroll API (`scrollTo`, `scrollToItem`, `getScrollOffset`)
+- [x] Programmatic scroll API (`scrollTo`, `scrollToItem`, `scrollIntoView`, `getScrollOffset`)
 - [x] Keyboard events (keyDown, keyUp) with focus management
 - [x] Focus/blur events with automatic FocusHandle creation
 - [x] GPU-backed test renderer with screenshot capture
 - [x] Standalone build (pinned GPUI platform dependencies)
 - [x] Native text input and multiline textarea
-- [x] Image and SVG elements (`<img>`, `<svg>`)
+- [x] Image and SVG elements (`<img>`, `<svg>`), plus `setImage` / `setImagePixels` on `<img>` refs
 - [x] Virtual lists (`<virtual-list>`)
 - [x] Native text components (`<code>`, `<diff>`, `<markdown>`)
 - [x] Cross-element text selection
