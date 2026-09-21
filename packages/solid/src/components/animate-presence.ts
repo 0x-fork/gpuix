@@ -1,0 +1,128 @@
+import {
+  children,
+  createComponent,
+  createContext,
+  createRenderEffect,
+  createSignal,
+  For,
+  untrack,
+  useContext,
+  type Accessor,
+  type JSX,
+  type Signal,
+} from "solid-js"
+import type { EventPayload } from "@gpuix/native"
+import type { MotionProps } from "@gpuix/native/host"
+import { HostElement, setHostProperty } from "../host.js"
+
+export interface PresenceContextValue {
+  isPresent: Accessor<boolean>
+  initial: false | undefined
+  safeToRemove(): void
+}
+
+export const PresenceContext = createContext<PresenceContextValue>()
+
+export function usePresence(): [Accessor<boolean>, () => void] {
+  const context = useContext(PresenceContext)
+  return context
+    ? [context.isPresent, context.safeToRemove]
+    : [() => true, () => {}]
+}
+
+export function useIsPresent(): Accessor<boolean> {
+  return usePresence()[0]
+}
+
+export interface AnimatePresenceProps {
+  children?: JSX.Element
+  initial?: boolean
+  onExitComplete?: () => void
+}
+
+function normalize(value: JSX.Element): JSX.Element[] {
+  if (value == null || value === true || value === false) return []
+  return Array.isArray(value) ? value.flatMap(normalize) : [value]
+}
+
+export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
+  const resolved = children(() => props.children)
+  const [rendered, setRendered] = createSignal(normalize(resolved()))
+  const presence = new Map<JSX.Element, Signal<boolean>>()
+  let initial = true
+
+  const remove = (item: JSX.Element, entry: Signal<boolean>) => {
+    if (entry[0]()) return
+    presence.delete(item)
+    setRendered(rendered().filter((candidate) => candidate !== item))
+    if (![...presence.values()].some(([present]) => !present())) {
+      props.onExitComplete?.()
+    }
+  }
+
+  createRenderEffect(() => {
+    const current = normalize(resolved())
+    const previous = untrack(rendered)
+    const exiting = previous.filter((item) => !current.includes(item))
+    for (const item of current) {
+      const entry = presence.get(item)
+      if (entry) entry[1](true)
+      else presence.set(item, createSignal(true))
+      if (initial && props.initial === false && item instanceof HostElement) {
+        const motion = item.props.get("motion") as MotionProps | undefined
+        if (motion) setHostProperty(item, "motion", { ...motion, initial: false }, motion)
+      }
+    }
+    for (const item of exiting) {
+      const entry = presence.get(item)
+      if (!entry) continue
+      entry[1](false)
+      if (!(item instanceof HostElement)) {
+        remove(item, entry)
+        continue
+      }
+      const motion = item.props.get("motion") as MotionProps | undefined
+      if (!motion?.exit) {
+        remove(item, entry)
+        continue
+      }
+      const previous = item.props.get("onMotionComplete") as
+        | ((event: EventPayload) => void)
+        | undefined
+      setHostProperty(item, "motion", { ...motion, animate: motion.exit }, motion)
+      setHostProperty(
+        item,
+        "onMotionComplete",
+        (event: EventPayload) => {
+          previous?.(event)
+          remove(item, entry)
+        },
+        previous
+      )
+    }
+    const next = [...current, ...exiting]
+    if (
+      next.length !== previous.length ||
+      next.some((item, index) => item !== previous[index])
+    ) {
+      setRendered(next)
+    }
+    initial = false
+  })
+
+  return createComponent(For as any, {
+    get each() { return rendered() },
+    children(item: JSX.Element) {
+      const entry = presence.get(item) ?? createSignal(true)
+      presence.set(item, entry)
+      return createComponent(PresenceContext.Provider, {
+        value: {
+          isPresent: entry[0],
+          initial: initial && props.initial === false ? false : undefined,
+          safeToRemove: () => remove(item, entry),
+        },
+        get children() { return item },
+      })
+    },
+  })
+}

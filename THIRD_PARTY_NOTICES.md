@@ -31,6 +31,17 @@ behavior reviewed at
 | `packages/native/src/theme.rs` | `crates/ui/src/theme.rs` |
 | `packages/native/src/updater.rs` | [cargo-packager-updater 0.2.3](https://github.com/crabnebula-dev/cargo-packager/blob/v0.2.3/crates/updater/src/lib.rs) (MIT OR Apache-2.0). HTTP uses GPUIX `reqwest_client`, not crates.io `reqwest`. |
 
+The Solid host-tree structure is based on
+[`jhomra21/gpuix-solid`](https://github.com/jhomra21/gpuix-solid/tree/main/packages/solid1)
+(MIT). GPUIX keeps only native host nodes, mutations, and structural queries.
+It does not include that package's DOM, browser-event, class parsing, drag, or
+Kobalte compatibility layers.
+
+The Bun Solid compiler preload and plugin follow
+[`@opentui/solid`](https://github.com/anomalyco/opentui/tree/main/packages/solid)
+(MIT). GPUIX uses the same universal Solid transform and client-runtime redirect
+with its own package name and GPUIX host renderer.
+
 ## Example icons
 
 The chat example uses **[Lucide](https://github.com/lucide-icons/lucide)** SVG

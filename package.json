@@ -9,9 +9,10 @@
     "example-app"
   ],
   "scripts": {
-    "build": "bun run build:native && bun run build:react",
+    "build": "bun run build:native && bun run build:react && bun run build:solid",
     "build:native": "cd packages/native && bun run build",
     "build:react": "cd packages/react && bun run build",
+    "build:solid": "cd packages/solid && bun run build",
     "example:counter": "cd examples && bun --hot counter.tsx",
     "dev": "bun scripts/dev.ts",
     "web": "bun scripts/web.ts",
