@@ -229,6 +229,11 @@ pub trait CustomElement: 'static {
         None
     }
 
+    /// A live image that `src` replaced, waiting for `drop_image`.
+    fn take_dropped_image(&mut self) -> Option<std::sync::Arc<gpui::RenderImage>> {
+        None
+    }
+
     /// Replace the live GPU image on `<img>`. Returns the previous image when
     /// this adapter already had one, so the renderer can upload in place.
     fn replace_live_image(
@@ -399,7 +404,7 @@ impl CustomElementRegistry {
     }
 
     /// Remove and destroy instances whose IDs no longer exist in the tree.
-    pub fn prune_missing<F>(&mut self, mut is_live: F)
+    pub fn prune_missing<F>(&mut self, mut is_live: F, window: &mut gpui::Window)
     where
         F: FnMut(u64) -> bool,
     {
@@ -411,7 +416,20 @@ impl CustomElementRegistry {
             .collect();
 
         for id in stale_ids {
-            self.destroy(id);
+            self.destroy_live_image(id, window);
+        }
+    }
+
+    fn destroy_live_image(&mut self, id: u64, window: &mut gpui::Window) {
+        if let Some(mut entry) = self.instances.remove(&id) {
+            if let Some(image) = entry
+                .element
+                .live_image()
+                .or_else(|| entry.element.take_dropped_image())
+            {
+                window.drop_image(image).ok();
+            }
+            entry.element.destroy();
         }
     }
 

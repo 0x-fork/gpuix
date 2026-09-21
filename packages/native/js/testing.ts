@@ -556,7 +556,7 @@ export class TestRenderer implements NativeRenderer {
 
   setImage(elementId: number, bytes: Buffer | Uint8Array): void {
     this.native.flush()
-    this.native.setImage(elementId, Buffer.from(bytes))
+    this.native.setImage(elementId, bytes as Buffer)
     this.native.flush()
   }
 
@@ -567,7 +567,7 @@ export class TestRenderer implements NativeRenderer {
     pixels: Buffer | Uint8Array
   ): void {
     this.native.flush()
-    this.native.setImagePixels(elementId, width, height, Buffer.from(pixels))
+    this.native.setImagePixels(elementId, width, height, pixels as Buffer)
     this.native.flush()
   }
 

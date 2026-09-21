@@ -112,7 +112,7 @@ export function WaveformApp({
           color: '#1e1e2e',
           width: 140,
         }}
-        onClick={() => lastClip.current?.scrollIntoView()}
+        onClick={() => lastClip.current?.scrollIntoView?.()}
       >
         Jump to outro
       </div>

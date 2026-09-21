@@ -3105,7 +3105,7 @@ impl WebGpuixRenderer {
         update_web_window(move |view, window, cx| {
             view.set_image_pixels(id, width, height, bytes, window, cx)
                 .map_err(|error| wasm_bindgen::JsValue::from_str(&error))
-        })??
+        })?
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = setImage)]
@@ -3119,7 +3119,7 @@ impl WebGpuixRenderer {
         update_web_window(move |view, window, cx| {
             view.set_encoded_image(id, bytes, window, cx)
                 .map_err(|error| wasm_bindgen::JsValue::from_str(&error))
-        })??
+        })?
     }
 
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = getListScrollTop)]
@@ -3759,9 +3759,10 @@ impl GpuixView {
             let parent_id = element.parent?;
             let parent = tree.elements.get(&parent_id)?;
             let index = parent.children.iter().position(|child| *child == current)?;
-            if self.virtual_lists.contains_key(&parent_id)
-                || self.scroll_handles.contains_key(&parent_id)
-            {
+            if let Some(entry) = self.virtual_lists.get(&parent_id) {
+                return Some((parent_id, entry.logical_index_of(current)?));
+            }
+            if self.scroll_handles.contains_key(&parent_id) {
                 return Some((parent_id, index));
             }
             current = parent_id;
@@ -3980,12 +3981,8 @@ impl GpuixView {
             else {
                 break None;
             };
-            if self.virtual_lists.contains_key(&parent_id) {
-                let index = tree
-                    .elements
-                    .get(&parent_id)
-                    .and_then(|parent| parent.children.iter().position(|child| *child == current));
-                break index.map(|index| (parent_id, index));
+            if let Some(entry) = self.virtual_lists.get(&parent_id) {
+                break entry.logical_index_of(current).map(|index| (parent_id, index));
             }
             current = parent_id;
         };
@@ -4688,7 +4685,7 @@ impl gpui::Render for GpuixView {
 
         // Ensure custom element instances are destroyed when their IDs disappear.
         self.custom_registry
-            .prune_missing(|id| tree.elements.contains_key(&id));
+            .prune_missing(|id| tree.elements.contains_key(&id), window);
 
         // Clean up scroll handles for destroyed elements (IDs removed from tree).
         // Scrollability-based cleanup (element still exists but style changed

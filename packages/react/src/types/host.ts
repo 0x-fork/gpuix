@@ -96,7 +96,7 @@ export interface Instance {
   id: number
   type: ElementType
   props: Props
-  scrollIntoView(): void
+  scrollIntoView?(): void
 }
 
 export interface ImgInstance extends Instance {

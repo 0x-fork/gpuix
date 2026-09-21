@@ -3,6 +3,7 @@
 import React from "react"
 import { describe, expect, it } from "vitest"
 import { createTestRoot } from "../testing.js"
+import type { PublicInstance } from "../types/host.js"
 
 function Rows({ count }: { count: number }) {
   return Array.from({ length: count }, (_, index) => (
@@ -537,6 +538,43 @@ describe("<virtual-list>", () => {
     renderer.advanceTime(48)
     expect(renderer.getScrollOffset(list.id)?.[1]).toBe(stoppedAt)
     expect(renderer.getSelectedText()).toBe(selected)
+  })
+
+  it("scrollIntoView uses the logical index of a windowed row", () => {
+    const { render, renderer } = createTestRoot()
+    let rowRef: PublicInstance | null = null
+    const start = 50
+    render(
+      <virtual-list
+        itemCount={1000}
+        windowStart={start}
+        overdraw={0}
+        estimatedItemHeight={40}
+        style={{ width: 400, height: 160 }}
+      >
+        {Array.from({ length: 8 }, (_, offset) => (
+          <div
+            key={start + offset}
+            ref={
+              offset === 5
+                ? (instance) => {
+                    rowRef = instance
+                  }
+                : undefined
+            }
+            style={{ height: 40, flexShrink: 0 }}
+          >
+            <text>{`row-${start + offset}`}</text>
+          </div>
+        ))}
+      </virtual-list>
+    )
+
+    const list = renderer.findByType("virtual-list")[0]
+    expect(rowRef).not.toBeNull()
+    rowRef!.scrollIntoView?.()
+    expect(renderer.getListScrollTop(list.id)?.[0]).toBe(55)
+    expect(renderer.getPaintedText()).toContain("row-55")
   })
 
 })

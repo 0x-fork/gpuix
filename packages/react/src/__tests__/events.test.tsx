@@ -2323,7 +2323,7 @@ describeNative("events", () => {
       expect(childRef).not.toBeNull()
       expect(typeof childRef!.scrollIntoView).toBe("function")
 
-      childRef!.scrollIntoView()
+      childRef!.scrollIntoView?.()
       const offset = testRoot.renderer.getScrollOffset(scroller.id)
       expect(offset).not.toBeNull()
       expect(offset![1]).toBeLessThan(0)

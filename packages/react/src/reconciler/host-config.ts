@@ -44,6 +44,23 @@ interface HostNodeState {
 
 const hostNodeStates = new WeakMap<HostNode, HostNodeState>()
 
+function attachHostMethods(instance: Instance): void {
+  if (instance.scrollIntoView) return
+  const container = hostNodeStates.get(instance)?.container
+  if (!container) return
+  instance.scrollIntoView = () => {
+    container.nativeRenderer.scrollIntoView?.(instance.id)
+  }
+  if (instance.type !== "img") return
+  const img = instance as ImgInstance
+  img.setImage = (bytes) => {
+    container.nativeRenderer.setImage?.(img.id, bytes as Buffer)
+  }
+  img.setImagePixels = (width, height, pixels) => {
+    container.nativeRenderer.setImagePixels?.(img.id, width, height, pixels as Buffer)
+  }
+}
+
 function stateFor(node: HostNode): HostNodeState {
   const state = hostNodeStates.get(node)
   if (!state) {
@@ -203,23 +220,6 @@ export const hostConfig = {
       id: nextId(rootContainerInstance),
       type,
       props,
-      scrollIntoView() {
-        rootContainerInstance.nativeRenderer.scrollIntoView?.(instance.id)
-      },
-    }
-    if (type === "img") {
-      const img = instance as ImgInstance
-      img.setImage = (bytes) => {
-        rootContainerInstance.nativeRenderer.setImage?.(img.id, Buffer.from(bytes))
-      }
-      img.setImagePixels = (width, height, pixels) => {
-        rootContainerInstance.nativeRenderer.setImagePixels?.(
-          img.id,
-          width,
-          height,
-          Buffer.from(pixels)
-        )
-      }
     }
     hostNodeStates.set(instance, {
       container: rootContainerInstance,
@@ -448,6 +448,7 @@ export const hostConfig = {
   },
 
   getPublicInstance(instance: Instance): PublicInstance {
+    attachHostMethods(instance)
     return instance
   },
 

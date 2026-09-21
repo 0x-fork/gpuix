@@ -78,7 +78,7 @@ export class HostElement {
   }
 
   setImage(bytes: Buffer | Uint8Array): void {
-    this.root?.nativeRenderer.setImage?.(this.id, Buffer.from(bytes))
+    this.root?.nativeRenderer.setImage?.(this.id, bytes as Buffer)
   }
 
   setImagePixels(
@@ -90,7 +90,7 @@ export class HostElement {
       this.id,
       width,
       height,
-      Buffer.from(pixels)
+      pixels as Buffer
     )
   }
 }

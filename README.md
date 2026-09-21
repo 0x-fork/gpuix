@@ -1328,7 +1328,7 @@ function ProgrammaticScroll() {
           </div>
         ))}
       </div>
-      <div onClick={() => lastItem.current?.scrollIntoView()}>Jump to last</div>
+      <div onClick={() => lastItem.current?.scrollIntoView?.()}>Jump to last</div>
     </>
   )
 }
@@ -2605,8 +2605,8 @@ For a waveform, a canvas dump, or any frame you already have in memory, push
 Netpbm**. `setImagePixels` takes packed **RGBA**. Prefer pixels for a live
 waveform. There is no PNG encode, and no JSON.
 
-Call either from `useLayoutEffect` after mount. A later React `src` commit
-overwrites the pixels.
+Call either from `useLayoutEffect` after mount. A later React `src` **change**
+overwrites the pixels. Alpha is straight, not premultiplied.
 
 There is **no density argument**. `width` and `height` on `setImagePixels` are
 bitmap pixels. `style.width` and `style.height` are the layout box. On a retina

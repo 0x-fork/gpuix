@@ -361,6 +361,39 @@ describeNative("custom element: img", () => {
         ).toBeLessThan(0.99)
       }
     })
+
+    it("paints encoded bytes from setImage on the img ref", () => {
+      let imgRef: ImgInstance | null = null
+      const emptyPath = `${SHOTS_DIR}/gpuix-img-setimage-empty.png`
+      const filledPath = `${SHOTS_DIR}/gpuix-img-setimage-filled.png`
+      if (fs.existsSync(emptyPath)) fs.unlinkSync(emptyPath)
+      if (fs.existsSync(filledPath)) fs.unlinkSync(filledPath)
+
+      testRoot.render(
+        <img
+          ref={(instance) => {
+            imgRef = instance as ImgInstance | null
+          }}
+          testId="encoded"
+          style={{ width: 240, height: 140 }}
+        />,
+      )
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(emptyPath)
+
+      expect(imgRef).not.toBeNull()
+      imgRef!.setImage(Buffer.from(SVG_FIXTURE))
+      testRoot.renderer.flush()
+      testRoot.renderer.flush()
+      testRoot.renderer.captureScreenshot(filledPath)
+
+      expect(fs.statSync(filledPath).size).toBeGreaterThan(0)
+      if (!isCI) {
+        expect(
+          bufferSimilarity(fs.readFileSync(emptyPath), fs.readFileSync(filledPath))
+        ).toBeLessThan(0.99)
+      }
+    })
   })
 })
 

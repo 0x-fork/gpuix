@@ -86,6 +86,7 @@ pub struct ImgElement {
     source: ImgSource,
     object_fit: ImgObjectFit,
     alt: String,
+    dropped: Option<std::sync::Arc<gpui::RenderImage>>,
 }
 
 impl ImgElement {
@@ -177,10 +178,14 @@ impl CustomElement for ImgElement {
     fn render(
         &mut self,
         ctx: CustomRenderContext,
-        _window: &mut gpui::Window,
+        window: &mut gpui::Window,
         _cx: &mut gpui::Context<crate::renderer::GpuixView>,
     ) -> gpui::AnyElement {
         use gpui::prelude::*;
+
+        if let Some(image) = self.dropped.take() {
+            window.drop_image(image).ok();
+        }
 
         let el = match &self.source {
             ImgSource::Path(path) => gpui::img(path.clone()),
@@ -239,6 +244,9 @@ impl CustomElement for ImgElement {
                 if value.is_null() && matches!(self.source, ImgSource::Render(_)) {
                     return;
                 }
+                if let ImgSource::Render(image) = &self.source {
+                    self.dropped = Some(image.clone());
+                }
                 self.load_src(value.as_str().unwrap_or(""));
             }
             "objectFit" => {
@@ -269,6 +277,10 @@ impl CustomElement for ImgElement {
         }
     }
 
+    fn take_dropped_image(&mut self) -> Option<std::sync::Arc<gpui::RenderImage>> {
+        self.dropped.take()
+    }
+
     fn replace_live_image(
         &mut self,
         image: std::sync::Arc<gpui::RenderImage>,
@@ -284,7 +296,11 @@ pub fn render_image_from_rgba(
     height: u32,
     mut bytes: Vec<u8>,
 ) -> std::result::Result<std::sync::Arc<gpui::RenderImage>, String> {
-    let expected = width as usize * height as usize * 4;
+    let expected = (width as u64)
+        .checked_mul(height as u64)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or_else(|| format!("RGBA pixel buffer {width}x{height} is too large"))?;
     if bytes.len() != expected {
         return Err(format!(
             "RGBA pixel buffer length {} does not match {width}x{height} ({expected} bytes)",

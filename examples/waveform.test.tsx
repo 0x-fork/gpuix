@@ -25,23 +25,22 @@ function similarity(a: Buffer, b: Buffer): number {
 describeNative('waveform example', () => {
   it('paints a waveform through setImagePixels', () => {
     const root = createTestRoot({ width: 800, height: 420 })
-    const empty = path.join(SHOTS, 'waveform-empty.png')
-    const filled = path.join(SHOTS, 'waveform-filled.png')
-    if (fs.existsSync(empty)) fs.unlinkSync(empty)
-    if (fs.existsSync(filled)) fs.unlinkSync(filled)
+    const first = path.join(SHOTS, 'waveform-phase-0.png')
+    const second = path.join(SHOTS, 'waveform-phase-1.png')
+    if (fs.existsSync(first)) fs.unlinkSync(first)
+    if (fs.existsSync(second)) fs.unlinkSync(second)
 
-    root.render(
-      <div style={{ width: 720, height: 96, backgroundColor: '#11111b' }} />,
-    )
-    root.renderer.captureScreenshot(empty)
-
-    root.render(<WaveformApp />)
+    root.render(<WaveformApp phase={0} />)
     root.renderer.flush()
-    root.renderer.captureScreenshot(filled)
+    root.renderer.captureScreenshot(first)
 
-    expect(fs.statSync(filled).size).toBeGreaterThan(0)
+    root.render(<WaveformApp phase={1.2} />)
+    root.renderer.flush()
+    root.renderer.captureScreenshot(second)
+
+    expect(fs.statSync(second).size).toBeGreaterThan(0)
     if (!isCI) {
-      expect(similarity(fs.readFileSync(empty), fs.readFileSync(filled))).toBeLessThan(0.99)
+      expect(similarity(fs.readFileSync(first), fs.readFileSync(second))).toBeLessThan(0.99)
     }
   })
 
