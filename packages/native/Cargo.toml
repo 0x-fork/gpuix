@@ -59,8 +59,8 @@ time = { version = "0.3", features = ["parsing", "formatting"] }
 url = { version = "2", features = ["serde"] }
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
-napi = { version = "3", features = ["napi8", "serde-json"] }
-napi-derive = "3"
+napi = { version = "3.12.7", features = ["napi8", "serde-json"] }
+napi-derive = "3.6.8"
 
 # The slow half of the engine split above. fancy-regex is pure Rust, so it is
 # the only Syntect engine that builds here, and the browser still pays ~133ms on
@@ -97,7 +97,7 @@ default = ["test-support"]
 test-support = ["gpui/test-support", "gpui_platform/test-support", "gpui_macos/test-support", "gpui_macos/font-kit"]
 
 [build-dependencies]
-napi-build = "2"
+napi-build = "2.4.4"
 
 # Only the serialization bench needs a MessagePack codec. Keep it out of the
 # shipped addon: the wire format is still JSON until the bench says otherwise.

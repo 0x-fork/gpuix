@@ -92,11 +92,16 @@ where
     }
     let callback = callback.clone();
     el.on_a11y_action(AccessibleAction::Click, move |_data, _window, _cx| {
-        emit_event_full(&callback, element_id, "click", |payload: &mut EventPayload| {
-            payload.button = Some(0);
-            payload.click_count = Some(1);
-            payload.is_right_click = Some(false);
-        });
+        emit_event_full(
+            &callback,
+            element_id,
+            "click",
+            |payload: &mut EventPayload| {
+                payload.button = Some(0);
+                payload.click_count = Some(1);
+                payload.is_right_click = Some(false);
+            },
+        );
     })
 }
 

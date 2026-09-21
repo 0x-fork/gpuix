@@ -184,6 +184,7 @@ impl StyleTable {
 
 pub struct RetainedTree {
     pub elements: ElementMap,
+    pub motion_ids: HashSet<u64>,
     pub styles: StyleTable,
     /// The root element ID set by appendChildToContainer.
     pub root_id: Option<u64>,
@@ -194,6 +195,7 @@ impl RetainedTree {
     pub fn new() -> Self {
         Self {
             elements: ElementMap::default(),
+            motion_ids: HashSet::new(),
             styles: StyleTable::default(),
             root_id: None,
             next_revision: 1,
@@ -264,6 +266,7 @@ impl RetainedTree {
 
     fn destroy_element_recursive(&mut self, id: u64, destroyed: &mut Vec<u64>) {
         if let Some(element) = self.elements.remove(&id) {
+            self.motion_ids.remove(&id);
             destroyed.push(id);
             for child_id in element.children {
                 self.destroy_element_recursive(child_id, destroyed);
@@ -375,6 +378,7 @@ impl RetainedTree {
     pub fn set_custom_prop(&mut self, id: u64, key: String, value: serde_json::Value) {
         let mut changed = false;
         let is_highlight = key == "highlight";
+        let is_motion = key == "motion";
         let was_declaration = self
             .elements
             .get(&id)
@@ -401,6 +405,17 @@ impl RetainedTree {
         }
         if !changed {
             return;
+        }
+        if is_motion {
+            if self
+                .elements
+                .get(&id)
+                .is_some_and(|element| element.custom_props.contains_key("motion"))
+            {
+                self.motion_ids.insert(id);
+            } else {
+                self.motion_ids.remove(&id);
+            }
         }
         self.mark_render_changed(id);
         let is_declaration = self

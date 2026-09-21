@@ -11,9 +11,9 @@ use napi::bindgen_prelude::*;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use napi_derive::napi;
 
+mod accessibility;
 #[cfg(target_os = "macos")]
 mod app_menu;
-mod accessibility;
 mod automation;
 mod color;
 mod custom_elements;

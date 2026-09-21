@@ -21,6 +21,19 @@ pub(crate) struct MotionStyle {
 }
 
 impl MotionStyle {
+    fn with_fallback(self, fallback: Self) -> Self {
+        Self {
+            width: self.width.or(fallback.width),
+            height: self.height.or(fallback.height),
+            opacity: self.opacity.or(fallback.opacity),
+            top: self.top.or(fallback.top),
+            right: self.right.or(fallback.right),
+            bottom: self.bottom.or(fallback.bottom),
+            left: self.left.or(fallback.left),
+            border_radius: self.border_radius.or(fallback.border_radius),
+        }
+    }
+
     fn interpolate(self, target: Self, progress: f64) -> Self {
         fn value(from: Option<f64>, to: Option<f64>, progress: f64) -> Option<f64> {
             to.map(|to| from.unwrap_or(to) + (to - from.unwrap_or(to)) * progress)
@@ -110,7 +123,12 @@ fn default_ease() -> MotionEase {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 struct MotionDescription {
+    #[serde(default)]
+    generation: u64,
+    #[serde(default)]
+    is_exit: bool,
     #[serde(default)]
     initial: Option<MotionInitial>,
     animate: MotionStyle,
@@ -120,9 +138,9 @@ struct MotionDescription {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionFrame {
-    pub style: MotionStyle,
     pub active: bool,
     pub just_settled: bool,
+    pub generation: u64,
 }
 
 pub(crate) struct MotionState {
@@ -133,6 +151,7 @@ pub(crate) struct MotionState {
     started: Instant,
     valid: bool,
     needs_settle: bool,
+    generation: u64,
 }
 
 impl MotionState {
@@ -144,14 +163,16 @@ impl MotionState {
             Some(MotionInitial::Disabled(true)) => unreachable!("validated above"),
         };
 
+        let target = description.animate.with_fallback(from);
         Ok(Self {
             source: source.clone(),
             from,
-            target: description.animate,
+            target,
             transition: description.transition,
             started: now,
             valid: true,
-            needs_settle: from != description.animate,
+            needs_settle: description.is_exit || from != target,
+            generation: description.generation,
         })
     }
 
@@ -163,12 +184,9 @@ impl MotionState {
             transition: MotionTransition::default(),
             started: now,
             valid: false,
-            needs_settle: false,
+            needs_settle: source_is_exit(source),
+            generation: source_generation(source),
         }
-    }
-
-    pub(crate) fn is_valid(&self) -> bool {
-        self.valid
     }
 
     pub(crate) fn sync(&mut self, source: &serde_json::Value, now: Instant) -> Result<(), String> {
@@ -176,16 +194,21 @@ impl MotionState {
             return Ok(());
         }
 
+        let previous_generation = self.generation;
         let description = match parse_description(source) {
             Ok(description) => description,
             Err(error) => {
                 self.source = source.clone();
                 self.valid = false;
+                self.generation = source_generation(source);
+                self.needs_settle =
+                    source_is_exit(source) || self.generation != previous_generation;
                 return Err(error);
             }
         };
         self.from = if self.valid {
             self.visible_style(now)
+                .expect("a valid motion state always has a visible style")
         } else {
             match description.initial {
                 Some(MotionInitial::Style(style)) => style,
@@ -193,17 +216,20 @@ impl MotionState {
                 Some(MotionInitial::Disabled(true)) => unreachable!("validated above"),
             }
         };
-        self.target = description.animate;
+        self.target = description.animate.with_fallback(self.from);
         self.transition = description.transition;
         self.started = now;
         self.source = source.clone();
         self.valid = true;
-        self.needs_settle = self.from != self.target;
+        self.generation = description.generation;
+        self.needs_settle = description.is_exit
+            || self.generation != previous_generation
+            || self.from != self.target;
         Ok(())
     }
 
-    fn visible_style(&self, now: Instant) -> MotionStyle {
-        self.sample(now).0
+    pub(crate) fn visible_style(&self, now: Instant) -> Option<MotionStyle> {
+        self.valid.then(|| self.sample(now).0)
     }
 
     fn sample(&self, now: Instant) -> (MotionStyle, bool) {
@@ -227,7 +253,11 @@ impl MotionState {
     }
 
     pub(crate) fn frame(&mut self, now: Instant) -> MotionFrame {
-        let (style, active) = self.sample(now);
+        let (_, active) = if self.valid {
+            self.sample(now)
+        } else {
+            (MotionStyle::default(), false)
+        };
         if active {
             self.needs_settle = true;
         }
@@ -236,11 +266,25 @@ impl MotionState {
             self.needs_settle = false;
         }
         MotionFrame {
-            style,
             active,
             just_settled,
+            generation: self.generation,
         }
     }
+}
+
+fn source_generation(source: &serde_json::Value) -> u64 {
+    source
+        .get("generation")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default()
+}
+
+fn source_is_exit(source: &serde_json::Value) -> bool {
+    source
+        .get("isExit")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or_default()
 }
 
 fn parse_description(source: &serde_json::Value) -> Result<MotionDescription, String> {
@@ -376,7 +420,13 @@ mod tests {
         let mut state = MotionState::new(&initial, started).unwrap();
 
         let middle = state.frame(started + Duration::from_millis(500));
-        assert_eq!(middle.style.width, Some(50.0));
+        assert_eq!(
+            state
+                .visible_style(started + Duration::from_millis(500))
+                .unwrap()
+                .width,
+            Some(50.0)
+        );
         assert!(middle.active);
         assert!(!middle.just_settled);
 
@@ -387,11 +437,11 @@ mod tests {
         });
         let reversed_at = started + Duration::from_millis(500);
         state.sync(&reversed, reversed_at).unwrap();
-        assert_eq!(state.frame(reversed_at).style.width, Some(50.0));
+        assert_eq!(state.visible_style(reversed_at).unwrap().width, Some(50.0));
         assert_eq!(
             state
-                .frame(reversed_at + Duration::from_millis(500))
-                .style
+                .visible_style(reversed_at + Duration::from_millis(500))
+                .unwrap()
                 .width,
             Some(25.0)
         );
@@ -405,9 +455,10 @@ mod tests {
             "animate": { "width": 260.0 },
             "transition": { "duration": 0.2 }
         });
-        let frame = MotionState::new(&description, now).unwrap().frame(now);
+        let mut state = MotionState::new(&description, now).unwrap();
+        let frame = state.frame(now);
 
-        assert_eq!(frame.style.width, Some(260.0));
+        assert_eq!(state.visible_style(now).unwrap().width, Some(260.0));
         assert!(!frame.active);
         assert!(!frame.just_settled);
     }
@@ -436,10 +487,20 @@ mod tests {
         let mut state = MotionState::new(&description, started).unwrap();
         let frame = state.frame(started + Duration::from_millis(200));
 
-        assert_eq!(frame.style.width, Some(100.0));
+        assert_eq!(
+            state
+                .visible_style(started + Duration::from_millis(200))
+                .unwrap()
+                .width,
+            Some(100.0)
+        );
         assert!(!frame.active);
         assert!(frame.just_settled);
-        assert!(!state.frame(started + Duration::from_millis(201)).just_settled);
+        assert!(
+            !state
+                .frame(started + Duration::from_millis(201))
+                .just_settled
+        );
     }
 
     #[test]
@@ -460,8 +521,56 @@ mod tests {
         });
         state.sync(&exit, started).unwrap();
         let frame = state.frame(started);
-        assert_eq!(frame.style.opacity, Some(0.0));
+        assert_eq!(state.visible_style(started).unwrap().opacity, Some(0.0));
         assert!(!frame.active);
         assert!(frame.just_settled);
+    }
+
+    #[test]
+    fn a_new_generation_settles_when_the_target_already_matches() {
+        let started = Instant::now();
+        let initial = serde_json::json!({
+            "generation": 1,
+            "initial": false,
+            "animate": { "opacity": 1.0 }
+        });
+        let mut state = MotionState::new(&initial, started).unwrap();
+
+        let exit = serde_json::json!({
+            "generation": 2,
+            "initial": false,
+            "animate": { "opacity": 1.0 }
+        });
+        state.sync(&exit, started).unwrap();
+
+        assert!(state.frame(started).just_settled);
+        assert!(!state.frame(started).just_settled);
+    }
+
+    #[test]
+    fn retarget_keeps_values_omitted_from_the_new_target() {
+        let started = Instant::now();
+        let initial = serde_json::json!({
+            "generation": 1,
+            "initial": false,
+            "animate": { "width": 100.0, "opacity": 1.0 },
+            "transition": { "duration": 1.0, "ease": "linear" }
+        });
+        let mut state = MotionState::new(&initial, started).unwrap();
+
+        let exit = serde_json::json!({
+            "generation": 2,
+            "initial": false,
+            "animate": { "opacity": 0.0 },
+            "transition": { "duration": 1.0, "ease": "linear" }
+        });
+        state.sync(&exit, started).unwrap();
+
+        state.frame(started + Duration::from_millis(500));
+        let style = state
+            .visible_style(started + Duration::from_millis(500))
+            .unwrap();
+        assert_eq!(style.width, Some(100.0));
+        assert_eq!(style.opacity, Some(0.5));
     }
 }

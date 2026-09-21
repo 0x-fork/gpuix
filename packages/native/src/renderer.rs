@@ -3250,17 +3250,61 @@ struct HighlightCacheEntry {
 fn emit_motion_settled(
     callback: &Option<EventCallback>,
     tree: &crate::retained_tree::RetainedTree,
-    ids: &[u64],
+    completions: &[(u64, u64)],
 ) {
-    for &id in ids {
+    for &(id, generation) in completions {
         let Some(element) = tree.elements.get(&id) else {
             continue;
         };
         if !element.events.contains("motionComplete") {
             continue;
         }
-        emit_event_full(callback, id, "motionComplete", |_| {});
+        emit_event_full(callback, id, "motionComplete", |payload| {
+            payload.motion_generation = Some(generation as f64);
+        });
     }
+}
+
+fn sync_motion_states(
+    tree: &crate::retained_tree::RetainedTree,
+    states: &mut HashMap<u64, crate::motion::MotionState>,
+    now: web_time::Instant,
+) -> (bool, Vec<(u64, u64)>) {
+    states.retain(|id, _| tree.motion_ids.contains(id));
+    let mut active = false;
+    let mut settled = Vec::new();
+
+    for &id in &tree.motion_ids {
+        let Some(source) = tree
+            .elements
+            .get(&id)
+            .and_then(|element| element.custom_props.get("motion"))
+        else {
+            continue;
+        };
+        let state = match states.entry(id) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                match crate::motion::MotionState::new(source, now) {
+                    Ok(state) => entry.insert(state),
+                    Err(error) => {
+                        log::warn!("Invalid motion description for element {id}: {error}");
+                        entry.insert(crate::motion::MotionState::invalid(source, now))
+                    }
+                }
+            }
+        };
+        if let Err(error) = state.sync(source, now) {
+            log::warn!("Invalid motion update for element {id}: {error}");
+        }
+        let frame = state.frame(now);
+        active |= frame.active;
+        if frame.just_settled {
+            settled.push((id, frame.generation));
+        }
+    }
+
+    (active, settled)
 }
 
 fn emit_highlight_events(callback: &Option<EventCallback>, events: &[(u64, usize)]) {
@@ -3516,8 +3560,8 @@ impl GpuixView {
 
         let callback = self.event_callback.clone();
         let now = self.clock.now();
-        let mut motion_active = false;
-        let mut motion_settled = Vec::new();
+        let (motion_active, motion_settled) =
+            sync_motion_states(&tree, &mut self.motion_states, now);
         let mut highlight_events = Vec::new();
 
         // Re-resolve against the tree as it is NOW. gpui calls this during
@@ -3553,8 +3597,6 @@ impl GpuixView {
             virtual_lists: &mut self.virtual_lists,
             motion_states: &mut self.motion_states,
             now,
-            motion_active: &mut motion_active,
-            motion_settled: &mut motion_settled,
             selection: self.selection.clone(),
             inherited,
             highlights: &mut self.highlights,
@@ -3679,8 +3721,6 @@ pub(crate) struct BuildCtx<'a> {
     virtual_lists: &'a mut HashMap<u64, VirtualListEntry>,
     pub motion_states: &'a mut HashMap<u64, crate::motion::MotionState>,
     pub now: web_time::Instant,
-    pub motion_active: &'a mut bool,
-    pub motion_settled: &'a mut Vec<u64>,
     pub selection: SharedSelection,
     /// Inherited text state, resolved the way CSS inherits it. The renderer's
     /// own theme only seeds the root selection wash; custom elements resolve
@@ -4068,12 +4108,7 @@ impl VirtualListEntry {
 }
 
 impl GpuixView {
-    fn request_focus(
-        &mut self,
-        id: u64,
-        window: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
+    fn request_focus(&mut self, id: u64, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
         self.reveal_virtual_list_ancestor(id);
         if let Some(handle) = self.focus_handles.get(&id) {
             self.pending_focus_element = None;
@@ -4085,9 +4120,9 @@ impl GpuixView {
     }
 
     pub(crate) fn focused_element_id(&self, window: &gpui::Window) -> Option<u64> {
-        self.focus_handles.iter().find_map(|(id, handle)| {
-            handle.is_focused(window).then_some(*id)
-        })
+        self.focus_handles
+            .iter()
+            .find_map(|(id, handle)| handle.is_focused(window).then_some(*id))
     }
 
     fn descendant_ids(&self, ancestor: u64) -> HashSet<u64> {
@@ -4106,7 +4141,13 @@ impl GpuixView {
         ids
     }
 
-    fn focus_among(&self, ancestor: u64, forward: bool, window: &mut gpui::Window, cx: &mut gpui::App) {
+    fn focus_among(
+        &self,
+        ancestor: u64,
+        forward: bool,
+        window: &mut gpui::Window,
+        cx: &mut gpui::App,
+    ) {
         let ids = self.descendant_ids(ancestor);
         let allowed: HashSet<gpui::FocusId> = self
             .focus_handles
@@ -4365,15 +4406,12 @@ impl gpui::Render for GpuixView {
             .retain(|id, _| tree.elements.contains_key(id));
         self.virtual_lists
             .retain(|id, _| tree.elements.contains_key(id));
-        self.motion_states
-            .retain(|id, _| tree.elements.contains_key(id));
-
         // Build the element tree. custom_registry, focus_handles, and scroll_handles
         // are different fields of self, so Rust allows borrowing all simultaneously.
         let theme = Theme::dark();
         let now = self.clock.now();
-        let mut motion_active = false;
-        let mut motion_settled = Vec::new();
+        let (motion_active, motion_settled) =
+            sync_motion_states(&tree, &mut self.motion_states, now);
         // Pruned by DECLARATION, not existence: an element that drops its
         // `highlight` prop keeps living, and its cached group list holds a copy
         // of every string in its subtree.
@@ -4394,8 +4432,6 @@ impl gpui::Render for GpuixView {
                     virtual_lists: &mut self.virtual_lists,
                     motion_states: &mut self.motion_states,
                     now,
-                    motion_active: &mut motion_active,
-                    motion_settled: &mut motion_settled,
                     selection: self.selection.clone(),
                     inherited: Inherited::root(&theme),
                     highlights: &mut self.highlights,
@@ -4503,37 +4539,19 @@ pub(crate) fn build_element(
         return gpui::Empty.into_any_element();
     };
 
-    let animated_style = if let Some(source) = element.custom_props.get("motion") {
-        let state = match ctx.motion_states.entry(id) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                match crate::motion::MotionState::new(source, ctx.now) {
-                    Ok(state) => entry.insert(state),
-                    Err(error) => {
-                        log::warn!("Invalid motion description for element {id}: {error}");
-                        entry.insert(crate::motion::MotionState::invalid(source, ctx.now))
-                    }
-                }
-            }
-        };
-        if let Err(error) = state.sync(source, ctx.now) {
-            log::warn!("Invalid motion update for element {id}: {error}");
-        }
-        state.is_valid().then(|| {
-            let frame = state.frame(ctx.now);
-            *ctx.motion_active |= frame.active;
-            if frame.just_settled {
-                ctx.motion_settled.push(id);
-            }
-            // `Arc<StyleDesc>` is shared, so the animated frame is applied to a
-            // copy. Mutating through the pointer would restyle every element
-            // that declared the same style.
-            let mut resolved = element.style.as_deref().cloned().unwrap_or_default();
-            frame.style.apply_to(&mut resolved);
-            resolved
-        })
+    let animated_style = if element.custom_props.contains_key("motion") {
+        ctx.motion_states
+            .get(&id)
+            .and_then(|state| state.visible_style(ctx.now))
+            .map(|style| {
+                // `Arc<StyleDesc>` is shared, so the animated frame is applied to a
+                // copy. Mutating through the pointer would restyle every element
+                // that declared the same style.
+                let mut resolved = element.style.as_deref().cloned().unwrap_or_default();
+                style.apply_to(&mut resolved);
+                resolved
+            })
     } else {
-        ctx.motion_states.remove(&id);
         None
     };
     let style = animated_style.as_ref().or(element.style.as_deref());
@@ -6375,9 +6393,9 @@ fn to_layer_shell_options(options: &LayerShellOptions) -> gpui::layer_shell::Lay
         _ => Layer::Top,
     };
     let anchor = match options.anchor.as_deref() {
-        Some(names) if !names.is_empty() => names
-            .iter()
-            .fold(Anchor::empty(), |acc, name| acc | layer_shell_anchor_bit(name)),
+        Some(names) if !names.is_empty() => names.iter().fold(Anchor::empty(), |acc, name| {
+            acc | layer_shell_anchor_bit(name)
+        }),
         _ => Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
     };
     let keyboard_interactivity = match options.keyboard_interactivity.as_deref() {
@@ -6987,10 +7005,7 @@ mod window_options_tests {
                     opts.margin,
                     Some((gpui::px(0.0), gpui::px(0.0), gpui::px(0.0), gpui::px(0.0)))
                 );
-                assert_eq!(
-                    opts.keyboard_interactivity,
-                    KeyboardInteractivity::None
-                );
+                assert_eq!(opts.keyboard_interactivity, KeyboardInteractivity::None);
             }
             other => panic!("expected a layer-shell window kind, got {other:?}"),
         }

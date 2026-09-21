@@ -501,20 +501,11 @@ impl CustomElement for TextEditorElement {
             let callback = ctx.event_callback.clone();
             let id = ctx.id;
             editor = editor.on_drop(move |dropped: &gpui::ExternalPaths, window, _cx| {
-                crate::renderer::emit_file_drop(
-                    &callback,
-                    id,
-                    dropped,
-                    window.mouse_position(),
-                );
+                crate::renderer::emit_file_drop(&callback, id, dropped, window.mouse_position());
             });
         }
-        editor = crate::accessibility::apply_a11y_click(
-            editor,
-            ctx.events,
-            ctx.id,
-            ctx.event_callback,
-        );
+        editor =
+            crate::accessibility::apply_a11y_click(editor, ctx.events, ctx.id, ctx.event_callback);
         editor.into_any_element()
     }
 

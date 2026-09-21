@@ -164,11 +164,8 @@ fn img_fallback(ctx: &CustomRenderContext, alt: &str, message: &str) -> gpui::An
             .text_color(gpui::rgba(0xa4accdff)),
         ctx,
     );
-    fallback = crate::accessibility::apply_accessibility(
-        fallback,
-        ctx.props,
-        Some(gpui::Role::Image),
-    );
+    fallback =
+        crate::accessibility::apply_accessibility(fallback, ctx.props, Some(gpui::Role::Image));
     fallback = crate::accessibility::apply_image_label(fallback, ctx.props, alt);
     fallback
         .child(ctx.chrome_text(message.to_string(), None))

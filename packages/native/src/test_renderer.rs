@@ -514,7 +514,9 @@ impl TestGpuixRenderer {
             let view = view.clone();
             let id = cx
                 .update_window(window, |_, window, app| {
-                    view.read(app).focused_element_id(window).map(|id| id as f64)
+                    view.read(app)
+                        .focused_element_id(window)
+                        .map(|id| id as f64)
                 })
                 .map_err(|error| Error::from_reason(error.to_string()))?;
             Ok(id)
@@ -681,19 +683,9 @@ impl TestGpuixRenderer {
     pub fn simulate_file_drop(&self, x: f64, y: f64, paths: Vec<String>) -> Result<()> {
         with_test_state(|cx, window, _view| {
             let position = gpui::point(gpui::px(x as f32), gpui::px(y as f32));
-            let paths = gpui::ExternalPaths(
-                paths
-                    .into_iter()
-                    .map(std::path::PathBuf::from)
-                    .collect(),
-            );
-            cx.simulate_event(
-                window,
-                gpui::FileDropEvent::Entered {
-                    position,
-                    paths,
-                },
-            );
+            let paths =
+                gpui::ExternalPaths(paths.into_iter().map(std::path::PathBuf::from).collect());
+            cx.simulate_event(window, gpui::FileDropEvent::Entered { position, paths });
             cx.simulate_event(window, gpui::FileDropEvent::Submit { position });
             Ok(())
         })
