@@ -10,6 +10,7 @@
     "test:perf": "vitest run chat.perf.test.tsx timeline.perf.test.tsx",
     "native-text": "bun --hot native-text.tsx",
     "chat": "bun --hot chat.tsx",
+    "chat-solid": "bun --hot solid/chat.tsx",
     "infinite-chat": "bun --hot infinite-chat.tsx",
     "timeline": "bun --hot timeline.tsx",
     "mail": "bun --hot mail.tsx",
@@ -18,6 +19,8 @@
   },
   "dependencies": {
     "@gpuix/react": "workspace:^",
+    "@gpuix/solid": "workspace:^",
+    "solid-js": "1.9.15",
     "@kmamal/sdl": "^0.11.12",
     "diff": "^7.0.0",
     "react": "^19.2.4",
