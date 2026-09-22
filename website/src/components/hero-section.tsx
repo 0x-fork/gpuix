@@ -32,7 +32,7 @@ export function HeroSection({
         src='/hero-bg.mp4'
         className='absolute inset-0 w-full h-full'
         dotStyle='dots'
-        dotColor='#234e9d'
+        dotColor='#a1cef8'
         dotAlphaMultiplier={0.7}
         dotSize={6}
       />
