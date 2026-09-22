@@ -6,10 +6,10 @@ Write a React or Solid tree in TypeScript. GPUIX paints it with Metal, DirectX, 
 
 `useState` and JSX still apply. Layout, text, and input go through GPUI, not the DOM.
 
-![mail.tax example](./docs/images/mail-app.jpg)
+![A glass dashboard over a painted sky](./docs/images/mail-app.jpg)
 
-Everything above is GPUIX: the sidebar, the thread list, the reading pane,
-and native `<markdown>`.
+Everything above is GPUIX: the glass window, the cards, the schedule,
+and native text.
 
 ## Quickstart
 
