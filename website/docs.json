@@ -3,7 +3,7 @@
   "name": "GPUIX",
   "description": "GPUI and React for native apps. GPUIX paints a React tree with GPUI, Zed's GPU UI framework.",
   "colors": {
-    "primary": "#6490bc"
+    "primary": "#234e9d"
   },
   "appearance": {
     "default": "system"
