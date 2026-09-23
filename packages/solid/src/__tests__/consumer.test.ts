@@ -79,6 +79,9 @@ describe("Solid package consumer", () => {
         "@gpuix/solid": `file:./${solidTarball}`,
         "solid-js": "1.9.15",
       },
+      overrides: {
+        "@gpuix/native": `file:./${nativeTarball}`,
+      },
     }))
     for (const filename of [
       "build-entry.tsx",
