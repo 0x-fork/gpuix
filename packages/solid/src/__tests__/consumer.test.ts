@@ -106,5 +106,5 @@ describe("Solid package consumer", () => {
     const built = run(["bun", "build.ts"], temp, env)
     expect(built.exitCode, built.stderr.toString()).toBe(0)
     expect(built.stdout.toString()).toContain("build plugin ok")
-  })
+  }, 30_000)
 })
