@@ -35,19 +35,19 @@ jobs:
           - host: macos-latest
             target: aarch64-apple-darwin
             bunTarget: bun-darwin-arm64
-            build: bun run build --target aarch64-apple-darwin
+            build: bun run build
           # ── Linux (Vulkan/wgpu) ────────────────────────────────────
           # build:release disables test-support until wgpu image readback lands.
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bunTarget: bun-linux-x64
-            build: bun run build:release --target x86_64-unknown-linux-gnu
+            build: bun run build:release
           # ── Windows (Direct3D) ─────────────────────────────────────
           # Test support includes TestGpuixRenderer and render_to_image.
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             bunTarget: bun-windows-x64
-            build: bun run build --target x86_64-pc-windows-msvc
+            build: bun run build
     name: build - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     defaults:
@@ -112,9 +112,12 @@ jobs:
         working-directory: .
         run: bun install
 
+      # The target must reach napi, not the final tsc command in the build script.
       - name: Build native
         run: ${{ matrix.settings.build }}
         shell: bash
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.settings.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
