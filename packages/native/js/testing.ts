@@ -116,10 +116,15 @@ export interface TestRendererOptions {
 
 export type TestWindowOptions = TestRendererOptions & WindowKeyEventHandlers
 
-// The class is always exported. hasTestGpuixRenderer is the real GPU impl.
-//
+// The Linux stub has no test methods; the native availability check guards the full API.
+function hasNativeTestRendererClass(
+  renderer: typeof TestGpuixRenderer
+): renderer is typeof TestGpuixRenderer & NativeTestRendererConstructor {
+  return hasTestGpuixRenderer()
+}
+
 const NativeTestRenderer: NativeTestRendererConstructor | null =
-  hasTestGpuixRenderer() ? TestGpuixRenderer : null
+  hasNativeTestRendererClass(TestGpuixRenderer) ? TestGpuixRenderer : null
 
 /** Whether the native TestGpuixRenderer is available (for conditional test registration). */
 export const hasNativeTestRenderer = NativeTestRenderer != null
