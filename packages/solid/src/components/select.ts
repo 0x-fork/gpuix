@@ -207,7 +207,7 @@ export function SelectContent(props: SelectContentProps): JSX.Element {
             ...props,
             // Focused only to receive keys; the highlighted item shows where
             // the user is, so the popup gets no focus look of its own.
-            get style() { return { focusVisible: {}, ...props.style } },
+            get style() { return { keyboardFocusDim: false, ...props.style } },
             autoFocus: true,
             tabIndex: props.tabIndex ?? -1,
             onMouseDownOutside(event) {

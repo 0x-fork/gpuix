@@ -239,8 +239,10 @@ pub struct StyleDesc {
     pub hover: Option<Box<StyleDesc>>,
     pub active: Option<Box<StyleDesc>>,
     /// While focused after keyboard input, like CSS `:focus-visible`.
-    /// Replaces the default (controls dim, text fields draw nothing).
     pub focus_visible: Option<Box<StyleDesc>>,
+    /// `false` keeps this element at full opacity while another control has
+    /// keyboard focus. Not inherited.
+    pub keyboard_focus_dim: Option<bool>,
 }
 
 pub use crate::color::{parse_color, parse_color_hex};

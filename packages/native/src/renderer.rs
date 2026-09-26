@@ -4102,24 +4102,25 @@ const KEYBOARD_FOCUS_DIM: f32 = 0.4;
 /// Keyboard focus look for a focusable element, applied right after
 /// `track_focus` (gpui applies focus refinements only to a tracked element).
 ///
-/// With its own `focusVisible`, that style applies while it is focused after
-/// keyboard input, like CSS `:focus-visible`. Without one, nothing marks the
-/// focused element; instead every *other* focusable element dims while a
-/// control has keyboard focus, which also shows at a glance where Tab can go.
+/// Two independent states. `focusVisible` styles the element while it has
+/// keyboard focus, like CSS `:focus-visible`. While another control has
+/// keyboard focus, the element dims unless its style sets
+/// `keyboardFocusDim: false`; that also shows at a glance where Tab can go.
 pub(crate) fn apply_focus_visible<E: gpui::InteractiveElement + gpui::Styled>(
-    el: E,
+    mut el: E,
     id: u64,
     style: Option<&StyleDesc>,
     keyboard_focus: Option<&[u64]>,
 ) -> E {
     // gpui runs the refinement eagerly, so borrowing the style is fine.
     if let Some(declared) = style.and_then(|style| style.focus_visible.as_deref()) {
-        return el.focus_visible(|refinement| apply_styles(refinement, declared));
+        el = el.focus_visible(|refinement| apply_styles(refinement, declared));
     }
+    let opted_out = style.and_then(|style| style.keyboard_focus_dim) == Some(false);
     match keyboard_focus {
         // Opacity applies to the subtree, so the focused element's own
         // focusable ancestors must stay at full opacity too.
-        Some(path) if !path.contains(&id) => {
+        Some(path) if !opted_out && !path.contains(&id) => {
             let base = style.and_then(|style| style.opacity).unwrap_or(1.0) as f32;
             el.opacity(base * KEYBOARD_FOCUS_DIM)
         }

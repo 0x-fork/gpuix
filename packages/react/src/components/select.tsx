@@ -298,7 +298,7 @@ export const SelectContent = forwardRef<PublicInstance, SelectContentProps>(
           ref={forwardedRef}
           // Focused only to receive keys; the highlighted item shows where
           // the user is, so the popup gets no focus look of its own.
-          style={{ focusVisible: {}, ...style }}
+          style={{ keyboardFocusDim: false, ...style }}
           tabIndex={tabIndex}
           autoFocus
           onMouseDownOutside={(event) => {

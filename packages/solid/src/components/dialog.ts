@@ -195,7 +195,7 @@ export function DialogPopup(allProps: DialogPopupProps): JSX.Element {
             // A press inside the popup must never reach the backdrop behind it.
             // The popup is focused so the first Tab enters it; it is a surface,
             // not a control, so it gets no focus look of its own.
-            get style() { return { pointerEvents: "auto", focusVisible: {}, ...props.style } },
+            get style() { return { pointerEvents: "auto", keyboardFocusDim: false, ...props.style } },
             onKeyDown(event: KeyEvent) {
               props.onKeyDown?.(event)
               if (!state.modal() || event.key !== "tab" || event.defaultPrevented || !popup) return

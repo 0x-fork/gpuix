@@ -3210,11 +3210,21 @@ Tab  ► [ Save ]  (dim New)  (dim Search)  (dim input)
 - A focused `<input>` or `<textarea>` dims nothing: typing is keyboard input
   too, and the caret already shows focus
 - The focused element's ancestors never dim, because opacity covers the subtree
-- An element with its own `focusVisible` never dims; `focusVisible: {}` opts it
-  out. `Select.Content` and `Dialog.Popup` pass `{}`
+- `focusVisible` and the dim are **independent**. An element with a ring from
+  `focusVisible` still dims while another control has focus
+- `style.keyboardFocusDim: false` keeps one element at full opacity.
+  `Select.Content` and `Dialog.Popup` set it
 
-**Custom look: turn the dim off.** Pass `keyboardFocusDim: false` to `render()`
-(or `createTestRoot()`), then style focus yourself with `focusVisible`.
+```tsx
+<div tabIndex={0} style={{
+  focusVisible: { outlineWidth: 2, outlineColor: '#89b4fa' }, // when focused
+}} />                                                         // dims otherwise
+<div tabIndex={0} style={{ keyboardFocusDim: false }} />      // never dims
+```
+
+**Turn the dim off for the whole window.** Pass `keyboardFocusDim: false` to
+`render()` (or `createTestRoot()`), then style focus yourself with
+`focusVisible`.
 
 ```tsx
 render(<App />, { keyboardFocusDim: false })

@@ -216,13 +216,17 @@ export interface StyleDesc {
   hover?: StateStyleDesc
   active?: StateStyleDesc
   /** While focused after keyboard input (Tab), like CSS `:focus-visible`.
-   *  A mouse press never shows it. Needs a focusable element. Setting it
-   *  (even `{}`) opts the element out of the default, which dims every other
-   *  focusable element while a control has keyboard focus. */
+   *  A mouse press never shows it. Needs a focusable element. */
   focusVisible?: StateStyleDesc
+  /** `false` keeps this focusable element at full opacity while another
+   *  control has keyboard focus. Default dims it. Not inherited. */
+  keyboardFocusDim?: boolean
 }
 
-export type StateStyleDesc = Omit<StyleDesc, "hover" | "active" | "focusVisible">
+export type StateStyleDesc = Omit<
+  StyleDesc,
+  "hover" | "active" | "focusVisible" | "keyboardFocusDim"
+>
 
 // Element types supported by GPUIX
 export type ElementType =
@@ -738,9 +742,9 @@ export interface WindowKeyEventHandlers {
    */
   tabNavigation?: boolean
   /**
-   * While a control without its own `focusVisible` style has keyboard focus,
-   * every other focusable element dims. Defaults to true. Set false to draw
-   * your own focus look with `focusVisible`.
+   * While a control has keyboard focus, every other focusable element dims.
+   * Defaults to true. Set false to draw your own focus look with
+   * `focusVisible`. Per element, use `style.keyboardFocusDim: false`.
    */
   keyboardFocusDim?: boolean
 }

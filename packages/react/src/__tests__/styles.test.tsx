@@ -1770,7 +1770,7 @@ describeNative("motion", () => {
 describeNative("focus styles", () => {
   // One renderer per scene, so each capture is the frame after the input
   // that decided focus-visible (a keyboard Tab or a mouse press).
-  function scene({ focusVisible, otherFocusVisible, field, keyboardFocusDim }: { focusVisible?: object; otherFocusVisible?: object; field?: boolean; keyboardFocusDim?: boolean } = {}) {
+  function scene({ focusVisible, otherStyle, field, keyboardFocusDim }: { focusVisible?: object; otherStyle?: object; field?: boolean; keyboardFocusDim?: boolean } = {}) {
     const root = createTestRoot({ width: 240, height: 120, keyboardFocusDim })
     const targetStyle = { width: 80, height: 40, borderRadius: 8, backgroundColor: "#303030", focusVisible }
     root.render(
@@ -1779,7 +1779,7 @@ describeNative("focus styles", () => {
         {field
           ? <input testId="target" style={targetStyle} />
           : <div tabIndex={0} testId="target" style={targetStyle} />}
-        <div tabIndex={0} testId="other" style={{ width: 40, height: 40, backgroundColor: "#505050", focusVisible: otherFocusVisible }} />
+        <div tabIndex={0} testId="other" style={{ width: 40, height: 40, backgroundColor: "#505050", ...otherStyle }} />
       </div>
     )
     return root.renderer
@@ -1808,8 +1808,10 @@ describeNative("focus styles", () => {
     const idle = run("idle", "none")
     const keyboard = run("keyboard", "tab")
     const mouse = run("mouse", "click")
-    // `focusVisible` on an element opts it out of the dim.
-    const optedOut = run("opted-out", "tab", { otherFocusVisible: {} })
+    // `keyboardFocusDim: false` on an element opts it out of the dim.
+    const optedOut = run("opted-out", "tab", { otherStyle: { keyboardFocusDim: false } })
+    // A ring from `focusVisible` does not: the element still dims.
+    const ringed = run("ringed", "tab", { otherStyle: { focusVisible: { outlineWidth: 2, outlineColor: "#89b4fa" } } })
     // The root option turns the dim off for the whole window.
     const dimOff = run("dim-off", "tab", { keyboardFocusDim: false })
     // Typing is keyboard input too, so a focused text field dims nothing.
@@ -1824,5 +1826,6 @@ describeNative("focus styles", () => {
     expect(dimOff.png.equals(idle.png)).toBe(true)
     expect(fieldKeyboard.png.equals(fieldMouse.png)).toBe(true)
     if (!isCI) expect(keyboard.png.equals(idle.png)).toBe(false)
+    if (!isCI) expect(ringed.png.equals(keyboard.png)).toBe(true)
   })
 })
