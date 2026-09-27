@@ -36,7 +36,7 @@ Needs [Bun](https://bun.sh). No Electron, no web view: GPUI paints it with Metal
 
 ## How it scans
 
-A pool of worker threads walks the tree with synchronous `lstat`, one volume
+A pool of up to four worker threads walks the tree with synchronous `lstat`, one volume
 only, hardlinks counted once. Each directory keeps its 12 largest files as
 tiles and folds the rest into one "N smaller files" tile, which keeps a
 full-disk scan in memory.

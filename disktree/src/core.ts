@@ -145,7 +145,7 @@ export async function scan(root: string, options: ScanOptions): Promise<TreeNode
   const open = new Map<string, TreeNode>([[root, tree]])
   const queue: string[] = [root]
   const seen = new Set<string>()
-  const size = Math.max(2, Math.min(8, availableParallelism() - 2))
+  const size = Math.max(2, Math.min(4, availableParallelism() - 2))
   const workers = Array.from({ length: size }, () => new Worker(new URL('./scan-worker.ts', import.meta.url)))
   const idle = [...workers]
 
