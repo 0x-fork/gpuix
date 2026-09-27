@@ -116,6 +116,10 @@ function limiter(max: number) {
   }
 }
 
+// macOS firmlinks /Users, /Applications and the rest of the data volume into
+// `/`, and the same volume is also mounted here. Walking both counts it twice.
+const MIRRORS = new Set(process.platform === 'darwin' ? ['/System/Volumes/Data'] : [])
+
 export async function scan(root: string, options: ScanOptions): Promise<TreeNode> {
   const run = limiter(64)
   const seen = new Set<string>()
@@ -167,7 +171,9 @@ export async function scan(root: string, options: ScanOptions): Promise<TreeNode
       node.unreadable = true
       return node
     }
-    const kept = options.includeHidden ? entries : entries.filter((entry) => !entry.startsWith('.'))
+    const kept = entries.filter(
+      (entry) => (options.includeHidden || !entry.startsWith('.')) && !MIRRORS.has(path.join(full, entry)),
+    )
     const children = await Promise.all(kept.map((entry) => visit(path.join(full, entry), entry)))
     for (const child of children) if (child) node.children.push(child)
     return node

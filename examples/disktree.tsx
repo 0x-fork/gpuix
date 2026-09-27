@@ -57,9 +57,14 @@ const HIGHLIGHT = '#F75407'
 const CARD = '#FFFFFFE6'
 // GPUI's blur is colorless: it only blurs the desktop. A dark wallpaper would
 // make the window dark, so this tint carries the light look on its own.
-const WINDOW_TINT = '#F6F3FFD1'
-const CONTROL = '#1F15300B'
-const CONTROL_HOVER = '#1F153017'
+const WINDOW_TINT = '#EFECF7A8'
+// Apple-style controls: translucent white pills on the window, gray when
+// selected or pressed.
+const CONTROL = '#FFFFFFF2'
+const CONTROL_HOVER = '#F8F7FBF2'
+const CONTROL_SELECTED = '#1F153014'
+const CONTROL_PRESSED = '#1F15301F'
+const CONTROL_SHADOW = { offsetX: 0, offsetY: 0.5, blurRadius: 3, spreadRadius: 0, color: '#1F153014' }
 
 /** Saturated light hues, from the palette: blue, pink, purple, orange, lavender. */
 const CATEGORY: Record<Category, { color: string; label: string }> = {
@@ -261,9 +266,13 @@ function PlainButton({
         height: 30,
         borderRadius: 8,
         cursor: 'pointer',
-        backgroundColor: primary ? '#F75407E6' : '#1F15300D',
-        hover: { backgroundColor: primary ? '#FF6A20E6' : '#1F153017' },
-        active: { backgroundColor: primary ? '#DE4A05E6' : '#1F153021' },
+        // On the white card a secondary button needs an edge, not a fill.
+        backgroundColor: primary ? '#F75407E6' : CONTROL,
+        borderWidth: primary ? 0 : 1,
+        borderColor: '#1F153014',
+        boxShadow: CONTROL_SHADOW,
+        hover: { backgroundColor: primary ? '#FF6A20E6' : '#F4F2F8E6' },
+        active: { backgroundColor: primary ? '#DE4A05E6' : '#E9E6F0E6' },
       }}
     >
       <text style={{ fontSize: TEXT.body + 1, fontWeight: primary ? 600 : 500, color: primary ? '#FFFFFF' : INK }}>
@@ -288,7 +297,7 @@ function Checkbox({ label, checked, onToggle, testId }: { label: string; checked
           borderRadius: 4,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: checked ? '#0496E8E6' : '#FFFFFF99',
+          backgroundColor: checked ? '#0496E8E6' : CONTROL,
           borderWidth: checked ? 0 : 1,
           borderColor: '#1F153033',
         }}
@@ -307,7 +316,7 @@ function Segmented({ value, onChange }: { value: Mode; onChange: (mode: Mode) =>
     ['age', 'Age'],
   ]
   return (
-    <div style={{ display: 'flex', padding: 2, gap: 2, borderRadius: 9, backgroundColor: '#1F15300F' }}>
+    <div style={{ display: 'flex', padding: 2, gap: 2, borderRadius: 9, backgroundColor: CONTROL, boxShadow: CONTROL_SHADOW }}>
       {items.map(([mode, label]) => {
         const active = mode === value
         return (
@@ -323,9 +332,9 @@ function Segmented({ value, onChange }: { value: Mode; onChange: (mode: Mode) =>
               height: 26,
               borderRadius: 7,
               cursor: 'pointer',
-              backgroundColor: active ? '#FFFFFFCC' : undefined,
-              boxShadow: active ? { offsetX: 0, offsetY: 1, blurRadius: 3, spreadRadius: 0, color: '#1F153024' } : undefined,
-              hover: active ? {} : { backgroundColor: '#FFFFFF66' },
+              backgroundColor: active ? CONTROL_SELECTED : undefined,
+              hover: active ? {} : { backgroundColor: '#1F15300A' },
+              active: { backgroundColor: CONTROL_PRESSED },
             }}
           >
             <text style={{ fontSize: TEXT.body + 1, fontWeight: active ? 600 : 400, color: active ? INK : INK_2 }}>{label}</text>
@@ -348,8 +357,7 @@ function Keycap({ keys, label }: { keys: string; label: string }) {
           alignItems: 'center',
           borderRadius: 5,
           backgroundColor: CONTROL,
-          borderWidth: 1,
-          borderColor: HAIRLINE,
+          boxShadow: CONTROL_SHADOW,
         }}
       >
         <text style={{ fontSize: TEXT.caption, color: INK }}>{keys}</text>
@@ -378,10 +386,9 @@ function BackButton({ disabled, onClick }: { disabled: boolean; onClick: () => v
         borderRadius: 8,
         cursor: disabled ? 'default' : 'pointer',
         backgroundColor: CONTROL,
-        borderWidth: 1,
-        borderColor: HAIRLINE,
+        boxShadow: CONTROL_SHADOW,
         hover: disabled ? {} : { backgroundColor: CONTROL_HOVER },
-        active: disabled ? {} : { backgroundColor: '#1F153024' },
+        active: disabled ? {} : { backgroundColor: CONTROL_PRESSED },
       }}
     >
       <svg source={CHEVRON_LEFT} style={{ width: 15, height: 15, color: disabled ? INK_3 : INK }} />
@@ -645,7 +652,7 @@ function SidePanel({ state, tree, target, current, metric, insights, onOpen, onS
         backgroundColor: CARD,
         borderWidth: 1,
         borderColor: '#1F15300D',
-        boxShadow: { offsetX: 0, offsetY: 2, blurRadius: 10, spreadRadius: 0, color: '#1F153014' },
+        boxShadow: { offsetX: 0, offsetY: 1, blurRadius: 14, spreadRadius: 0, color: '#1F15300C' },
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -944,8 +951,9 @@ export function DisktreeApp({ store, width, height }: DisktreeAppProps) {
                     alignItems: 'center',
                     borderRadius: 7,
                     cursor: isRoot ? 'pointer' : 'default',
-                    backgroundColor: active ? CONTROL : undefined,
-                    hover: isRoot ? { backgroundColor: CONTROL_HOVER } : {},
+                    backgroundColor: active ? CONTROL_SELECTED : undefined,
+                    hover: isRoot && !active ? { backgroundColor: CONTROL } : {},
+                    active: isRoot ? { backgroundColor: CONTROL_PRESSED } : {},
                   }}
                 >
                   <text style={{ fontSize: TEXT.title, color: isRoot ? INK : INK_3, fontWeight: active ? 600 : 400 }}>
@@ -972,8 +980,9 @@ export function DisktreeApp({ store, width, height }: DisktreeAppProps) {
                     alignItems: 'center',
                     borderRadius: 7,
                     cursor: 'pointer',
-                    backgroundColor: active ? CONTROL : undefined,
-                    hover: { backgroundColor: CONTROL_HOVER },
+                    backgroundColor: active ? CONTROL_SELECTED : undefined,
+                    hover: active ? {} : { backgroundColor: CONTROL },
+                    active: { backgroundColor: CONTROL_PRESSED },
                   }}
                 >
                   <text style={{ fontSize: TEXT.title, color: INK, fontWeight: active ? 600 : 400 }}>{node.name}</text>
@@ -1002,8 +1011,7 @@ export function DisktreeApp({ store, width, height }: DisktreeAppProps) {
               gap: 4,
               borderRadius: 9,
               backgroundColor: CONTROL,
-              borderWidth: 1,
-              borderColor: HAIRLINE,
+              boxShadow: CONTROL_SHADOW,
             }}
           >
             <text style={{ fontSize: TEXT.body + 1, color: INK, paddingRight: 4 }}>{`Depth ${depth}`}</text>
@@ -1027,7 +1035,8 @@ export function DisktreeApp({ store, width, height }: DisktreeAppProps) {
                     height: 24,
                     borderRadius: 6,
                     cursor: disabled ? 'default' : 'pointer',
-                    hover: disabled ? {} : { backgroundColor: '#1F153012' },
+                    hover: disabled ? {} : { backgroundColor: '#1F15300F' },
+                    active: disabled ? {} : { backgroundColor: CONTROL_PRESSED },
                   }}
                 >
                   <text style={{ fontSize: TEXT.title + 1, color: disabled ? INK_3 : INK }}>{glyph}</text>
