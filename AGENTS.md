@@ -837,6 +837,12 @@ Load the `changesets` skill for format and rules. If the change fixes a GitHub i
 
 **Never publish from a local machine.** CI is the only release path.
 
+Exception: `disktree` ships plain `.tsx` source and no binary, so publish it
+locally with `bun publish` in `disktree/` from a clean checkout of `main`.
+`prepublishOnly` runs `tsc` and the GPU test. Before you publish, check that
+the `@gpuix/native` and `@gpuix/react` versions in the repo are already on npm,
+because `workspace:^` becomes a range on those versions.
+
 `.github/workflows/ci.yml` builds `@gpuix/native` for **one target per OS**,
 uploads the `.node` artifacts, then the `publish` job downloads them, runs
 `napi create-npm-dirs` + `napi artifacts`, and publishes `@gpuix/native`,

@@ -16,7 +16,7 @@
     "dev": "bun --hot src/cli.tsx",
     "test": "vitest run",
     "typecheck": "tsc",
-    "prepublishOnly": "node -e \"if (!process.env.CI) { console.error('Publish disktree from CI only'); process.exit(1) }\""
+    "prepublishOnly": "tsc && vitest run"
   },
   "repository": {
     "type": "git",
