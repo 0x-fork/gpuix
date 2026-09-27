@@ -7,12 +7,12 @@
 ![disktree scanning a website project](https://raw.githubusercontent.com/remorses/gpuix/main/disktree/screenshot.png)
 
 ```bash
-bunx disktree            # scan the current directory
-bunx disktree ~/src      # or any folder
-bunx disktree /          # the whole disk
+npx disktree            # scan the current directory
+npx disktree ~/src      # or any folder
+npx disktree /          # the whole disk
 ```
 
-Needs [Bun](https://bun.sh). No Electron, no web view: GPUI paints it with Metal.
+Runs on Node 20+ or Bun (`bunx disktree`). No Electron, no web view: GPUI paints it with Metal.
 
 ## What it shows
 

@@ -146,7 +146,9 @@ export async function scan(root: string, options: ScanOptions): Promise<TreeNode
   const queue: string[] = [root]
   const seen = new Set<string>()
   const size = Math.max(2, Math.min(4, availableParallelism() - 2))
-  const workers = Array.from({ length: size }, () => new Worker(new URL('./scan-worker.ts', import.meta.url)))
+  // tsc rewrites import specifiers, not URL strings: src loads .ts, dist loads .js.
+  const workerUrl = new URL(`./scan-worker${path.extname(import.meta.url)}`, import.meta.url)
+  const workers = Array.from({ length: size }, () => new Worker(workerUrl))
   const idle = [...workers]
 
   const stitch = (reply: ScanReply) => {

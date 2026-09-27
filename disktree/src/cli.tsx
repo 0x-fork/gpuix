@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /** @jsxImportSource @gpuix/react */
 /**
  * disktree [dir]: scan `dir`, or the directory it runs from, and open the window.
