@@ -34,8 +34,6 @@ export interface DirRecord {
   folded: { count: number; bytes: number; apparent: number; modified: number; links: FileRecord[] } | null
   /** Subdirectories to be scanned; their records follow here or in a later batch. */
   dirs: string[]
-  /** Subdirectories that are only in the cloud: shown, never listed. */
-  cloud: string[]
 }
 
 export interface ScanReply {
@@ -48,27 +46,6 @@ const BUDGET = 400
 /** Files kept as their own tile per directory; the rest cannot be seen anyway. */
 export const KEEP_FILES = 12
 
-// `SF_DATALESS` from <sys/stat.h>: an iCloud or File Provider folder macOS has
-// evicted. Listing it makes macOS fetch its entries from the server, so the
-// Rust original checks this flag and does not descend. `fs.Stats` has no
-// `st_flags`, so it is read with one raw `lstat` per directory.
-// TODO: drop bun:ffi if fs.Stats ever exposes libuv's st_flags. https://nodejs.org/api/fs.html#class-fsstats
-const SF_DATALESS = 0x4000_0000
-type FlagsOf = (full: string) => number
-async function loadFlags(): Promise<FlagsOf | null> {
-  if (process.platform !== 'darwin' || process.arch !== 'arm64' || !process.versions.bun) return null
-  const { dlopen, FFIType, ptr } = await import('bun:ffi')
-  const libc = dlopen('/usr/lib/libSystem.B.dylib', {
-    lstat: { args: [FFIType.cstring, FFIType.ptr], returns: FFIType.i32 },
-  })
-  // arm64 `struct stat` is 144 bytes, `st_flags` a u32 at offset 116.
-  const buffer = new Uint8Array(144)
-  const view = new DataView(buffer.buffer)
-  const pointer = ptr(buffer)
-  return (full) => (libc.symbols.lstat(Buffer.from(`${full}\0`), pointer) === 0 ? view.getUint32(116, true) : 0)
-}
-const flagsOf = await loadFlags()
-
 function scanBatch(request: ScanRequest): ScanReply {
   const devices = new Set(request.devices)
   const skip = new Set(request.skip)
@@ -78,7 +55,7 @@ function scanBatch(request: ScanRequest): ScanReply {
 
   while (stack.length && records.length < BUDGET) {
     const full = stack.pop()!
-    const record: DirRecord = { path: full, modified: 0, unreadable: false, files: [], folded: null, dirs: [], cloud: [] }
+    const record: DirRecord = { path: full, modified: 0, unreadable: false, files: [], folded: null, dirs: [] }
     records.push(record)
     let names: string[]
     try {
@@ -105,8 +82,7 @@ function scanBatch(request: ScanRequest): ScanReply {
       if (stat.isDirectory()) {
         // One volume, like `du -x`: other mounts are other disks.
         if (!devices.has(stat.dev)) continue
-        if (flagsOf && flagsOf(child) & SF_DATALESS) record.cloud.push(name)
-        else subdirs.push(name)
+        subdirs.push(name)
         continue
       }
       const link = stat.nlink > 1 ? `${stat.dev}:${stat.ino}` : ''

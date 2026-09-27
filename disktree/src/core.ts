@@ -183,7 +183,6 @@ export async function scan(root: string, options: ScanOptions): Promise<TreeNode
         progress.files += folded.count
         progress.bytes += bytes
       }
-      for (const name of record.cloud) node.children.push(folder(name))
       for (const name of record.dirs) {
         const child = folder(name)
         node.children.push(child)

@@ -1,6 +1,6 @@
 {
   "name": "disktree",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "See what fills your disk: a GPU-rendered treemap of any folder, built with GPUIX",
   "license": "Apache-2.0",
   "type": "module",

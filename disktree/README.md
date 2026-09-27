@@ -41,7 +41,5 @@ only, hardlinks counted once. Each directory keeps its 12 largest files as
 tiles and folds the rest into one "N smaller files" tile, which keeps a
 full-disk scan in memory.
 
-On macOS, folders that are only in iCloud are not listed (`SF_DATALESS`, read
-with `bun:ffi`), because listing them makes macOS download them.
 `/System/Volumes/Data` is skipped when scanning `/`, since it mirrors `/Users`
 and `/Applications`.
