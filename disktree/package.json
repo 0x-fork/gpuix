@@ -1,0 +1,49 @@
+{
+  "name": "disktree",
+  "version": "0.1.0",
+  "description": "See what fills your disk: a GPU-rendered treemap of any folder, built with GPUIX",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "disktree": "./src/cli.tsx"
+  },
+  "files": [
+    "src",
+    "!src/*.test.tsx",
+    "tsconfig.json"
+  ],
+  "scripts": {
+    "dev": "bun --hot src/cli.tsx",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/remorses/gpuix",
+    "directory": "disktree"
+  },
+  "homepage": "https://github.com/remorses/gpuix/tree/main/disktree",
+  "bugs": "https://github.com/remorses/gpuix/issues",
+  "keywords": [
+    "disk",
+    "disk-usage",
+    "treemap",
+    "du",
+    "gpuix",
+    "gpui"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "dependencies": {
+    "@gpuix/native": "workspace:^",
+    "@gpuix/react": "workspace:^",
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/react": "^19.2.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
+  }
+}

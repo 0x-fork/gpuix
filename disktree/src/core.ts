@@ -4,16 +4,18 @@
  * A TypeScript port of the parts of https://github.com/tobi/disktree that the
  * GPUIX example needs. No UI here, so the logic is testable on its own.
  *
- *   scan()        walk with lstat, disk usage = st_blocks × 512, hardlinks once
+ *   scan()        parallel lstat walk, disk usage = st_blocks × 512, hardlinks once
  *   classify()    kind of data from directory names, and what is reclaimable
  *   layout()      squarified treemap with a name band per open directory
  *   worthALook()  largest directories that could plausibly go
  */
 
-import fs from 'node:fs/promises'
-import { statfsSync } from 'node:fs'
-import os from 'node:os'
+import { lstatSync, statfsSync } from 'node:fs'
+import os, { availableParallelism } from 'node:os'
 import path from 'node:path'
+import { Worker } from 'node:worker_threads'
+
+import type { FileRecord, ScanReply } from './scan-worker.ts'
 
 // ── Tree ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,7 @@ export interface TreeNode {
   bytes: number
   /** What `ls -l` shows. */
   apparent: number
+  /** 1 for a file, the count for a folded group of small files. */
   files: number
   dirs: number
   /** Newest write inside, in ms. 0 when unknown. */
@@ -60,7 +63,7 @@ export interface TreeNode {
 export type Metric = 'bytes' | 'apparent' | 'files'
 
 export function valueOf(node: TreeNode, metric: Metric): number {
-  if (metric === 'files') return node.dir ? node.files : 1
+  if (metric === 'files') return node.files
   return metric === 'apparent' ? node.apparent : node.bytes
 }
 
@@ -100,87 +103,122 @@ export interface ScanOptions {
   signal?: AbortSignal
 }
 
-/** Caps open file descriptors: a wide tree would otherwise hit EMFILE. */
-function limiter(max: number) {
-  let active = 0
-  const waiting: Array<() => void> = []
-  return async function run<T>(task: () => Promise<T>): Promise<T> {
-    if (active >= max) await new Promise<void>((wake) => waiting.push(wake))
-    active++
-    try {
-      return await task()
-    } finally {
-      active--
-      waiting.shift()?.()
-    }
+// macOS firmlinks /Users, /Applications and the rest of the data volume into
+// `/`, and the same volume is also mounted here. Walking both counts it twice.
+const MIRRORS = process.platform === 'darwin' ? ['/System/Volumes/Data'] : []
+
+function leaf(name: string, bytes: number, apparent: number, modified: number, files = 1): TreeNode {
+  return {
+    name,
+    dir: false,
+    bytes,
+    apparent,
+    files,
+    dirs: 0,
+    modified,
+    children: [],
+    category: 'other',
+    reclaim: null,
+    unreadable: false,
   }
 }
 
-// macOS firmlinks /Users, /Applications and the rest of the data volume into
-// `/`, and the same volume is also mounted here. Walking both counts it twice.
-const MIRRORS = new Set(process.platform === 'darwin' ? ['/System/Volumes/Data'] : [])
+function folder(name: string): TreeNode {
+  return { ...leaf(name, 0, 0, 0, 0), dir: true }
+}
 
+/**
+ * Walk `root` on a pool of workers, like the Rust original walks it on rayon.
+ *
+ * Workers return one record per directory, parents before children, plus the
+ * frontier they did not reach. The main thread only stitches records into the
+ * tree and hands the frontier out again, so a deep tree spreads over the pool.
+ */
 export async function scan(root: string, options: ScanOptions): Promise<TreeNode> {
-  const run = limiter(64)
-  const seen = new Set<string>()
   const { progress, signal } = options
-  const rootStat = await fs.lstat(root)
+  const rootStat = lstatSync(root)
+  const tree = folder(root === '/' ? '/' : path.basename(root))
+  if (!rootStat.isDirectory()) return leaf(tree.name, rootStat.blocks * 512, rootStat.size, rootStat.mtimeMs)
 
-  async function visit(full: string, name: string): Promise<TreeNode | null> {
-    if (signal?.aborted) return null
-    const stat = await run(() => fs.lstat(full)).catch(() => null)
-    const node: TreeNode = {
-      name,
-      dir: false,
-      bytes: 0,
-      apparent: 0,
-      files: 0,
-      dirs: 0,
-      modified: 0,
-      children: [],
-      category: 'other',
-      reclaim: null,
-      unreadable: false,
+  const request = { includeHidden: options.includeHidden, devices: [rootStat.dev], skip: MIRRORS }
+  // Directories listed by a parent, waiting for their own record.
+  const open = new Map<string, TreeNode>([[root, tree]])
+  const queue: string[] = [root]
+  const seen = new Set<string>()
+  const size = Math.max(2, Math.min(8, availableParallelism() - 2))
+  const workers = Array.from({ length: size }, () => new Worker(new URL('./scan-worker.ts', import.meta.url)))
+  const idle = [...workers]
+
+  const stitch = (reply: ScanReply) => {
+    progress.errors += reply.errors
+    for (const record of reply.records) {
+      const node = open.get(record.path)
+      if (!node) continue
+      open.delete(record.path)
+      progress.dirs++
+      node.modified = record.modified
+      node.unreadable = record.unreadable
+      // Two names for one inode cost one file.
+      const charge = ([, bytes, apparent, , link]: FileRecord) => {
+        if (!link) return [bytes, apparent]
+        if (seen.has(link)) return [0, 0]
+        seen.add(link)
+        return [bytes, apparent]
+      }
+      for (const file of record.files) {
+        const [bytes, apparent] = charge(file)
+        node.children.push(leaf(file[0], bytes!, apparent!, file[3]))
+        progress.files++
+        progress.bytes += bytes!
+      }
+      const folded = record.folded
+      if (folded) {
+        let { bytes, apparent } = folded
+        for (const link of folded.links) {
+          const [kept, keptApparent] = charge(link)
+          bytes -= link[1] - kept!
+          apparent -= link[2] - keptApparent!
+        }
+        node.children.push(leaf(`${folded.count} smaller files`, bytes, apparent, folded.modified, folded.count))
+        progress.files += folded.count
+        progress.bytes += bytes
+      }
+      for (const name of record.cloud) node.children.push(folder(name))
+      for (const name of record.dirs) {
+        const child = folder(name)
+        node.children.push(child)
+        open.set(path.join(record.path, name), child)
+      }
     }
-    if (!stat) {
-      progress.errors++
-      node.unreadable = true
-      return node
-    }
-    node.modified = stat.mtimeMs
-    // Two names for one inode cost one file.
-    const duplicate =
-      !stat.isDirectory() && stat.nlink > 1 && seen.has(`${stat.dev}:${stat.ino}`)
-    if (!stat.isDirectory() && stat.nlink > 1) seen.add(`${stat.dev}:${stat.ino}`)
-    if (!duplicate) {
-      node.bytes = stat.blocks * 512
-      node.apparent = stat.size
-    }
-    // Symlinks are not followed, and a scan stays on one volume.
-    if (!stat.isDirectory() || stat.dev !== rootStat.dev) {
-      node.files = 1
-      progress.files++
-      progress.bytes += node.bytes
-      return node
-    }
-    node.dir = true
-    progress.dirs++
-    const entries = await run(() => fs.readdir(full)).catch(() => null)
-    if (!entries) {
-      progress.errors++
-      node.unreadable = true
-      return node
-    }
-    const kept = entries.filter(
-      (entry) => (options.includeHidden || !entry.startsWith('.')) && !MIRRORS.has(path.join(full, entry)),
-    )
-    const children = await Promise.all(kept.map((entry) => visit(path.join(full, entry), entry)))
-    for (const child of children) if (child) node.children.push(child)
-    return node
+    queue.push(...reply.pending)
   }
 
-  const tree = await visit(root, root === '/' ? '/' : path.basename(root))
-  if (!tree || signal?.aborted) throw new Error('scan cancelled')
+  try {
+    await new Promise<void>((done, fail) => {
+      const abort = () => fail(new Error('scan cancelled'))
+      signal?.addEventListener('abort', abort, { once: true })
+      const pump = () => {
+        while (idle.length && queue.length) {
+          const worker = idle.pop()!
+          // A few paths per message: enough to amortize it, few enough to share.
+          const paths = queue.splice(0, Math.max(1, Math.ceil(queue.length / size / 2)))
+          worker.postMessage({ ...request, paths })
+        }
+        if (idle.length === size && !queue.length) done()
+      }
+      for (const worker of workers) {
+        worker.on('message', (reply: ScanReply) => {
+          stitch(reply)
+          idle.push(worker)
+          pump()
+        })
+        worker.on('error', fail)
+      }
+      pump()
+    })
+  } finally {
+    for (const worker of workers) void worker.terminate()
+  }
   aggregate(tree)
   classify(tree)
   return tree
@@ -199,7 +237,7 @@ export function aggregate(node: TreeNode): void {
     aggregate(child)
     bytes += child.bytes
     apparent += child.apparent
-    files += child.dir ? child.files : 1
+    files += child.files
     dirs += child.dir ? child.dirs + 1 : 0
     modified = Math.max(modified, child.modified)
     unreadable ||= child.unreadable

@@ -1,10 +1,11 @@
+/** @jsxImportSource @gpuix/react */
 /**
  * disktree: a treemap of what fills a folder, on a frosted macOS window.
  *
  * A GPUIX port of https://github.com/tobi/disktree, in light mode.
  *
- *   bun disktree.tsx            # scan the current directory
- *   bun disktree.tsx ~/src      # or any directory
+ * The window and argv handling live in cli.tsx; this module only exports
+ * the store and the view, so tests can mount it on the test renderer.
  *
  * Click a folder to go in; click a file to select it.
  * ⌫ or Esc goes up, [ and ] change the depth, t cycles Size/Files/Age,
@@ -18,7 +19,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { memo, useMemo, useState, useSyncExternalStore } from 'react'
-import { render, useWindowSize, type EventPayload } from '@gpuix/react'
+import { useWindowSize, type EventPayload } from '@gpuix/react'
 
 import {
   AGE_BUCKETS,
@@ -44,7 +45,7 @@ import {
   type ScanProgress,
   type Tile,
   type TreeNode,
-} from './disktree-core'
+} from './core.ts'
 
 // ── Design tokens ──────────────────────────────────────────────────────────
 
@@ -84,13 +85,13 @@ const AGE_COLORS = ['#F75407', '#FF9A5C', '#F76FE6', '#A98BF2', '#B9AEDC']
 // Tiles are translucent so the frosted window shows through. A child sits on
 // its parent's fill, so painting the hue again would stack into a dark mud.
 // A child of the same kind adds a white wash instead: deeper reads lighter.
-const TILE_ALPHA = 0.62
+const TILE_ALPHA = 0.9
 const DEPTH_WASH = '#FFFFFF38'
 
-/** Light, still saturated: the hue pulled a third of the way to white. */
+/** Light, still saturated: the hue pulled halfway to white. */
 function pastel(hex: string): string {
   const channel = (offset: number) => parseInt(hex.slice(offset, offset + 2), 16)
-  const lift = (value: number) => Math.round(value + (255 - value) * 0.35).toString(16).padStart(2, '0')
+  const lift = (value: number) => Math.round(value + (255 - value) * 0.55).toString(16).padStart(2, '0')
   return `#${lift(channel(1))}${lift(channel(3))}${lift(channel(5))}`
 }
 
@@ -630,7 +631,7 @@ function SidePanel({ state, tree, target, current, metric, insights, onOpen, onS
   const node = resolve(tree, target) ?? tree
   const full = nodePath(state, tree, target)
   const [number, unit] =
-    metric === 'files' ? [humanCount(node.dir ? node.files : 1), 'files'] : humanBytes(valueOf(node, metric)).split(' ')
+    metric === 'files' ? [humanCount(node.files), 'files'] : humanBytes(valueOf(node, metric)).split(' ')
   const share = valueOf(node, metric) / Math.max(1, valueOf(tree, metric))
   const kind = `${CATEGORY[node.category].label}${node.reclaim ? ` · ${node.reclaim}` : ''}`
   const isCurrent = target.join('/') === current.join('/')
@@ -683,7 +684,7 @@ function SidePanel({ state, tree, target, current, metric, insights, onOpen, onS
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', gap: 12 }}>
             <Figure label="Of scan" value={`${(share * 100).toFixed(share >= 0.1 ? 0 : 1)}%`} />
-            <Figure label="Files" value={humanCount(node.dir ? node.files : 1)} />
+            <Figure label="Files" value={humanCount(node.files)} />
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <Figure label="Last write" value={ago(state.scannedAt, node.modified)} />
@@ -1145,8 +1146,12 @@ export function DisktreeApp({ store, width, height }: DisktreeAppProps) {
 
 function Scanning({ state }: { state: DisktreeState }) {
   const { progress } = state
-  // Unknown total: approaches 1 as the file count grows.
-  const estimate = 1 - Math.exp(-progress.files / 150_000)
+  // A whole volume has a known total: the space in use. A folder does not,
+  // so its bar only approaches the end as the count grows.
+  const disk = state.root === path.parse(state.root).root ? diskSpace(state.root) : null
+  const estimate = disk
+    ? progress.bytes / Math.max(1, disk.total - disk.available)
+    : 1 - Math.exp(-progress.files / 150_000)
   return (
     <div
       style={{
@@ -1183,28 +1188,4 @@ function Scanning({ state }: { state: DisktreeState }) {
       {state.error ? <text style={{ fontSize: TEXT.body, color: HIGHLIGHT }}>{state.error}</text> : null}
     </div>
   )
-}
-
-const isEntryPoint =
-  typeof Bun !== 'undefined'
-    ? Bun.isStandaloneExecutable || Bun.main === import.meta.path
-    : typeof process !== 'undefined' && process.argv[1]?.endsWith('disktree.tsx')
-
-if (isEntryPoint) {
-  // `bun disktree.tsx [dir]`: the argument, or the directory it runs from.
-  const store = createDisktreeStore(process.argv[2] ?? process.cwd())
-  void store.rescan()
-  render(<DisktreeApp store={store} />, {
-    title: 'disktree',
-    appName: 'disktree',
-    width: 1320,
-    height: 840,
-    minWidth: 1100,
-    minHeight: 600,
-    titlebarTransparent: true,
-    windowBackground: 'blurred',
-    trafficLightX: 18,
-    trafficLightY: 20,
-    focus: process.env.GPUIX_BACKGROUND !== '1',
-  })
 }

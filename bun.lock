@@ -29,6 +29,24 @@
         "rimraf": "^6.0.1",
       },
     },
+    "disktree": {
+      "name": "disktree",
+      "version": "0.1.0",
+      "bin": {
+        "disktree": "./src/cli.tsx",
+      },
+      "dependencies": {
+        "@gpuix/native": "workspace:^",
+        "@gpuix/react": "workspace:^",
+        "react": "^19.2.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.2.0",
+        "@types/react": "^19.2.0",
+        "typescript": "^5.3.0",
+        "vitest": "^4.0.18",
+      },
+    },
     "example-app": {
       "name": "@gpuix/example-app",
       "version": "0.1.0",
@@ -662,6 +680,8 @@
     "devlop": ["devlop@1.1.0", "", { "dependencies": { "dequal": "^2.0.0" } }, "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA=="],
 
     "diff": ["diff@7.0.0", "", {}, "sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw=="],
+
+    "disktree": ["disktree@workspace:disktree"],
 
     "dom-accessibility-api": ["dom-accessibility-api@0.5.16", "", {}, "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg=="],
 

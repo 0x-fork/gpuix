@@ -2,7 +2,7 @@
  * Drives the disktree example end to end: a real scan of a small fixture
  * folder, the real layout, and clicks through the GPU test renderer.
  *
- * Screenshots go to `examples/screenshots/disktree-*.png` for inspection.
+ * Screenshots go to `disktree/screenshots/*.png` for inspection.
  */
 
 import fs from 'node:fs'
@@ -14,10 +14,11 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { connectTest } from '@gpuix/react/automation'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 
-import { DisktreeApp, createDisktreeStore } from './disktree'
+import { DisktreeApp, createDisktreeStore } from './app.tsx'
 
 const describeNative = hasNativeTestRenderer ? describe : describe.skip
-const SHOTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'screenshots')
+const SHOTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'screenshots')
+fs.mkdirSync(SHOTS, { recursive: true })
 const KIB = 1024
 
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'disktree-'))
@@ -59,7 +60,7 @@ describeNative('disktree', () => {
     const size = renderer.getWindowSize()
     render(<DisktreeApp store={store} width={size.width} height={size.height} />)
     const app = await connectTest(renderer)
-    await app.screenshot({ path: path.join(SHOTS, 'disktree-root.png') })
+    await app.screenshot({ path: path.join(SHOTS, 'root.png') })
 
     const name = () => app.getByTestId('selection-name').textContent()
     expect(await name()).toBe('project')
@@ -75,7 +76,7 @@ describeNative('disktree', () => {
     const panel = (await app.getByTestId('panel').textContent()).replace(/\/.*?node_modules3/, '…3').replace(/DISK.*/, '')
     expect(panel).toMatchInlineSnapshot(`"SELECTIONnode_modules…3.5MiBOF SCAN68%FILES3LAST WRITEjust nowKINDCache · reinstallableShow in FinderWORTH A LOOK4.5 MiBnode_modulesreinstallable3.5 MiB.cacheregenerable1.0 MiB"`)
     expect(await app.getByTestId('crumb-0').textContent()).toBe('node_modules')
-    await app.screenshot({ path: path.join(SHOTS, 'disktree-node-modules.png') })
+    await app.screenshot({ path: path.join(SHOTS, 'node-modules.png') })
 
     await app.getByTestId('disktree').press('backspace')
     expect(await name()).toBe('node_modules')

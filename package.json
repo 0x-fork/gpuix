@@ -6,7 +6,8 @@
     "cli",
     "packages/*",
     "examples",
-    "example-app"
+    "example-app",
+    "disktree"
   ],
   "scripts": {
     "build": "bun run build:native && bun run build:react && bun run build:solid",
